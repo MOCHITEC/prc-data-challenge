@@ -1,13 +1,13 @@
 -- 010_setup_db.sql
 -- Competition database skeleton. Runs as SYSADMIN (one statement per MCP call, fully qualified names).
--- Idempotent: safe to re-run.
+-- Idempotent: safe to re-run. Executed on 2026-09-09 (see docs/decisions.md).
 
-CREATE ROLE IF NOT EXISTS PRC_ROLE COMMENT = 'PRC Data Challenge 2026 working role (owns PRC_DC2026 and PRC_WH only)';
-GRANT ROLE PRC_ROLE TO ROLE SYSADMIN;
+-- NOTE: CREATE ROLE needs USERADMIN/ACCOUNTADMIN; the role is created in 000_admin_manual.sql.
+--       Until then everything is owned by SYSADMIN (the MCP session role).
 
 CREATE WAREHOUSE IF NOT EXISTS PRC_WH
   WITH WAREHOUSE_SIZE = 'XSMALL'
-       RESOURCE_CONSTRAINT = 'STANDARD_GEN_1'
+       GENERATION = '1'
        AUTO_SUSPEND = 60
        AUTO_RESUME = TRUE
        INITIALLY_SUSPENDED = TRUE
@@ -15,10 +15,8 @@ CREATE WAREHOUSE IF NOT EXISTS PRC_WH
        STATEMENT_TIMEOUT_IN_SECONDS = 3600
        STATEMENT_QUEUED_TIMEOUT_IN_SECONDS = 600
   COMMENT = 'PRC Data Challenge 2026. Resize to SMALL only for heavy feature builds, then back.';
-GRANT USAGE, OPERATE, MONITOR ON WAREHOUSE PRC_WH TO ROLE PRC_ROLE;
 
 CREATE DATABASE IF NOT EXISTS PRC_DC2026 COMMENT = 'PRC Data Challenge 2026 - taxi-out prediction';
-GRANT OWNERSHIP ON DATABASE PRC_DC2026 TO ROLE PRC_ROLE COPY CURRENT GRANTS;
 
 CREATE SCHEMA IF NOT EXISTS PRC_DC2026.RAW  COMMENT = 'Official parquet files as loaded (permanent)';
 CREATE SCHEMA IF NOT EXISTS PRC_DC2026.REF  COMMENT = 'External reference data: weather, airports, time zones, holidays (permanent)';
