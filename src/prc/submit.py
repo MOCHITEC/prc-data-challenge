@@ -59,6 +59,8 @@ def submit(
 ) -> dict:
     res = validate_files(file_path, template_path)
     res.raise_if_failed()
+    for w in res.warnings:
+        print(f"submission gate warning: {w}")
     n_today, versions = _today_count(log)
     if version in versions:
         raise ValueError(f"version v{version} already used")

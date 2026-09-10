@@ -150,10 +150,14 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
         dep_target = dep_all
     frames = []
     for apt in dep_target["ADEP_mvt"].unique().to_list():
-        d_apt = dep_all.filter(pl.col("ADEP_mvt") == apt)
-        tgt = dep_target.filter(pl.col("ADEP_mvt") == apt)
-        a_apt = arr_all.filter(pl.col("ADES_mvt") == apt)
+        # a null airport is its own group: `== None` yields null and would drop those rows silently
+        dep_pred = pl.col("ADEP_mvt").is_null() if apt is None else (pl.col("ADEP_mvt") == apt)
+        arr_pred = pl.col("ADES_mvt").is_null() if apt is None else (pl.col("ADES_mvt") == apt)
+        d_apt = dep_all.filter(dep_pred)
+        tgt = dep_target.filter(dep_pred)
+        a_apt = arr_all.filter(arr_pred)
         t = tgt["_t"].to_numpy()
+        anchor_ok = ~np.isnan(t)
         cols: dict[str, np.ndarray] = {"MVT_ID_mvt": tgt["MVT_ID_mvt"].to_numpy()}
         dep_times = d_apt["_t"].to_numpy()
         arr_land = a_apt["_t"].to_numpy()
@@ -184,6 +188,11 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
             rwy_cnt15[sel] = _counts_in_windows(t[sel], ev, 15 * 60)[0]
             rwy_cnt60[sel] = _counts_in_windows(t[sel], ev, 60 * 60)[0]
         cols["rwy_headway_prev_s"], cols["rwy_headway_next_s"] = rwy_prev, rwy_next
+        cols["anchor_ok"] = anchor_ok.astype(np.int8)
+        # how much of the widest look-back window is actually inside the frame: counts near a frame edge are
+        # structurally lower, and a hidden final set may cover only part of a month (docs/03 section 8)
+        span_lo = np.nanmin(dep_times) if len(dep_times) else np.nan
+        cols["window_coverage_60m"] = np.clip((t - span_lo) / 3600.0, 0.0, 1.0)
         cols["rwy_tko_prev_15m"], cols["rwy_tko_prev_60m"] = rwy_cnt15, rwy_cnt60
         # neighbour state from NM times of other departures (both survive in ranking); lag 60 s to avoid ties
         aobt_delay = (d_apt["AOBT_3_flt"] - d_apt["EOBT_1_flt"]).dt.total_seconds().cast(pl.Float64).to_numpy()
@@ -202,10 +211,17 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
             mean, n = _window_mean(t, arr_inblock, taxi_in, w * 60, lag_sec=0)
             cols[f"arr_taxi_in_mean_{w}m"] = mean
             cols[f"arr_taxi_in_n_{w}m"] = n
-        frames.append(pl.DataFrame(cols))
+        frame = pl.DataFrame(cols)
+        if (~anchor_ok).any():
+            ctx_cols = [c for c in frame.columns if c not in ("MVT_ID_mvt", "anchor_ok")]
+            frame = frame.with_columns(
+                [pl.when(pl.col("anchor_ok") == 1).then(pl.col(c)).otherwise(None).alias(c) for c in ctx_cols]
+            )
+        frames.append(frame)
     if not frames:
         return pl.DataFrame({"MVT_ID_mvt": pl.Series([], dtype=pl.Int64)})
     ctx = pl.concat(frames, how="diagonal")
+    ctx = ctx.with_columns(pl.col("anchor_ok").cast(pl.Int8))
     float_cols = [c for c in ctx.columns if c.startswith(("rwy_headway", "nbr_aobt", "nbr_mvt", "arr_taxi_in_mean"))]
     count_cols = [c for c in ctx.columns if c != "MVT_ID_mvt" and c not in float_cols]
     return ctx.with_columns(

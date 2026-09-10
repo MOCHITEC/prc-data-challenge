@@ -27,7 +27,7 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 
-from .cv import Fold, metrics, month_block_folds, per_airport
+from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
 from .features import CATEGORICALS, numeric_feature_columns
 
 LABEL = "TAXITIME_SEC_mvt"
@@ -240,8 +240,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             )
             info["rounds_matched"] = rounds
         else:
-            g = np.zeros(m_tg.height)
             info["rounds_matched"] = 0
+            info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
+            g = np.zeros(m_tg.height)
         parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": m_tg[PROXY].to_numpy().astype(float) + g}))
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
@@ -300,7 +301,7 @@ def feature_parity_report(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tr
 def run_cv(feats: pl.DataFrame, cfg: TrainConfig, out_dir: Path = Path("experiments")) -> dict:
     """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record."""
     t0 = time.time()
-    months = feats["MVT_TIME_UTC_mvt"].dt.month()
+    months = year_month_key(feats)
     folds: list[Fold] = month_block_folds(months.unique().to_list(), cfg.scheme)
     oof = pl.DataFrame({"MVT_ID_mvt": feats["MVT_ID_mvt"]}).with_columns(pl.lit(None, dtype=pl.Float64).alias("oof"))
     fold_metrics: dict[str, dict] = {}

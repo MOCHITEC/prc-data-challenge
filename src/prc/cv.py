@@ -13,24 +13,36 @@ CLEAN_LO, CLEAN_HI = 30.0, 7200.0
 @dataclass(frozen=True)
 class Fold:
     name: str
-    valid_months: tuple[int, ...]  # months (1-12) of 2025 held out
+    valid_months: tuple[int, ...]  # year*100+month keys held out
     train_months: tuple[int, ...]
 
 
+def year_month_key(df: pl.DataFrame, col: str = "MVT_TIME_UTC_mvt") -> pl.Series:
+    """Fold key including the year: a month number alone would mix calendar months across years and let a fold
+    train on data that comes after its validation period."""
+    return (df[col].dt.year() * 100 + df[col].dt.month()).alias("ym")
+
+
 def month_block_folds(months_present: list[int], scheme: str = "fast") -> list[Fold]:
-    """'fast' = Jan / Jul / forward(Nov+Dec) when available; 'full' = leave-one-month-out over all months present."""
+    """Folds over year*100+month keys.
+
+    'fast' holds out January, July and the trailing months (>= November) separately - January and July match the
+    test months' season, the trailing fold measures forward generalisation. 'full' is leave-one-month-out."""
     ms = sorted(set(months_present))
+    if len(ms) < 2:
+        raise ValueError(f"need at least two distinct months to cross-validate, got {ms}")
     if scheme == "full":
-        return [Fold(f"lomo_{m:02d}", (m,), tuple(x for x in ms if x != m)) for m in ms]
+        return [Fold(f"lomo_{m}", (m,), tuple(x for x in ms if x != m)) for m in ms]
     folds = []
-    for m, nm in ((1, "jan"), (7, "jul")):
-        if m in ms and len(ms) > 1:
-            folds.append(Fold(nm, (m,), tuple(x for x in ms if x != m)))
-    fwd = tuple(x for x in ms if x >= 11)
+    for month, name in ((1, "jan"), (7, "jul")):
+        sel = tuple(x for x in ms if x % 100 == month)
+        if sel and len(sel) < len(ms):
+            folds.append(Fold(name, sel, tuple(x for x in ms if x not in sel)))
+    fwd = tuple(x for x in ms if x % 100 >= 11)
     if fwd and len(fwd) < len(ms):
         folds.append(Fold("forward", fwd, tuple(x for x in ms if x not in fwd)))
-    if not folds:  # tiny synthetic sets
-        folds.append(Fold(f"lomo_{ms[-1]:02d}", (ms[-1],), tuple(ms[:-1])))
+    if not folds:  # tiny sets: hold out the last month
+        folds.append(Fold(f"lomo_{ms[-1]}", (ms[-1],), tuple(ms[:-1])))
     return folds
 
 
@@ -60,6 +72,7 @@ def metrics(y: np.ndarray, p: np.ndarray) -> dict:
         "rmse_full": rmse(y, p),
         "rmse_clean": rmse(y[clean], p[clean]) if clean.any() else float("nan"),
         "n": len(y),
+        "n_dropped": n_dropped,
         "n_gt_7200": int((y > CLEAN_HI).sum()),
         "top20_share_of_sse": top20,
         "bias": float(np.mean(p - y)),
@@ -71,6 +84,17 @@ def paired_bootstrap_rmse_diff(
 ) -> dict:
     """RMSE(B) - RMSE(A) with a bootstrap CI over rows (paired). Negative = B better."""
     rng = np.random.default_rng(seed)
+    finite = np.isfinite(y) & np.isfinite(p_a) & np.isfinite(p_b)
+    if not finite.all():
+        y, p_a, p_b = y[finite], p_a[finite], p_b[finite]
+    if len(y) == 0:
+        return {
+            "diff_rmse": float("nan"),
+            "ci95": [float("nan"), float("nan")],
+            "b_better_prob": float("nan"),
+            "n": 0,
+            "n_dropped": int((~finite).sum()),
+        }
     se_a, se_b = (y - p_a) ** 2, (y - p_b) ** 2
     n = len(y)
     diffs = np.empty(n_boot)
@@ -79,7 +103,13 @@ def paired_bootstrap_rmse_diff(
         diffs[i] = np.sqrt(se_b[idx].mean()) - np.sqrt(se_a[idx].mean())
     point = float(np.sqrt(se_b.mean()) - np.sqrt(se_a.mean()))
     lo, hi = np.percentile(diffs, [2.5, 97.5])
-    return {"diff_rmse": point, "ci95": [float(lo), float(hi)], "b_better_prob": float((diffs < 0).mean())}
+    return {
+        "diff_rmse": point,
+        "ci95": [float(lo), float(hi)],
+        "b_better_prob": float((diffs < 0).mean()),
+        "n": int(n),
+        "n_dropped": int((~finite).sum()),
+    }
 
 
 def per_airport(y: np.ndarray, p: np.ndarray, airport: np.ndarray) -> dict[str, float]:
@@ -91,4 +121,4 @@ def per_airport(y: np.ndarray, p: np.ndarray, airport: np.ndarray) -> dict[str, 
 
 
 def months_of(df: pl.DataFrame, col: str = "MVT_TIME_UTC_mvt") -> pl.Series:
-    return df[col].dt.month()
+    return year_month_key(df, col)

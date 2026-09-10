@@ -1,11 +1,14 @@
+import datetime as dt
 import json
 
 import polars as pl
+import pyarrow as pa
 import pyarrow.parquet as pq
 
+from prc.config import SUBMISSION_ID_COL, SUBMISSION_TARGET_COL
 from prc.features import build_departure_features
 from prc.predict import predict_ranking, write_submission
-from prc.submit import submit
+from prc.submit import _today_count, submit
 from prc.synth import write_synthetic_dataset
 from prc.train import TrainConfig
 
@@ -23,17 +26,54 @@ def test_end_to_end_on_synthetic(tmp_path):
     log = tmp_path / "submissions.jsonl"
     e1 = submit(out, paths["submitting.parquet"], 1, "exp-x", {"rmse_full": 1.0}, "test", log=log, dry_run=True)
     assert e1["dry_run"] and log.exists()
-    try:
-        submit(out, paths["submitting.parquet"], 1, "exp-x", {}, "dup", log=log, dry_run=True)
-        raise AssertionError("duplicate version accepted")
-    except ValueError:
-        pass
-    for v in range(2, 6):
-        submit(out, paths["submitting.parquet"], v, "exp-x", {}, "n", log=log, dry_run=True)
-    try:
-        submit(out, paths["submitting.parquet"], 6, "exp-x", {}, "over", log=log, dry_run=True)
-        raise AssertionError("daily limit not enforced")
-    except RuntimeError:
-        pass
-    assert len(log.read_text().splitlines()) == 5
+    # dry runs must consume neither the daily quota nor a version number
+    for v in (1, 1, 2, 3, 4, 5, 6, 7):
+        submit(out, paths["submitting.parquet"], v, "exp-x", {}, "rehearsal", log=log, dry_run=True)
+    assert _today_count(log)[0] == 0 and _today_count(log)[1] == set()
     assert json.loads(log.read_text().splitlines()[0])["version"] == 1
+
+
+def test_daily_counter_uses_both_day_boundaries_and_ignores_dry_runs(tmp_path):
+    """The quota's time zone is undocumented, so count on the UTC day and the Brussels day and take the larger."""
+    log = tmp_path / "sub.jsonl"
+    rows = [
+        # 23:30Z on 9 Oct is already 01:30 on 10 Oct in Brussels (CEST)
+        {"version": 1, "uploaded_at": "2026-10-09T23:30:00+00:00"},
+        {"version": 2, "uploaded_at": "2026-10-10T00:10:00+00:00"},
+        {"version": 3, "uploaded_at": "2026-10-10T05:00:00+00:00", "dry_run": True},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    now = dt.datetime(2026, 10, 10, 4, 0, tzinfo=dt.UTC)
+    n, versions = _today_count(log, now=now)
+    assert n == 2  # both count on the Brussels day; the dry run does not
+    assert versions == {1, 2}
+
+
+def test_gate_rejects_shuffled_predictions(tmp_path):
+    """A submission whose values are shuffled has a valid id set, so only order-aware code catches it."""
+    paths = write_synthetic_dataset(tmp_path / "raw", months=[(2025, 1)], deps_per_airport_day=3)
+    tmpl = pq.read_table(paths["submitting.parquet"])
+    ids = tmpl[SUBMISSION_ID_COL].to_pylist()
+    pred = pl.DataFrame({"MVT_ID_mvt": ids, "pred": [float(i) for i in range(len(ids))]})
+    good = write_submission(pred, paths["submitting.parquet"], tmp_path / "good.parquet")
+    assert good[SUBMISSION_TARGET_COL].to_pylist() == [float(i) for i in range(len(ids))]
+    # ids must come from the same frame as the values: a reversed prediction frame still lands correctly
+    rev = pred.reverse()
+    also = write_submission(rev, paths["submitting.parquet"], tmp_path / "rev.parquet")
+    assert also[SUBMISSION_TARGET_COL].to_pylist() == good[SUBMISSION_TARGET_COL].to_pylist()
+
+
+def test_integer_and_null_typed_templates(tmp_path):
+    """docs/01 U13: the official template dtype is unconfirmed; int64 and null-typed columns must both work."""
+    ids = pa.array([1, 2, 3], type=pa.int64())
+    pred = pl.DataFrame({"MVT_ID_mvt": [1, 2, 3], "pred": [600.4, 700.6, 800.0]})
+    for target, expect in (
+        (pa.array([None] * 3, type=pa.int64()), [600, 701, 800]),
+        (pa.array([None] * 3, type=pa.float64()), [600.4, 700.6, 800.0]),
+        (pa.nulls(3, type=pa.null()), [600.4, 700.6, 800.0]),
+    ):
+        t = pa.table({SUBMISSION_ID_COL: ids, SUBMISSION_TARGET_COL: target})
+        tp = tmp_path / f"tmpl_{target.type}.parquet"
+        pq.write_table(t, tp)
+        sub = write_submission(pred, tp, tmp_path / f"out_{target.type}.parquet")
+        assert sub[SUBMISSION_TARGET_COL].to_pylist() == expect

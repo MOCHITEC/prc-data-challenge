@@ -74,3 +74,39 @@ def test_local_hour_uses_airport_timezone():
     ltfm = feats.filter(pl.col("ADEP_mvt") == "LTFM")
     assert ((egll["hour_local"] - egll["hour_utc"]) % 24 == 1).all()  # BST = UTC+1 in July
     assert ((ltfm["hour_local"] - ltfm["hour_utc"]) % 24 == 3).all()  # Istanbul UTC+3
+
+
+def test_null_runway_and_null_airport_are_handled():
+    """Real data may have either missing (docs/01 U11); one crashed the context path, the other dropped rows."""
+    df = generate_month(2025, 7, seed=21, deps_per_airport_day=6)
+    holed = df.with_columns(
+        [
+            pl.when((pl.col("PHASE_mvt") == "DEP") & (pl.int_range(pl.len()) % 7 == 0))
+            .then(None)
+            .otherwise(pl.col("RUNWAY_mvt"))
+            .alias("RUNWAY_mvt"),
+            pl.when((pl.col("PHASE_mvt") == "DEP") & (pl.int_range(pl.len()) % 11 == 0))
+            .then(None)
+            .otherwise(pl.col("ADEP_mvt"))
+            .alias("ADEP_mvt"),
+        ]
+    )
+    feats = build_departure_features(holed)
+    assert feats.height == holed.filter(pl.col("PHASE_mvt") == "DEP").height  # no silent row loss
+    assert feats["MVT_ID_mvt"].n_unique() == feats.height
+
+
+def test_missing_anchor_time_gives_null_counts_not_zero():
+    df = generate_month(2025, 7, seed=22, deps_per_airport_day=6)
+    holed = df.with_columns(
+        pl.when((pl.col("PHASE_mvt") == "DEP") & (pl.int_range(pl.len()) % 13 == 0))
+        .then(None)
+        .otherwise(pl.col("MVT_TIME_UTC_mvt"))
+        .alias("MVT_TIME_UTC_mvt")
+    )
+    feats = build_departure_features(holed)
+    no_anchor = feats.filter(pl.col("MVT_TIME_UTC_mvt").is_null())
+    assert no_anchor.height > 0
+    assert no_anchor["anchor_ok"].sum() == 0
+    assert no_anchor["dep_tko_prev_15m"].null_count() == no_anchor.height  # not a misleading zero
+    assert feats.filter(pl.col("MVT_TIME_UTC_mvt").is_not_null())["anchor_ok"].min() == 1

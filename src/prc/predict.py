@@ -34,19 +34,55 @@ def predict_ranking(
 
 
 def write_submission(pred: pl.DataFrame, template_path: Path, out_path: Path) -> pa.Table:
-    """Fill the official template in its own row order and dtype; run the gate; write parquet."""
+    """Fill the official template in its own row order and dtype; run the gate; write parquet.
+
+    Ids and values are taken from the SAME frame. Reading ids from the template and values from the join result
+    is position-dependent, and polars does not guarantee join order, so that pairing could silently ship
+    shuffled predictions past a gate that only checks the id set."""
     template = pq.read_table(template_path)
     tmpl = pl.from_arrow(template.select([SUBMISSION_ID_COL]))
-    joined = tmpl.join(pred, on="MVT_ID_mvt", how="left")
+    joined = tmpl.join(pred, on=SUBMISSION_ID_COL, how="left", maintain_order="left")
+    if joined.height != template.num_rows:
+        raise ValueError(f"join produced {joined.height} rows for a {template.num_rows}-row template")
     if joined["pred"].null_count():
         raise ValueError(f"{joined['pred'].null_count()} template ids without prediction")
+
+    id_type = template.schema.field(SUBMISSION_ID_COL).type
+    ids = pa.array(joined[SUBMISSION_ID_COL].to_numpy()).cast(id_type)
+    if not ids.equals(template[SUBMISSION_ID_COL].combine_chunks()):
+        raise ValueError("submission ids are not in template order")
+
     target_type = template.schema.field(SUBMISSION_TARGET_COL).type
-    values = pa.array(joined["pred"].to_numpy().astype(np.float64), type=pa.float64()).cast(target_type)
-    sub = pa.table(
-        {SUBMISSION_ID_COL: template[SUBMISSION_ID_COL], SUBMISSION_TARGET_COL: values}, schema=template.schema
-    )
-    res = validate(sub, template, expected_rows=None)
+    vals = joined["pred"].to_numpy().astype(np.float64)
+    note: str | None = None
+    schema = template.schema
+    if pa.types.is_integer(target_type):
+        # docs/01 U13: the official dtype is unconfirmed. A safe cast of 600.4 to int64 raises, so round first.
+        rounded = np.rint(vals)
+        note = f"rounded to {target_type} for the template dtype (max shift {np.abs(rounded - vals).max():.3f}s)"
+        values = pa.array(rounded, type=pa.float64()).cast(target_type)
+    elif pa.types.is_null(target_type):
+        # an all-null template column is typed null in parquet and cannot hold numbers; promote to float64
+        note = "template target column is null-typed; written as float64"
+        values = pa.array(vals, type=pa.float64())
+        schema = pa.schema([template.schema.field(SUBMISSION_ID_COL), pa.field(SUBMISSION_TARGET_COL, pa.float64())])
+    else:
+        values = pa.array(vals, type=pa.float64()).cast(target_type)
+
+    sub = pa.table({SUBMISSION_ID_COL: ids, SUBMISSION_TARGET_COL: values}, schema=schema)
+    if schema.equals(template.schema):
+        gate_template = template
+    else:  # promoted target dtype: keep the template's ids and row count so the gate still checks them
+        gate_template = pa.table(
+            {SUBMISSION_ID_COL: ids, SUBMISSION_TARGET_COL: pa.nulls(template.num_rows, type=pa.float64())},
+            schema=schema,
+        )
+    res = validate(sub, gate_template, expected_rows=None)
+    if note:
+        res.warnings.append(note)
     res.raise_if_failed()
+    for w in res.warnings:
+        print(f"submission gate warning: {w}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(sub, out_path)
     return sub
