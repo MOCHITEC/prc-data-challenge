@@ -1,5 +1,5 @@
 PY=.venv/bin/python
-.PHONY: bootstrap test lint synth download features cv predict
+.PHONY: bootstrap test lint synth download board
 
 bootstrap:            ## create venv, install, verify env, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
@@ -19,3 +19,6 @@ synth:                ## small synthetic dataset for pipeline development
 
 download:
 	$(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"
+
+board:                ## snapshot the official leaderboard and show movement vs the previous snapshot
+	$(PY) -m prc.leaderboard
