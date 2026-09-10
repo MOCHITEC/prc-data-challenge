@@ -48,3 +48,21 @@
 **Phase 2 に持ち越したもの（実データが必要）**
 - 報告エラー体制のソフトな体制ヘッド（校正済み確率 × 体制別予測の混合）。公開報告では決定論的な帯域ルールで LB −58 秒。校正には実データの体制発生率が必要。
 - 待ち行列特徴量の D2/A2 近似の精緻化と、`AOBT_3` を近傍便のプッシュバック近似として使う設計。
+
+## 2026-09-10（続き 2）: Phase 1 の着手と、データ取得のブロッカー
+
+**サンドボックスのプロキシ対応（修正済み）**: MinIO クライアントはこのクラウド環境から**直接**外に出ようとして `too many 503 error responses` で失敗していた。サンドボックスの外向き通信は `HTTPS_PROXY` のエージェントプロキシ経由のみで、その TLS 傍受は `SSL_CERT_FILE` の CA バンドルで信頼する。`prc.io_minio.http_client()` を追加し、環境にプロキシがあれば `urllib3.ProxyManager`、無ければ通常の `PoolManager` を使う（ローカル実行でも同じコードで動く）。`requests` を使う `prc.leaderboard` / `prc.weather` は環境変数を自動で読むため元から動いていた。
+
+**データ取得は未達（実 S3 鍵待ち）**: 環境変数に登録されている `OSN_ID` / `OSN_SECRET_KEY` は **OpenSky の API クライアント（OAuth2 の client_id + client_secret）**であって、MinIO の S3 アクセスキーではない。切り分けの実測:
+
+- S3 エンドポイントは `InvalidAccessKeyId` を返す
+- 同じ値を OSN の OAuth2 トークン endpoint に投げると `200` でアクセストークンが返る（＝値自体は有効な API クライアント）
+- MinIO の STS `AssumeRoleWithWebIdentity` にそのトークンを渡すと `azp claim invalid, azp must match configured OpenID Client ID`。MinIO は自身のコンソール用 OIDC クライアントしか受け付けないため、API クライアントを一時的な S3 鍵に交換する迂回路も無い
+
+したがって**ユーザー作業が必要**: `https://s3.opensky-network.org/` に OSN アカウントでサインイン → Access Keys → Create access key → その 2 値を環境変数 `OSN_ACCESS_KEY` / `OSN_SECRET_KEY` に登録 → **新しいセッションを開始**（変数はセッション開始時に一度だけコピーされる）。この診断を `prc.doctor` に実装したので、次回以降は `make doctor` が同じ結論を自分で出す。
+
+**バケット名の注意**: `competition-data` は匿名でも一覧でき、中身は 368 オブジェクト・306 GB だが、**2024 年版（ATOW）のデータセット**だった（日別 parquet `2022-01-01.parquet` … と `challenge_set.csv` / `submission_set.csv` / `final_submission_set.csv`、最終更新 2024-10）。2026 年の 14 ファイルは別バケットにある。`.env.example` の既定値 `OSN_COMPETITION_BUCKET=competition-data` は 2024 年版の手順から引いた推定値で、**誤り**の可能性が高い。正しいバケット名は鍵が通れば `make doctor` が一覧から検出する。`prc.doctor` に 2024 年版データセットの判定を追加した。
+
+**ブロックされていない範囲は完了**: `make bootstrap`（依存導入・35 テスト）、`make board`（首位 245.09 秒 youthful-giraffe、96 チーム。前スナップショットから 7 位が −0.04 のみ）、合成データでの v1 / v2 パイプライン全経路（特徴量 → 3 fold CV → ランキング予測 → 提出ゲート）。v1 CV full=567.91 / clean=139.32、v2 CV full=567.78 / clean=138.81。合成データは 2 つの時計の構造を模していないので、この差に意味は無い（実データでの再評価が前提）。
+
+**次の一手**（鍵が入り次第、docs/05 §2 の順）: `make download` → `make profile` で U1・U5〜U8・U11・U13 に回答 → docs/04 §4 の設計を確定 → v1 提出で採点遅延を実測 → v2。

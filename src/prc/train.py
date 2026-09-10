@@ -298,8 +298,16 @@ def feature_parity_report(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tr
     )
 
 
-def run_cv(feats: pl.DataFrame, cfg: TrainConfig, out_dir: Path = Path("experiments")) -> dict:
-    """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record."""
+def run_cv(
+    feats: pl.DataFrame,
+    cfg: TrainConfig,
+    out_dir: Path = Path("experiments"),
+    log_name: str = "experiments.jsonl",
+) -> dict:
+    """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record.
+
+    log_name exists so a synthetic run cannot land in the real-data experiment log: its RMSE level is an
+    artefact of the generator, and mixing the two would corrupt the CV-to-LB correspondence we track."""
     t0 = time.time()
     months = year_month_key(feats)
     folds: list[Fold] = month_block_folds(months.unique().to_list(), cfg.scheme)
@@ -333,7 +341,7 @@ def run_cv(feats: pl.DataFrame, cfg: TrainConfig, out_dir: Path = Path("experime
         "n_features": len(numeric_feature_columns(feats)),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / "experiments.jsonl", "a") as fh:
+    with open(out_dir / log_name, "a") as fh:
         fh.write(json.dumps(rec, default=str) + "\n")
     oof.write_parquet(out_dir / f"oof_{rec['exp_id']}.parquet")
     return rec

@@ -1,11 +1,14 @@
 PY=.venv/bin/python
-.PHONY: bootstrap test lint synth download board profile doctor v1 v2
+.PHONY: bootstrap test lint synth smoke download board profile doctor v1 v2
 
 bootstrap:            ## create venv, install, verify env, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
 	uv pip install -q --python $(PY) -e ".[dev]"
 	$(PY) -c "import prc, lightgbm, polars; print('env ok')"
-	@if [ -n "$$OSN_ACCESS_KEY" ] || [ -n "$$OSN_ID" ]; then $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"; else echo "OSN_ACCESS_KEY not set: skipping download"; fi
+	@if [ -n "$$OSN_ACCESS_KEY" ] || [ -n "$$OSN_ID" ]; then \
+	  $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')" \
+	  || echo "download failed: run 'make doctor' for the diagnosis (bootstrap continues)"; \
+	else echo "OSN_ACCESS_KEY not set: skipping download"; fi
 	$(PY) -m pytest -q
 
 test:
@@ -16,6 +19,9 @@ lint:
 
 synth:                ## small synthetic dataset for pipeline development
 	$(PY) -c "from pathlib import Path; from prc.synth import write_synthetic_dataset as w; print(w(Path('data/synth')))"
+
+smoke:                ## end-to-end run on the synthetic data (logs to experiments/synthetic_smoke.jsonl)
+	$(PY) -m prc.pipeline --config configs/v1_baseline.yaml --synthetic --raw-dir data/synth --out-dir outputs/synth
 
 download:
 	$(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"

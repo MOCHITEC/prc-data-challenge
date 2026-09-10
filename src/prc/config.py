@@ -55,8 +55,10 @@ class OsnConfig:
             endpoint=os.getenv("OSN_S3_ENDPOINT", "s3.opensky-network.org").replace("https://", "").rstrip("/"),
             access_key=access,
             secret_key=secret,
-            # both of these are discoverable from the buckets themselves - see prc.doctor
-            competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "competition-data"),
+            # All three are discoverable from the buckets themselves - see prc.doctor. There is deliberately
+            # no default for the competition bucket: the one literally named "competition-data" holds the
+            # 2024 edition, so guessing it would download 306 GB of the wrong dataset.
+            competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "").strip(),
             team_bucket=os.getenv("OSN_TEAM_BUCKET", ""),
             team_name=os.getenv("PRC_TEAM_NAME", ""),
         )

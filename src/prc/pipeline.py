@@ -77,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--work-dir", type=Path, default=data_dir() / "work")
     ap.add_argument("--out-dir", type=Path, default=Path("outputs"))
     ap.add_argument("--skip-cv", action="store_true", help="predict only, reusing the last CV record")
+    ap.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="log to experiments/synthetic_smoke.jsonl instead of the real-data logs (see experiments/README)",
+    )
     ap.add_argument("--submit", action="store_true", help="upload after the gate passes (uses the daily counter)")
     ap.add_argument("--version", type=int, help="submission version number, required with --submit")
     a = ap.parse_args(argv)
@@ -90,9 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
 
+    log_name = "synthetic_smoke.jsonl" if a.synthetic else "experiments.jsonl"
     cv_rec = None
     if not a.skip_cv:
-        cv_rec = run_cv(f_tr, cfg)
+        cv_rec = run_cv(f_tr, cfg, log_name=log_name)
         print(
             f"CV {cv_rec['exp_id']}: full={cv_rec['overall']['rmse_full']:.2f} "
             f"clean={cv_rec['overall']['rmse_clean']:.2f} ({cv_rec['train_seconds']}s)"
@@ -111,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"submission written: {out_file} ({info})")
 
     log_submission(
-        Path("experiments/pipeline.jsonl"),
+        Path("experiments") / ("synthetic_smoke.jsonl" if a.synthetic else "pipeline.jsonl"),
         {
             "config": str(a.config),
             "train_config": asdict(cfg),

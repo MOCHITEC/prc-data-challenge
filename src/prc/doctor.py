@@ -11,12 +11,43 @@ from __future__ import annotations
 import os
 import re
 
+import requests
+
 from .config import ACCESS_KEY_VARS, SECRET_KEY_VARS, OsnConfig, _first_env
 from .io_minio import list_buckets, list_objects
 
 EXPECTED_OFFICIAL = re.compile(
     r"^(training_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.parquet|ranking\.parquet|submitting\.parquet)$"
 )
+# The 2024 edition (ATOW) still occupies the bucket literally named "competition-data": one parquet per day
+# plus the three csv split files. Seeing those means the 2026 files live somewhere else, not that we are early.
+LEGACY_2024 = re.compile(r"^(\d{4}-\d{2}-\d{2}\.parquet|challenge_set\.csv|(final_)?submission_set\.csv)$")
+
+OAUTH_TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+
+
+def looks_like_2024_dataset(object_names: list[str]) -> bool:
+    """True when the listing is the 2024 ATOW dataset rather than the 2026 taxi-time files."""
+    leaves = [n.split("/")[-1] for n in object_names]
+    if not leaves or any(EXPECTED_OFFICIAL.match(n) for n in leaves):
+        return False
+    return sum(bool(LEGACY_2024.match(n)) for n in leaves) > len(leaves) / 2
+
+
+def is_oauth_api_client(access_key: str, secret_key: str, timeout: int = 20) -> bool:
+    """True when the pair is an OpenSky *API client* (OAuth2), which the S3 endpoint does not accept.
+
+    The account page hands out two unrelated credentials under similar names; mistaking one for the other is
+    the failure this whole function exists to name. Read-only: it only asks the issuer for a token."""
+    try:
+        r = requests.post(
+            OAUTH_TOKEN_URL,
+            data={"grant_type": "client_credentials", "client_id": access_key, "client_secret": secret_key},
+            timeout=timeout,
+        )
+    except requests.RequestException:
+        return False
+    return r.status_code == 200 and "access_token" in r.text
 
 
 def main() -> int:
@@ -39,13 +70,25 @@ def main() -> int:
         buckets = list_buckets(cfg)
     except Exception as exc:  # noqa: BLE001 - the point is to report any failure legibly
         print(f"  FAILED: {exc!r}")
-        print("  Check the key/secret pair and that the team request was approved.")
+        if "InvalidAccessKeyId" in repr(exc) and is_oauth_api_client(cfg.access_key, cfg.secret_key):
+            print(
+                "\n  DIAGNOSIS: this pair is an OpenSky *API client* (OAuth2 client id + secret), not an S3\n"
+                "  access key. It authenticates fine against the OpenSky token endpoint, and the S3 endpoint\n"
+                "  rejects it. The two are issued in different places under confusingly similar names.\n"
+                "  Fix: sign in to https://s3.opensky-network.org/ with the OpenSky account, open\n"
+                "  'Access Keys' -> 'Create access key', and put THOSE two values in the cloud environment as\n"
+                "  OSN_ACCESS_KEY and OSN_SECRET_KEY. Then start a NEW session (variables are copied once).\n"
+                "  (The MinIO console's own OIDC client is the only one its STS accepts, so the API client\n"
+                "  cannot be exchanged for temporary S3 credentials either - this was tried.)"
+            )
+        else:
+            print("  Check the key/secret pair and that the team request was approved.")
         return 1
     print(f"  ok, {len(buckets)} bucket(s) visible: {buckets}")
 
     comp = (
         cfg.competition_bucket
-        if cfg.competition_bucket in buckets
+        if cfg.competition_bucket and cfg.competition_bucket in buckets
         else next((b for b in buckets if "competition" in b or "data" in b), None)
     )
     team = cfg.team_bucket if cfg.team_bucket in buckets else next((b for b in buckets if b != comp), None)
@@ -66,6 +109,11 @@ def main() -> int:
             missing_kinds.append("submitting.parquet")
         n_train = sum(1 for o in objs if "training_" in o[0])
         print(f"  official-looking files: {len(official)} (training months: {n_train})")
+        if looks_like_2024_dataset([o[0] for o in objs]):
+            print(
+                "  NOTE: this is the 2024 ATOW dataset (daily parquet + challenge_set.csv), not the 2026\n"
+                "  taxi-time files. The 2026 data is in a different bucket - set OSN_COMPETITION_BUCKET to it."
+            )
         if missing_kinds:
             print(f"  NOTE: not found in this bucket: {missing_kinds} - check the other buckets or ask on Discord")
     else:

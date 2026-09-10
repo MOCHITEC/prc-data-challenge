@@ -24,17 +24,25 @@ MinIO のキーは **環境変数としてクラウド環境に登録する**。
 登録する変数（`.env.example` と同じ名前）:
 
 ```text
-OSN_ID=<アクセスキー（ID）>
-OSN_SECRET_KEY=<シークレット>
+OSN_ACCESS_KEY=<MinIO のアクセスキー>
+OSN_SECRET_KEY=<MinIO のシークレット>
 ```
+
+**必要なのは MinIO（S3）のアクセスキーであって、OpenSky の API クライアントではない。** OSN アカウントは紛らわしい名前の認証情報を 2 種類発行する。API クライアント（`<user>-api-client` 形式の client_id + secret）は REST/Trino API 用で、S3 エンドポイントは `InvalidAccessKeyId` を返す。取得手順は `https://s3.opensky-network.org/` に OSN アカウントでサインイン → Access Keys → Create access key。2026-09-10 のセッションはこれを取り違えて Phase 1 が止まった（docs/decisions.md）。`make doctor` がこの取り違えを名指しで診断する。
 
 キーの名前は複数の表記を受け付ける。アクセスキーは `OSN_ACCESS_KEY` / `OSN_ID` / `OSN_ACCESS_KEY_ID` / `OSN_KEY_ID` のいずれか、シークレットは `OSN_SECRET_KEY` / `OSN_SECRET` / `OSN_SECRET_ACCESS_KEY` のいずれかで良い（運営の表記が MinIO コンソールと OSN アカウント画面で異なるため）。
 
-`OSN_TEAM_BUCKET`（提出先バケット）と `PRC_TEAM_NAME`（提出ファイル名に使うチーム名）は **`make doctor` が接続後に検出して提案する**ので、最初から設定しなくてよい。提出を行う前に環境変数へ追加する。`OSN_S3_ENDPOINT` と `OSN_COMPETITION_BUCKET` は既定値（`s3.opensky-network.org` / `competition-data`）で足りる。
+`OSN_TEAM_BUCKET`（提出先バケット）と `PRC_TEAM_NAME`（提出ファイル名に使うチーム名）は **`make doctor` が接続後に検出して提案する**ので、最初から設定しなくてよい。提出を行う前に環境変数へ追加する。`OSN_S3_ENDPOINT` は既定値 `s3.opensky-network.org` で足りる。
+
+`OSN_COMPETITION_BUCKET` の既定値 `competition-data` は 2024 年版の手順から引いた推定で、**その名前のバケットの中身は実際には 2024 年版（ATOW）のデータセットだった**（匿名で一覧可能、日別 parquet + `challenge_set.csv`、最終更新 2024-10）。2026 年の 14 ファイルがどのバケットにあるかは鍵が通ってからでないと分からない。`make doctor` が可視バケットの一覧と 2024 年版の判定を出すので、正しい名前をそれで確認して環境変数に入れる。
+
+サンドボックスの外向き通信は `HTTPS_PROXY` のエージェントプロキシ経由のみ。`prc.io_minio` はこれを読んで接続する（`requests` を使う `prc.leaderboard` / `prc.weather` は元から自動）。`too many 503 error responses` が出たらプロキシを迂回している合図。
 
 ネットワークは確認済み: このクラウド環境から `s3.opensky-network.org` と `mesonet.agron.iastate.edu` に到達できる。
 
 ## 2. Phase 1: データ到着後の手順（目標 48 時間で v2 提出）
+
+`make doctor` が緑になっていること（＝バケットが見えていること）が Phase 1 の入口条件。赤のまま先に進んでも `make download` は失敗する。
 
 ```bash
 # 2-1. 取得（サイズ一致ならスキップ。14 ファイル、約 300 MB）
