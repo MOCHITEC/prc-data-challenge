@@ -12,8 +12,11 @@ ALTER USER <ADMIN_USER> SET DEFAULT_WAREHOUSE = PRC_WH;
 
 -- 2) Resource monitor for the competition warehouse (created in 010_setup_db.sql).
 --    Enable e-mail notifications for ACCOUNTADMIN in Snowsight (Admin > Cost Management) beforehand.
+--    Quota in money: 1 credit = $4.30 here (AWS Tokyo / Enterprise / on demand, confirmed against the
+--    account rate sheet and the Service Consumption Table). 10 credits = $43/month, which is ten times the
+--    estimated Track B workload of ~1 credit/month; see docs/06_snowflake_cost.md for the derivation.
 CREATE RESOURCE MONITOR IF NOT EXISTS PRC_RM
-  WITH CREDIT_QUOTA = 50
+  WITH CREDIT_QUOTA = 10
   FREQUENCY = MONTHLY
   START_TIMESTAMP = IMMEDIATELY
   TRIGGERS ON 50 PERCENT DO NOTIFY
