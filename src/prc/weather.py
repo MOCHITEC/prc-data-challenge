@@ -169,5 +169,15 @@ def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
         {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", "hour_utc")}
     )
     out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias("hour_utc"))
-    out = out.join(w, on=["ADEP_mvt", "hour_utc"], how="left").join(prev, on=["ADEP_mvt", "hour_utc"], how="left")
+    out = out.join(w, on=["ADEP_mvt", "hour_utc"], how="left", maintain_order="left").join(
+        prev, on=["ADEP_mvt", "hour_utc"], how="left", maintain_order="left"
+    )
+    # hourly_weather_table groups by station-hour so the right side is unique today, but a left join that
+    # silently multiplied departures would be invisible downstream: every model here keys on MVT_ID_mvt, so
+    # duplicated rows would be double-counted rather than rejected.
+    if out.height != dep_feats.height:
+        raise AssertionError(
+            f"the weather join changed the row count {dep_feats.height} -> {out.height}; "
+            "the hourly table must have one row per station-hour"
+        )
     return out.drop("hour_utc")
