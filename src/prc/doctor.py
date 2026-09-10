@@ -27,6 +27,9 @@ OAUTH_TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/
 # The browser UI that issues S3 access keys. Not the same host as the S3 API endpoint, which is the mistake
 # the message below exists to prevent.
 CONSOLE_URL = "https://s3-console.opensky-network.org/access-keys"
+# Team buckets are named prc-<year>-<team-name>; the leaderboard and the submission file name use the bare
+# team name (confirmed against the teams API for prc-2026-resilient-hedgehog).
+TEAM_PREFIX = r"^(submissions?[-_]|prc[-_](\d{4}[-_])?)"
 
 
 def looks_like_2024_dataset(object_names: list[str]) -> bool:
@@ -129,7 +132,9 @@ def main() -> int:
     print("\n== submission target")
     if team:
         print(f"  candidate team bucket: '{team}'")
-        guess = re.sub(r"^(submissions?[-_]?|prc[-_]?)", "", team)
+        # Team buckets are named prc-<year>-<team-name>; the leaderboard and the submission file name use
+        # the bare team name (confirmed against the teams API for prc-2026-resilient-hedgehog).
+        guess = re.sub(TEAM_PREFIX, "", team)
         print(
             f"  suggested PRC_TEAM_NAME: '{cfg.team_name or guess}'  "
             f"(submission files are named <team-name>_v<N>.parquet)"

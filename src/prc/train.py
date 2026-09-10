@@ -133,28 +133,32 @@ def attach_encodings(df: pl.DataFrame, enc: dict[str, pl.DataFrame]) -> pl.DataF
 
 
 def _matrix(df: pl.DataFrame, feature_cols: list[str], cat_cols: list[str]) -> tuple[np.ndarray, list[str]]:
+    """Design matrix as float32. LightGBM bins the input anyway, so float32 costs no accuracy and halves the
+    matrix: at 2.1M rows x 60 features that is the difference between 1.7 GB and 0.85 GB."""
     cols = feature_cols + cat_cols
     X = df.select(cols)
     for c in cat_cols:
         X = X.with_columns(
-            pl.col(c).cast(pl.Utf8).fill_null("__NA__").cast(pl.Categorical).to_physical().cast(pl.Float64).alias(c)
+            pl.col(c).cast(pl.Utf8).fill_null("__NA__").cast(pl.Categorical).to_physical().cast(pl.Float32).alias(c)
         )
-    return X.to_numpy().astype(np.float64), cols
+    return X.cast(pl.Float32).to_numpy(), cols
 
 
-def _inner_split(train: pl.DataFrame, months: int) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Carve the latest `months` calendar months out of the training side for early stopping."""
+def _inner_holdout_mask(train: pl.DataFrame, months: int) -> np.ndarray:
+    """Boolean mask of the latest `months` calendar months of the training side, used for early stopping.
+
+    A mask rather than two frames: the caller indexes one design matrix with it instead of materialising the
+    training rows a second time."""
+    empty = np.zeros(train.height, dtype=bool)
     if months <= 0 or "MVT_TIME_UTC_mvt" not in train.columns:
-        return train, train.head(0)
+        return empty
     keys = train.select(
         (pl.col("MVT_TIME_UTC_mvt").dt.year() * 100 + pl.col("MVT_TIME_UTC_mvt").dt.month()).alias("ym")
     )["ym"]
     uniq = sorted(keys.unique().to_list())
     if len(uniq) <= months:
-        return train, train.head(0)
-    hold = set(uniq[-months:])
-    mask = keys.is_in(list(hold)).to_numpy()
-    return train.filter(pl.Series(~mask)), train.filter(pl.Series(mask))
+        return empty
+    return keys.is_in(uniq[-months:]).to_numpy()
 
 
 def _fit(
@@ -169,13 +173,11 @@ def _fit(
 
     `target_expr(frame) -> np.ndarray` builds the model-space target, so the caller decides the parameterisation.
     Returns one prediction array per frame (in model space) and the number of rounds actually used."""
-    inner_tr, inner_va = _inner_split(train, cfg.inner_holdout_months)
+    hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
     frames = [train, *predict_frames]
-    if inner_va.height:
-        frames = [inner_tr, inner_va, *frames]
-    Xall, cols = _matrix(
-        pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed"), feature_cols, cat_cols
-    )
+    stacked = pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed")
+    Xall, cols = _matrix(stacked, feature_cols, cat_cols)
+    del stacked
     offs, i = [], 0
     for f in frames:
         offs.append((i, i + f.height))
@@ -183,13 +185,16 @@ def _fit(
     cat_idx = [cols.index(c) for c in cat_cols]
     params = cfg.lgb_params()
 
+    # target_expr is elementwise, so evaluate it once over the training block and index the result rather than
+    # filtering the frame twice (each filter copies every column of a multi-million-row frame).
+    a, b = offs[0]
+    y = target_expr(train)
     rounds = cfg.num_rounds
-    if inner_va.height:
-        (a, b), (c, d) = offs[0], offs[1]
-        dtr = lgb.Dataset(
-            Xall[a:b], label=target_expr(inner_tr), categorical_feature=cat_idx, free_raw_data=False, params=params
-        )
-        dva = lgb.Dataset(Xall[c:d], label=target_expr(inner_va), categorical_feature=cat_idx, reference=dtr)
+    n_hold = int(hold.sum())
+    if 0 < n_hold < train.height:
+        Xtrain = Xall[a:b]
+        dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], categorical_feature=cat_idx, params=params)
+        dva = lgb.Dataset(Xtrain[hold], label=y[hold], categorical_feature=cat_idx, reference=dtr)
         booster = lgb.train(
             params,
             dtr,
@@ -199,14 +204,12 @@ def _fit(
         )
         best = int(booster.best_iteration or cfg.num_rounds)
         # scale the round count to the larger refit set, then cap
-        rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, inner_tr.height)))))
-    fi = 2 if inner_va.height else 0
-    (a, b) = offs[fi]
-    dfull = lgb.Dataset(
-        Xall[a:b], label=target_expr(train), categorical_feature=cat_idx, free_raw_data=False, params=params
-    )
+        rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
+        del dtr, dva, booster, Xtrain  # the fancy-indexed copies are the peak of this function
+
+    dfull = lgb.Dataset(Xall[a:b], label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
     model = lgb.train(params, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
-    preds = [model.predict(Xall[s:e]) for (s, e) in offs[fi + 1 :]]
+    preds = [model.predict(Xall[s:e]) for (s, e) in offs[1:]]
     return preds, rounds
 
 

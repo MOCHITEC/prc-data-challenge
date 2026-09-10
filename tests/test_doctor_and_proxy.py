@@ -92,3 +92,14 @@ def test_the_competition_bucket_has_no_guessed_default(monkeypatch):
     assert OsnConfig.from_env().competition_bucket == ""
     with pytest.raises(RuntimeError, match="OSN_COMPETITION_BUCKET"):
         download_all()
+
+
+def test_team_name_is_stripped_of_the_bucket_prefix():
+    """The bucket is prc-<year>-<team>; the submission file and the leaderboard use the bare team name."""
+    import re
+
+    from prc.doctor import TEAM_PREFIX
+
+    assert re.sub(TEAM_PREFIX, "", "prc-2026-resilient-hedgehog") == "resilient-hedgehog"
+    assert re.sub(TEAM_PREFIX, "", "submissions-quick-boat") == "quick-boat"
+    assert re.sub(TEAM_PREFIX, "", "resilient-hedgehog") == "resilient-hedgehog"  # nothing to strip

@@ -33,6 +33,26 @@ def predict_ranking(
     return pred, info
 
 
+def _align_id_dtype(tmpl: pl.DataFrame, pred: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Join the template and the predictions on a common id dtype, refusing a lossy cast.
+
+    The official files type MVT_ID_mvt as float64 holding integral values; a frame that has been through an
+    integer round trip comes back as int64. polars will not join across the two, and silently casting either
+    way is only safe while the values stay integral and inside float64's exact range."""
+    t_type, p_type = tmpl[SUBMISSION_ID_COL].dtype, pred[SUBMISSION_ID_COL].dtype
+    if t_type == p_type:
+        return tmpl, pred
+    for name, frame in (("template", tmpl), ("prediction", pred)):
+        col = frame[SUBMISSION_ID_COL]
+        if col.dtype.is_float():
+            if (col - col.round()).abs().max() != 0.0:
+                raise ValueError(f"{name} {SUBMISSION_ID_COL} holds non-integral values; refusing to cast")
+            if col.abs().max() > 2**53:
+                raise ValueError(f"{name} {SUBMISSION_ID_COL} exceeds float64's exact integer range")
+    cast = pl.col(SUBMISSION_ID_COL).cast(pl.Int64)
+    return tmpl.with_columns(cast), pred.with_columns(cast)
+
+
 def write_submission(pred: pl.DataFrame, template_path: Path, out_path: Path) -> pa.Table:
     """Fill the official template in its own row order and dtype; run the gate; write parquet.
 
@@ -41,6 +61,7 @@ def write_submission(pred: pl.DataFrame, template_path: Path, out_path: Path) ->
     shuffled predictions past a gate that only checks the id set."""
     template = pq.read_table(template_path)
     tmpl = pl.from_arrow(template.select([SUBMISSION_ID_COL]))
+    tmpl, pred = _align_id_dtype(tmpl, pred)
     joined = tmpl.join(pred, on=SUBMISSION_ID_COL, how="left", maintain_order="left")
     if joined.height != template.num_rows:
         raise ValueError(f"join produced {joined.height} rows for a {template.num_rows}-row template")

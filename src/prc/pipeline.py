@@ -11,6 +11,7 @@ Everything is written to disk as it goes, so a session that dies mid-way can res
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from dataclasses import asdict
@@ -51,22 +52,54 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.Da
     return join_weather(feats, hourly)
 
 
+def cache_fingerprint(train: pl.DataFrame, rank: pl.DataFrame, raw_dir: Path, use_weather: bool) -> dict:
+    """What the cached feature frames were built from. A cache hit requires every field to match."""
+    return {
+        "raw_dir": str(raw_dir.resolve()),
+        "files": sorted((p.name, p.stat().st_size) for p in raw_dir.rglob("*.parquet")),
+        "train_rows": train.height,
+        "rank_rows": rank.height,
+        "use_weather": use_weather,
+        "feature_code": _features_version(),
+    }
+
+
+def _features_version() -> str:
+    """Hash of the feature builder source, so editing it invalidates the cache."""
+    from . import features
+
+    return hashlib.sha256(Path(features.__file__).read_bytes()).hexdigest()[:16]
+
+
 def build_features(
-    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path
+    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path, raw_dir: Path
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Feature frames for the labelled months and for the ranking months, cached on disk.
 
     Context features are computed per source frame: a ranking departure's neighbours are the other movements in
-    ranking.parquet, exactly as at scoring time."""
+    ranking.parquet, exactly as at scoring time.
+
+    The cache is keyed by what produced it, not by path alone. A synthetic run and a real run share the default
+    work directory, and reusing one for the other trains on the wrong data while printing plausible numbers -
+    that happened once (docs/decisions.md 2026-09-10) and the dtype error that caught it was luck."""
     work.mkdir(parents=True, exist_ok=True)
     f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
-    if f_tr_path.exists() and f_rk_path.exists():
-        return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
+    meta_path = work / "feat_meta.json"
+    want = cache_fingerprint(train, rank, raw_dir, use_weather)
+    if f_tr_path.exists() and f_rk_path.exists() and meta_path.exists():
+        have = json.loads(meta_path.read_text())
+        # json round-trips the file tuples as lists
+        if have == json.loads(json.dumps(want)):
+            print(f"features: reusing the cache in {work}")
+            return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
+        differing = sorted(k for k in want if have.get(k) != json.loads(json.dumps(want))[k])
+        print(f"features: cache in {work} was built from different inputs ({', '.join(differing)}); rebuilding")
     wcache = data_dir() / "ref" / "metar_hourly.parquet"
     f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache)
     f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache)
     f_tr.write_parquet(f_tr_path)
     f_rk.write_parquet(f_rk_path)
+    meta_path.write_text(json.dumps(want, indent=2, default=str))
     return f_tr, f_rk
 
 
@@ -92,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.time()
 
     train, rank, sub_path = load_raw(a.raw_dir)
-    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir)
+    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
 
     log_name = "synthetic_smoke.jsonl" if a.synthetic else "experiments.jsonl"

@@ -193,19 +193,27 @@ def generate_month(
                     )
     df = pl.DataFrame(
         rows,
+        # Match the official parquet schema exactly (measured 2026-09-10 on the real files): ids are float64
+        # holding integral values, the target is int32, and every timestamp carries a UTC zone. A synthetic
+        # frame that differs here lets dtype bugs through to the first real run.
         schema_overrides={
-            c: pl.Datetime("us")
-            for c in (
-                "MVT_TIME_UTC_mvt",
-                "BLOCK_TIME_UTC_mvt",
-                "SCHED_TIME_UTC_mvt",
-                "LOBT_flt",
-                "IOBT_flt",
-                "EOBT_1_flt",
-                "ARVT_1_flt",
-                "AOBT_3_flt",
-                "ARVT_3_flt",
-            )
+            **{
+                c: pl.Datetime("us", "UTC")
+                for c in (
+                    "MVT_TIME_UTC_mvt",
+                    "BLOCK_TIME_UTC_mvt",
+                    "SCHED_TIME_UTC_mvt",
+                    "LOBT_flt",
+                    "IOBT_flt",
+                    "EOBT_1_flt",
+                    "ARVT_1_flt",
+                    "AOBT_3_flt",
+                    "ARVT_3_flt",
+                )
+            },
+            "MVT_ID_mvt": pl.Float64,
+            "FLIGHT_ID_mvt": pl.Float64,
+            "TAXITIME_SEC_mvt": pl.Int32,
         },
     )
     return df.select(ALL_COLS).sort("MVT_TIME_UTC_mvt")
