@@ -19,3 +19,4 @@ use_weather: false
 reference_min_count: 30
 inner_holdout_months: 1
 note: "clock-source mixture: multiclass head over which clock wrote BLOCK_TIME, routed to the known candidate value; taxi-time head fitted on real off-block rows only"
+use_source_rates: false  # v5 is the measured baseline for the mixture; v6 turns these on

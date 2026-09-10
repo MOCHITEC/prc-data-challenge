@@ -72,3 +72,45 @@ def test_a_copied_clock_is_predicted_exactly_when_the_classifier_is_certain():
     assert got[0] == pytest.approx(50_000.0)  # the delayed schedule-reported row, not clipped toward normality
     assert got[1] == pytest.approx(1_200.0)
     assert got[2] == pytest.approx(950.0)
+
+
+def test_source_rates_are_fitted_on_the_training_side_and_joined_only():
+    """The classifier's group rates must not see the target frame's own clock sources."""
+    from prc.mixture import attach_source_rates, source_rate_tables
+
+    tr = build_departure_features(generate_month(2025, 7, seed=21, deps_per_airport_day=10))
+    tg = build_departure_features(generate_month(2025, 8, seed=22, deps_per_airport_day=8))
+    tr_src = with_clock_source(with_candidates(tr.drop_nulls("TAXITIME_SEC_mvt")), 60, with_rollover=False)
+    tables = source_rate_tables(tr_src, smoothing=50.0)
+
+    a = attach_source_rates(tg, tables)
+    # flipping every clock source on the target side cannot move a single attached rate
+    flipped = tg.with_columns(pl.lit(None, dtype=tg.schema["BLOCK_TIME_UTC_mvt"]).alias("BLOCK_TIME_UTC_mvt"))
+    b = attach_source_rates(flipped, tables)
+    rate_cols = [c for c in a.columns if c.startswith("sr_")]
+    assert rate_cols
+    for c in rate_cols:
+        assert a[c].to_list() == b[c].to_list()
+
+
+def test_source_rates_sum_to_one_and_fall_back_to_the_prior():
+    from prc.mixture import attach_source_rates, source_rate_tables
+
+    tr = build_departure_features(generate_month(2025, 7, seed=23, deps_per_airport_day=10))
+    tr_src = with_clock_source(with_candidates(tr.drop_nulls("TAXITIME_SEC_mvt")), 60, with_rollover=False)
+    tables = source_rate_tables(tr_src, smoothing=50.0)
+    got = attach_source_rates(tr, tables)
+    for tag in ("apt", "apt_op", "apt_hour", "apt_stand"):
+        cols = [f"sr_{tag}_{c}" for c in classes()]
+        if cols[0] not in got.columns:
+            continue
+        total = got.select(pl.sum_horizontal([pl.col(c) for c in cols]).alias("t"))["t"].to_numpy()
+        np.testing.assert_allclose(total, 1.0, atol=1e-9)
+
+    # an airport that never appeared in training gets the global prior, not a null
+    unseen = tr.head(3).with_columns(pl.lit("ZZZZ").alias("ADEP_mvt"))
+    out = attach_source_rates(unseen, tables)
+    prior = tables["_prior"]
+    for c in classes():
+        assert out[f"sr_apt_{c}"].to_list() == [prior[f"sr_prior_{c}"][0]] * 3
+        assert out["srn_apt"].to_list() == [0, 0, 0]

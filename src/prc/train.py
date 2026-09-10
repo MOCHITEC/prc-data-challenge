@@ -68,6 +68,8 @@ class TrainConfig:
     # for the clock-source classifier, which converges much sooner than the regressor.
     match_tol_s: int = 60
     clf_num_rounds: int = 400
+    use_source_rates: bool = False  # historical P(clock source | airport, operator, stand, hour)
+    source_rate_smoothing: float = 50.0
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
