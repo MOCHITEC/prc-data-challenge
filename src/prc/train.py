@@ -70,6 +70,10 @@ class TrainConfig:
     clf_num_rounds: int = 400
     use_source_rates: bool = False  # historical P(clock source | airport, operator, stand, hour)
     source_rate_smoothing: float = 50.0
+    # Temperature-scale the classifier against the routed squared error on the inner holdout. docs/06 8-0-4:
+    # a posterior mean is only optimal when the probabilities are calibrated, and the cost of miscalibration
+    # scales with the candidate value being multiplied.
+    calibrate_temperature: bool = False
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -187,11 +191,19 @@ def _fit(
     feature_cols: list[str],
     cat_cols: list[str],
     predict_frames: list[pl.DataFrame],
-) -> tuple[list[np.ndarray], int]:
+    want_holdout: bool = False,
+) -> tuple[list[np.ndarray], int, tuple[np.ndarray, np.ndarray] | None]:
     """Early-stop on an inner holdout of `train`, refit on all of `train`, then predict each frame.
 
     `target_fn(frame) -> np.ndarray` builds the model-space target, so the caller owns the parameterisation.
-    Returns one prediction array per frame (in model space) and the number of rounds actually used."""
+    Returns one prediction array per frame (in model space), the number of rounds actually used, and - when
+    `want_holdout` is set - the inner holdout's boolean mask together with the *early-stopping* model's
+    predictions on it.
+
+    Those holdout predictions are the only genuinely out-of-sample predictions this function ever makes: the
+    early-stopping model is fitted on the training months excluding the holdout, so anything calibrated on them
+    is calibrated honestly, and the evaluation fold is never involved. The model is otherwise discarded, so
+    asking for them costs one extra predict and no extra training."""
     cat_dtypes = _cat_dtypes([train, *predict_frames], cat_cols)
     Xtr, cols = _matrix(train, feature_cols, cat_cols, cat_dtypes)
     cat_idx = [cols.index(c) for c in cat_cols]
@@ -203,6 +215,7 @@ def _fit(
     dfull = lgb.Dataset(Xtr, label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
     rounds = cfg.num_rounds
     hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
+    holdout: tuple[np.ndarray, np.ndarray] | None = None
     if hold.any() and not hold.all():
         idx_in, idx_ho = np.flatnonzero(~hold), np.flatnonzero(hold)
         # subset() reuses the parent's binned data instead of materialising two more dense copies
@@ -216,6 +229,8 @@ def _fit(
         best = int(booster.best_iteration or cfg.num_rounds)
         # the refit sees more rows than the inner split, so scale the round count up in proportion
         rounds = int(min(cfg.num_rounds, max(10, round(best * len(y) / max(1, len(idx_in))))))
+        if want_holdout:
+            holdout = (hold, booster.predict(Xtr[idx_ho], num_iteration=best))
         del booster
         gc.collect()
 
@@ -229,7 +244,7 @@ def _fit(
         preds.append(model.predict(Xp))
         del Xp
         gc.collect()
-    return preds, rounds
+    return preds, rounds, holdout
 
 
 def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig) -> tuple[pl.DataFrame, dict]:
@@ -252,7 +267,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if m_tg.height:
         if m_tr.height >= 200:
             cols_a = [c for c in num_cols if c != PROXY] + [PROXY]
-            (g,), rounds = _fit(
+            (g,), rounds, _ = _fit(
                 m_tr,
                 lambda f: f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float),
                 cfg,
@@ -277,7 +292,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             )
         ]
         if u_tr.height >= 200:
-            (g,), rounds = _fit(u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg, cols_b, cat_cols, [u_tg])
+            (g,), rounds, _ = _fit(u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg, cols_b, cat_cols, [u_tg])
             info["rounds_unmatched"] = rounds
         else:
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))

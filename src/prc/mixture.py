@@ -23,9 +23,18 @@ import gc
 import numpy as np
 import polars as pl
 
-from .clocks import CANDIDATE_VALUE, GENUINE, classes, routed_prediction, with_candidates, with_clock_source
+from .clocks import (
+    CANDIDATE_VALUE,
+    GENUINE,
+    apply_temperature,
+    classes,
+    fit_temperature,
+    routed_prediction,
+    with_candidates,
+    with_clock_source,
+)
 from .features import CATEGORICALS, numeric_feature_columns
-from .train import LABEL, TrainConfig, _fit, attach_encodings, fit_encodings, predict_fold
+from .train import LABEL, TrainConfig, _fit, _inner_holdout_mask, attach_encodings, fit_encodings, predict_fold
 
 # Sources whose BLOCK_TIME is an actual off-block time, so the row is a usable taxi-time observation.
 REAL_OFFBLOCK_SOURCES = (GENUINE, "aobt3")
@@ -113,8 +122,10 @@ def attach_source_rates(
     return out
 
 
-def _class_probs(train_src: pl.DataFrame, target: pl.DataFrame, cfg: TrainConfig) -> tuple[np.ndarray, dict]:
-    """P(clock source | x) for every row of `target`."""
+def _class_probs(
+    train_src: pl.DataFrame, target: pl.DataFrame, cfg: TrainConfig, want_holdout: bool = False
+) -> tuple[np.ndarray, dict, tuple[np.ndarray, np.ndarray] | None]:
+    """P(clock source | x) for every row of `target`, plus the inner holdout's out-of-sample probabilities."""
     names = classes()
     lookup = {c: i for i, c in enumerate(names)}
     num_cols = [c for c in numeric_feature_columns(train_src) if c not in (LABEL, "month")]
@@ -127,13 +138,14 @@ def _class_probs(train_src: pl.DataFrame, target: pl.DataFrame, cfg: TrainConfig
             "use_linear_tree": False,  # a linear leaf model makes no sense for a softmax objective
         }
     )
-    (probs,), rounds = _fit(
+    (probs,), rounds, holdout = _fit(
         train_src,
         lambda f: f["clock_src"].replace_strict(lookup, return_dtype=pl.Int32).to_numpy().astype(float),
         ccfg,
         num_cols,
         cat_cols,
         [target],
+        want_holdout=want_holdout,
     )
     if probs.shape != (target.height, len(names)):
         raise AssertionError(f"classifier returned {probs.shape}, expected {(target.height, len(names))}")
@@ -142,7 +154,7 @@ def _class_probs(train_src: pl.DataFrame, target: pl.DataFrame, cfg: TrainConfig
         "clf_classes": names,
         "clf_train_mix": {k: v for k, v in train_src["clock_src"].value_counts().iter_rows()},
     }
-    return probs, info
+    return probs, info, holdout
 
 
 def _candidate_matrix(df: pl.DataFrame) -> np.ndarray:
@@ -163,16 +175,26 @@ def predict_fold_mixture(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tra
     train_src = with_clock_source(with_candidates(train_f), cfg.match_tol_s, with_rollover=False)
     target_c = with_candidates(target_f)
 
+    # The classifier's inner holdout, computed here so the taxi head can be asked for its predictions on the
+    # same rows in the same pass. _fit derives the identical mask from tr_e, which has train_src's rows and order.
+    hold = _inner_holdout_mask(train_src, cfg.inner_holdout_months) if cfg.calibrate_temperature else None
+    n_hold = int(hold.sum()) if hold is not None else 0
+
     # head 2 first: it owns its own encodings, and freeing its frames before the classifier keeps the peak down
     real = train_src.filter(pl.col("clock_src").is_in(list(REAL_OFFBLOCK_SOURCES)))
     if real.height < 200:
         raise ValueError(f"only {real.height} rows with a real off-block time; cannot fit the taxi-time head")
-    gen_pred, ginfo = predict_fold(real.drop("clock_src"), target_c, cfg)
+    gen_target = target_c
+    if n_hold:
+        hold_rows = train_src.filter(pl.Series(hold)).select(target_c.columns)
+        gen_target = pl.concat([target_c, hold_rows], how="vertical_relaxed")
+    gen_pred, ginfo = predict_fold(real.drop("clock_src"), gen_target, cfg)
     info.update({f"gen_{k}": v for k, v in ginfo.items()})
-    if not gen_pred["MVT_ID_mvt"].equals(target_c["MVT_ID_mvt"]):
+    if not gen_pred["MVT_ID_mvt"].head(target_c.height).equals(target_c["MVT_ID_mvt"]):
         raise AssertionError("the taxi-time head returned rows in a different order than the target frame")
-    f_gen = gen_pred["pred"].to_numpy().astype(float)
-    del real, gen_pred
+    all_gen = gen_pred["pred"].to_numpy().astype(float)
+    f_gen, f_gen_hold = all_gen[: target_c.height], all_gen[target_c.height :]
+    del real, gen_pred, gen_target
     gc.collect()
 
     # head 1: the encodings the classifier sees are fitted on the training side only, as for the regressor
@@ -187,12 +209,30 @@ def predict_fold_mixture(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tra
         info["source_rate_groups"] = [t for t in rates if t != "_prior"]
     if tg_e.height != target_c.height or not tg_e["MVT_ID_mvt"].equals(target_c["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed the target row count or order")
-    probs, cinfo = _class_probs(tr_e, tg_e, cfg)
+    probs, cinfo, clf_hold = _class_probs(tr_e, tg_e, cfg, want_holdout=bool(n_hold))
     info.update(cinfo)
+
+    temperature = 1.0
+    if clf_hold is not None and n_hold:
+        hold_mask, hold_probs = clf_hold
+        if not np.array_equal(hold_mask, hold):
+            raise AssertionError("the classifier's inner holdout differs from the one the taxi head predicted")
+        hold_e = tr_e.filter(pl.Series(hold_mask))
+        temperature, curve = fit_temperature(
+            hold_probs,
+            _candidate_matrix(hold_e),
+            f_gen_hold,
+            hold_e[LABEL].to_numpy().astype(float),
+            classes(),
+        )
+        info["temperature"] = temperature
+        info["temperature_curve"] = {str(k): round(v, 3) for k, v in curve.items()}
+        info["temperature_holdout_rows"] = int(n_hold)
+        del hold_e
     del tr_e, tg_e
     gc.collect()
 
-    pred = routed_prediction(probs, _candidate_matrix(target_c), f_gen, classes())
+    pred = routed_prediction(apply_temperature(probs, temperature), _candidate_matrix(target_c), f_gen, classes())
     routed_share = float((probs[:, 1:].sum(1) > 0.5).mean())
     info["routed_share_over_half"] = routed_share
     info["mean_p_genuine"] = float(probs[:, 0].mean())

@@ -120,3 +120,63 @@ def test_shape_mismatch_is_an_error_not_a_broadcast():
 
 def test_genuine_is_class_zero():
     assert classes()[0] == GENUINE and classes(with_rollover=True)[0] == GENUINE
+
+
+def test_temperature_softens_and_sharpens():
+    from prc.clocks import apply_temperature
+
+    p = np.array([[0.7, 0.2, 0.1]])
+    assert apply_temperature(p, 1.0) is p  # identity is free
+    soft = apply_temperature(p, 5.0)
+    sharp = apply_temperature(p, 0.2)
+    assert soft.sum() == pytest.approx(1.0) and sharp.sum() == pytest.approx(1.0)
+    assert soft[0, 0] < p[0, 0] < sharp[0, 0]  # softening moves mass toward uniform
+    assert soft[0, 2] > p[0, 2] > sharp[0, 2]
+    assert soft.argmax() == sharp.argmax() == p.argmax()  # monotone, so the ranking never changes
+
+
+def test_fit_temperature_softens_an_overconfident_classifier_on_a_huge_candidate():
+    """The v6 failure in miniature: confident sched routing on a 100,000s candidate that is usually wrong."""
+    from prc.clocks import fit_temperature
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    cls = classes()
+    names = list(CANDIDATE_VALUE)
+    # one row in ten really is schedule-reported; the classifier says 0.9 for all of them
+    truly_sched = rng.random(n) < 0.1
+    probs = np.zeros((n, len(cls)))
+    probs[:, cls.index("sched")] = 0.9
+    probs[:, cls.index(GENUINE)] = 0.1
+    cand = np.full((n, len(names)), np.nan)
+    cand[:, names.index("sched")] = 100_000.0
+    genuine_pred = np.full(n, 900.0)
+    y = np.where(truly_sched, 100_000.0, 900.0)
+
+    best, curve = fit_temperature(probs, cand, genuine_pred, y, cls)
+    assert best > 1.0, f"expected softening, got {best} with curve {curve}"
+    assert curve[best] < curve[1.0]  # and it must actually beat the uncalibrated routing
+
+
+def test_fit_temperature_leaves_a_calibrated_classifier_alone():
+    from prc.clocks import fit_temperature
+
+    cls = classes()
+    names = list(CANDIDATE_VALUE)
+    n = 1000
+    probs = np.zeros((n, len(cls)))
+    probs[:, cls.index("sched")] = 1.0  # certain, and right
+    cand = np.full((n, len(names)), np.nan)
+    cand[:, names.index("sched")] = 1200.0
+    best, curve = fit_temperature(probs, cand, np.full(n, 900.0), np.full(n, 1200.0), cls)
+    assert best <= 1.0 and curve[best] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_fit_temperature_declines_to_guess_from_too_few_rows():
+    from prc.clocks import fit_temperature
+
+    cls = classes()
+    t, curve = fit_temperature(
+        np.zeros((10, len(cls))), np.zeros((10, len(CANDIDATE_VALUE))), np.zeros(10), np.zeros(10), cls
+    )
+    assert t == 1.0 and curve == {}

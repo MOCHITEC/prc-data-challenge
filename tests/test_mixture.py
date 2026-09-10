@@ -6,7 +6,7 @@ from prc.clocks import CANDIDATE_VALUE, GENUINE, classes, with_candidates, with_
 from prc.features import build_departure_features
 from prc.mixture import REAL_OFFBLOCK_SOURCES, SOURCE_RATE_GROUPS, predict_fold_mixture
 from prc.synth import generate_month
-from prc.train import TrainConfig, run_cv
+from prc.train import LABEL, TrainConfig, run_cv
 
 CFG = TrainConfig(num_rounds=60, early_stopping=10, clf_num_rounds=40)
 
@@ -167,3 +167,30 @@ def test_nullable_group_keys_survive_the_pivot_and_fall_back_to_the_prior():
         assert null_stand[f"sr_apt_stand_{c}"].to_list() == pytest.approx(
             [prior[f"sr_prior_{c}"][0]] * null_stand.height
         )
+
+
+def test_calibration_uses_the_inner_holdout_and_never_the_target_frame():
+    """The temperature must be fitted on training months the classifier did not see, not on the target."""
+    tr = build_departure_features(
+        pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=10) for m in (5, 6, 7)])
+    )
+    tg = build_departure_features(generate_month(2026, 7, seed=31, deps_per_airport_day=4, blank_dep=True))
+    cfg = TrainConfig(num_rounds=60, early_stopping=10, clf_num_rounds=40, calibrate_temperature=True)
+    p, info = predict_fold_mixture(tr, tg, cfg)
+    assert p.height == tg.height
+    assert "temperature" in info and info["temperature_holdout_rows"] > 0
+    assert set(info["temperature_curve"]) >= {"1.0"}
+    vals = p["pred"].to_numpy().astype(float)
+    assert np.isfinite(vals).all() and (vals >= 0).all()
+
+    # the target frame carries no labels at all here, so nothing about it could have entered the fit
+    assert tg[LABEL].null_count() == tg.height
+
+
+def test_calibration_is_off_by_default_and_then_changes_nothing():
+    tr = build_departure_features(pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=8) for m in (6, 7)]))
+    tg = build_departure_features(generate_month(2025, 8, seed=32, deps_per_airport_day=5))
+    base = TrainConfig(num_rounds=60, early_stopping=10, clf_num_rounds=40)
+    assert base.calibrate_temperature is False
+    _p, info = predict_fold_mixture(tr, tg, base)
+    assert "temperature" not in info

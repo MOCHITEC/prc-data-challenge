@@ -120,3 +120,42 @@ def routed_prediction(
             spare += np.where(ok, 0.0, p)
     total = weight + spare + roll
     return (num + spare * genuine_pred + roll * (DAY_S + genuine_pred)) / total
+
+
+def apply_temperature(probs: np.ndarray, t: float) -> np.ndarray:
+    """Temperature-scale a probability matrix. t > 1 softens, t < 1 sharpens, t == 1 is the identity.
+
+    Applied to the probabilities rather than the logits because that is what LightGBM hands back; raising to
+    1/t and renormalising is the same monotone family."""
+    if t == 1.0:
+        return probs
+    p = np.clip(probs, 1e-12, 1.0) ** (1.0 / t)
+    return p / p.sum(axis=1, keepdims=True)
+
+
+def fit_temperature(
+    probs: np.ndarray,
+    cand: np.ndarray,
+    genuine_pred: np.ndarray,
+    y: np.ndarray,
+    class_names: list[str],
+    grid: tuple[float, ...] = (0.5, 0.7, 0.85, 1.0, 1.2, 1.5, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0),
+) -> tuple[float, dict[float, float]]:
+    """Pick the temperature that minimises the ROUTED squared error, not the log-loss.
+
+    Calibrating against log-loss would be calibrating the wrong objective: the loss here is squared error on a
+    posterior mean, so a probability error costs in proportion to the candidate value it is multiplied by. On a
+    row whose candidate is 100,000s a 0.1 error in P(sched) is a 10,000s prediction error, which is why v6's
+    over-confident classifier turned a 17.8% base rate at LIRF into a 361s regression on that class.
+
+    Returns the best temperature and the full grid of RMSEs, so the caller can log the curve and see whether the
+    optimum is a plateau or a spike."""
+    finite = np.isfinite(y) & np.isfinite(genuine_pred)
+    if finite.sum() < 100:
+        return 1.0, {}
+    curve: dict[float, float] = {}
+    for t in grid:
+        pred = routed_prediction(apply_temperature(probs[finite], t), cand[finite], genuine_pred[finite], class_names)
+        curve[t] = float(np.sqrt(np.mean((y[finite] - np.clip(pred, 0.0, None)) ** 2)))
+    best = min(curve, key=curve.get)
+    return best, curve
