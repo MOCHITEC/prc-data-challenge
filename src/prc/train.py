@@ -74,6 +74,9 @@ class TrainConfig:
     # a posterior mean is only optimal when the probabilities are calibrated, and the cost of miscalibration
     # scales with the candidate value being multiplied.
     calibrate_temperature: bool = False
+    # Weight the classifier's rows by what a misrouting would cost (prc.mixture.cost_weights). 0 disables.
+    cost_weight_scale: float = 0.0
+    cost_weight_cap: float = 50.0
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -200,6 +203,7 @@ def _fit(
     cat_cols: list[str],
     predict_frames: list[pl.DataFrame],
     want_holdout: bool = False,
+    weights: np.ndarray | None = None,
 ) -> tuple[list[np.ndarray], int, tuple[np.ndarray, np.ndarray] | None]:
     """Early-stop on an inner holdout of `train`, refit on all of `train`, then predict each frame.
 
@@ -220,7 +224,9 @@ def _fit(
     if not np.isfinite(y).all():
         raise AssertionError(f"{int((~np.isfinite(y)).sum())} non-finite training targets reached the fitter")
 
-    dfull = lgb.Dataset(Xtr, label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
+    if weights is not None and len(weights) != len(y):
+        raise ValueError(f"{len(weights)} weights for {len(y)} training rows")
+    dfull = lgb.Dataset(Xtr, label=y, weight=weights, categorical_feature=cat_idx, free_raw_data=False, params=params)
     rounds = cfg.num_rounds
     hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
     holdout: tuple[np.ndarray, np.ndarray] | None = None

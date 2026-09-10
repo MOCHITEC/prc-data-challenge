@@ -122,6 +122,21 @@ def attach_source_rates(
     return out
 
 
+def cost_weights(df: pl.DataFrame, scale: float, cap: float) -> np.ndarray:
+    """How much a misrouting of this row would cost, as a training weight for the classifier.
+
+    Log-loss weights every row equally, but the squared-error cost of getting a row's clock wrong is
+    proportional to how far apart the candidate answers are. A row whose candidates span 60,000s and one whose
+    candidates span 200s contribute the same gradient under log-loss, so with 2M rows and min_data_in_leaf at 50
+    the couple of hundred extreme rows are effectively invisible - which is exactly what docs/06 8-0-2 measured:
+    90% of the available `sched` gain untouched, and eobt1/lobt slightly worse than not routing at all.
+
+    The weight is linear in the candidate spread rather than quadratic, and capped: the honest quadratic would
+    put a weight of ten thousand on a single row and turn the classifier into a memoriser of it."""
+    spread = df["cand_spread"].fill_null(0.0).to_numpy().astype(float)
+    return np.clip(1.0 + np.nan_to_num(spread, nan=0.0) / scale, 1.0, cap)
+
+
 def _class_probs(
     train_src: pl.DataFrame, target: pl.DataFrame, cfg: TrainConfig, want_holdout: bool = False
 ) -> tuple[np.ndarray, dict, tuple[np.ndarray, np.ndarray] | None]:
@@ -138,6 +153,9 @@ def _class_probs(
             "use_linear_tree": False,  # a linear leaf model makes no sense for a softmax objective
         }
     )
+    weights = None
+    if cfg.cost_weight_scale > 0 and "cand_spread" in train_src.columns:
+        weights = cost_weights(train_src, cfg.cost_weight_scale, cfg.cost_weight_cap)
     (probs,), rounds, holdout = _fit(
         train_src,
         lambda f: f["clock_src"].replace_strict(lookup, return_dtype=pl.Int32).to_numpy().astype(float),
@@ -146,11 +164,14 @@ def _class_probs(
         cat_cols,
         [target],
         want_holdout=want_holdout,
+        weights=weights,
     )
     if probs.shape != (target.height, len(names)):
         raise AssertionError(f"classifier returned {probs.shape}, expected {(target.height, len(names))}")
     info = {
         "clf_rounds": rounds,
+        "clf_weight_mean": float(weights.mean()) if weights is not None else 1.0,
+        "clf_weight_p999": float(np.percentile(weights, 99.9)) if weights is not None else 1.0,
         "clf_classes": names,
         "clf_train_mix": {k: v for k, v in train_src["clock_src"].value_counts().iter_rows()},
     }

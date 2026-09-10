@@ -196,3 +196,53 @@ def test_calibration_is_off_by_default_and_then_changes_nothing():
     assert base.calibrate_temperature is False
     _p, info = predict_fold_mixture(tr, tg, base)
     assert "temperature" not in info
+
+
+def test_cost_weights_scale_with_the_candidate_spread_and_are_capped():
+    """Log-loss treats a row whose candidates span 60,000s like one that spans 200s; the weight fixes that."""
+    from prc.mixture import cost_weights
+
+    df = pl.DataFrame({"cand_spread": [0.0, 200.0, 1800.0, 60_000.0, 200_000.0, None]})
+    w = cost_weights(df, scale=1800.0, cap=50.0)
+    assert w[0] == pytest.approx(1.0)  # candidates agree: nothing to get wrong
+    assert w[1] == pytest.approx(1.0 + 200 / 1800)
+    assert w[2] == pytest.approx(2.0)
+    assert w[3] == pytest.approx(1.0 + 60_000 / 1800)  # a 16h disagreement is worth ~34 ordinary rows
+    assert w[4] == pytest.approx(50.0)  # capped, so no single row can dominate the fit
+    assert w[5] == pytest.approx(1.0)  # a null spread is not a licence to weight by NaN
+    assert (w >= 1.0).all()
+
+
+def test_cost_weighting_is_off_by_default_and_reaches_the_fitter_when_on():
+    tr = build_departure_features(
+        pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=8) for m in (5, 6, 7)])
+    )
+    tg = build_departure_features(generate_month(2025, 8, seed=51, deps_per_airport_day=5))
+    off = TrainConfig(num_rounds=50, early_stopping=10, clf_num_rounds=30)
+    assert off.cost_weight_scale == 0.0
+    _p, info = predict_fold_mixture(tr, tg, off)
+    assert info["clf_weight_mean"] == 1.0
+
+    on = TrainConfig(num_rounds=50, early_stopping=10, clf_num_rounds=30, cost_weight_scale=1800.0)
+    p, info = predict_fold_mixture(tr, tg, on)
+    assert info["clf_weight_mean"] > 1.0
+    assert 1.0 < info["clf_weight_p999"] <= on.cost_weight_cap
+    vals = p["pred"].to_numpy().astype(float)
+    assert np.isfinite(vals).all() and (vals >= 0).all()
+
+
+def test_weight_length_mismatch_is_an_error():
+    from prc.train import _fit
+
+    tr = build_departure_features(generate_month(2025, 7, seed=52, deps_per_airport_day=6))
+    tr = tr.drop_nulls(LABEL)
+    with pytest.raises(ValueError, match="weights for"):
+        _fit(
+            tr,
+            lambda f: f[LABEL].to_numpy().astype(float),
+            TrainConfig(num_rounds=10),
+            ["hour_utc"],
+            [],
+            [tr],
+            weights=np.ones(tr.height - 1),
+        )
