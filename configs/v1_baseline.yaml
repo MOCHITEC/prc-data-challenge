@@ -1,0 +1,10 @@
+# v1: the cheapest honest baseline. Purpose is to exercise the submission path and measure the scoring delay,
+# not to score well. Airport x runway x hour medians come out of the reference tables, so a plain LightGBM with
+# few rounds on the static features is enough.
+name: v1_baseline
+scheme: fast
+num_rounds: 200
+early_stopping: 30
+use_categoricals: true
+use_weather: false
+note: "baseline: static + schedule features, exercises the gate and measures scoring latency"

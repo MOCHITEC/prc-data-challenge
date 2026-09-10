@@ -1,0 +1,144 @@
+"""One command from raw parquet to a validated submission file (docs/05 section 2).
+
+    python -m prc.pipeline --config configs/v2_two_clock.yaml [--submit]
+
+Steps: load raw -> build departure features (parity-masked context) -> optional weather join -> month-blocked CV
+-> fit on all labelled months and predict the ranking set -> write and validate the submission -> optionally
+upload it through the guard rails in prc.submit.
+
+Everything is written to disk as it goes, so a session that dies mid-way can resume without recomputing."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from dataclasses import asdict
+from pathlib import Path
+
+import polars as pl
+import yaml
+
+from .config import data_dir
+from .features import build_departure_features
+from .predict import log_submission, predict_ranking, write_submission
+from .train import TrainConfig, run_cv
+
+
+def load_raw(raw_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, Path]:
+    train_files = sorted(raw_dir.rglob("training_*.parquet"))
+    if not train_files:
+        raise FileNotFoundError(f"no training_*.parquet under {raw_dir}; run `make download` first")
+    train = pl.concat([pl.read_parquet(p) for p in train_files], how="diagonal")
+    rank_path = next(iter(sorted(raw_dir.rglob("ranking.parquet"))), None)
+    sub_path = next(iter(sorted(raw_dir.rglob("submitting.parquet"))), None)
+    if rank_path is None or sub_path is None:
+        raise FileNotFoundError(f"ranking.parquet / submitting.parquet missing under {raw_dir}")
+    return train, pl.read_parquet(rank_path), sub_path
+
+
+def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.DataFrame:
+    if not enabled:
+        return feats
+    from .weather import fetch_metar, hourly_weather_table, join_weather
+
+    if cache.exists():
+        hourly = pl.read_parquet(cache)
+    else:
+        hourly = hourly_weather_table(fetch_metar())
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        hourly.write_parquet(cache)
+    return join_weather(feats, hourly)
+
+
+def build_features(
+    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Feature frames for the labelled months and for the ranking months, cached on disk.
+
+    Context features are computed per source frame: a ranking departure's neighbours are the other movements in
+    ranking.parquet, exactly as at scoring time."""
+    work.mkdir(parents=True, exist_ok=True)
+    f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
+    if f_tr_path.exists() and f_rk_path.exists():
+        return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
+    wcache = data_dir() / "ref" / "metar_hourly.parquet"
+    f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache)
+    f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache)
+    f_tr.write_parquet(f_tr_path)
+    f_rk.write_parquet(f_rk_path)
+    return f_tr, f_rk
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--config", type=Path, required=True)
+    ap.add_argument("--raw-dir", type=Path, default=data_dir() / "raw")
+    ap.add_argument("--work-dir", type=Path, default=data_dir() / "work")
+    ap.add_argument("--out-dir", type=Path, default=Path("outputs"))
+    ap.add_argument("--skip-cv", action="store_true", help="predict only, reusing the last CV record")
+    ap.add_argument("--submit", action="store_true", help="upload after the gate passes (uses the daily counter)")
+    ap.add_argument("--version", type=int, help="submission version number, required with --submit")
+    a = ap.parse_args(argv)
+
+    spec = yaml.safe_load(a.config.read_text())
+    cfg = TrainConfig(**{k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__})
+    use_weather = bool(spec.get("use_weather", False))
+    t0 = time.time()
+
+    train, rank, sub_path = load_raw(a.raw_dir)
+    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir)
+    print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
+
+    cv_rec = None
+    if not a.skip_cv:
+        cv_rec = run_cv(f_tr, cfg)
+        print(
+            f"CV {cv_rec['exp_id']}: full={cv_rec['overall']['rmse_full']:.2f} "
+            f"clean={cv_rec['overall']['rmse_clean']:.2f} ({cv_rec['train_seconds']}s)"
+        )
+        for name, m in cv_rec["folds"].items():
+            print(
+                f"  {name}: full={m['rmse_full']:.2f} clean={m['rmse_clean']:.2f} n={m['n']:,} "
+                f"tail20={m['top20_share_of_sse']:.2f}"
+            )
+
+    pred, info = predict_ranking(f_tr, f_rk, cfg)
+    a.out_dir.mkdir(parents=True, exist_ok=True)
+    name = spec.get("name", cfg.name)
+    out_file = a.out_dir / f"{name}.parquet"
+    write_submission(pred, sub_path, out_file)
+    print(f"submission written: {out_file} ({info})")
+
+    log_submission(
+        Path("experiments/pipeline.jsonl"),
+        {
+            "config": str(a.config),
+            "train_config": asdict(cfg),
+            "use_weather": use_weather,
+            "cv": cv_rec["overall"] if cv_rec else None,
+            "predict_info": info,
+            "file": str(out_file),
+            "seconds": round(time.time() - t0, 1),
+        },
+    )
+
+    if a.submit:
+        if a.version is None:
+            raise SystemExit("--submit requires --version")
+        from .submit import submit
+
+        entry = submit(
+            out_file,
+            sub_path,
+            a.version,
+            cv_rec["exp_id"] if cv_rec else name,
+            cv_rec["overall"] if cv_rec else {},
+            spec.get("note", ""),
+        )
+        print("uploaded:", json.dumps(entry, default=str))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

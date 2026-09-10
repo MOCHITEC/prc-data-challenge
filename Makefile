@@ -1,5 +1,5 @@
 PY=.venv/bin/python
-.PHONY: bootstrap test lint synth download board
+.PHONY: bootstrap test lint synth download board profile v1 v2
 
 bootstrap:            ## create venv, install, verify env, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
@@ -22,3 +22,12 @@ download:
 
 board:                ## snapshot the official leaderboard and show movement vs the previous snapshot
 	$(PY) -m prc.leaderboard
+
+profile:              ## answer the docs/01 open questions from the real files
+	$(PY) -m prc.profile
+
+v1:                   ## baseline submission (gate only, no upload)
+	$(PY) -m prc.pipeline --config configs/v1_baseline.yaml
+
+v2:                   ## two-clock model submission (gate only, no upload)
+	$(PY) -m prc.pipeline --config configs/v2_two_clock.yaml
