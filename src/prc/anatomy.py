@@ -39,14 +39,18 @@ def latest_oof(exp_dir: Path = Path("experiments")) -> Path:
     return cands[-1]
 
 
+def _read_oof(oof_path: Path) -> pl.DataFrame:
+    """OOF parquets are written with an `oof` column; a ranking prediction frame uses `pred`."""
+    oof = pl.read_parquet(oof_path)
+    col = "oof" if "oof" in oof.columns else "pred"
+    return oof.select(["MVT_ID_mvt", pl.col(col).cast(pl.Float64).alias("pred")]).drop_nulls("pred")
+
+
 def load_joined(oof_path: Path, feat_path: Path = FEAT_TRAIN) -> pl.DataFrame:
     """OOF predictions joined to the features they were made from, labelled rows only."""
     cols = sorted(set(NEEDED))
     feats = with_candidates(pl.read_parquet(feat_path, columns=cols))
-    oof = pl.read_parquet(oof_path)
-    pred_col = "oof" if "oof" in oof.columns else "pred"
-    oof = oof.select(["MVT_ID_mvt", pl.col(pred_col).alias("pred")]).drop_nulls("pred")
-    j = oof.join(feats, on="MVT_ID_mvt", how="inner").drop_nulls(LABEL)
+    j = _read_oof(oof_path).join(feats, on="MVT_ID_mvt", how="inner").drop_nulls(LABEL)
     j = with_clock_source(j, MATCH_TOL_S).rename({"clock_src": "src"})
     return j.with_columns(y=pl.col(LABEL).cast(pl.Float64)).with_columns(se=(pl.col("y") - pl.col("pred")) ** 2)
 
@@ -210,17 +214,73 @@ def build_report(oof_path: Path) -> str:
     return "\n".join(out)
 
 
+def compare(base_oof: Path, new_oof: Path, n_boot: int = 2000, seed: int = 0) -> str:
+    """Where one experiment beats another, by airport and by clock source, with a paired bootstrap.
+
+    A single RMSE has a ~131s confidence interval on this data, so an A/B decision has to be paired; the
+    per-airport split is what catches a change that wins overall while losing a whole airport, which is exactly
+    what the clock-source mixture did to LSZH."""
+    from .cv import paired_bootstrap_rmse_diff, rmse
+
+    keep = [c for c in sorted(set(NEEDED)) if c != "MVT_ID_mvt"]
+    feats = with_candidates(pl.read_parquet(FEAT_TRAIN, columns=["MVT_ID_mvt", *keep]))
+    a = _read_oof(base_oof).rename({"pred": "a"})
+    b = _read_oof(new_oof).rename({"pred": "b"})
+    j = feats.join(a, on="MVT_ID_mvt", how="inner").join(b, on="MVT_ID_mvt", how="inner").drop_nulls(["a", "b", LABEL])
+    j = with_clock_source(j, MATCH_TOL_S).rename({"clock_src": "src"}).with_columns(y=pl.col(LABEL).cast(pl.Float64))
+    y, pa, pb = j["y"].to_numpy(), j["a"].to_numpy(), j["b"].to_numpy()
+    d = paired_bootstrap_rmse_diff(y, pa, pb, n_boot=n_boot, seed=seed)
+    j = j.with_columns(sea=(pl.col("y") - pl.col("a")) ** 2, seb=(pl.col("y") - pl.col("b")) ** 2)
+
+    def split(col: str) -> list[dict]:
+        return (
+            j.group_by(col)
+            .agg(
+                n=pl.len(),
+                base=pl.col("sea").mean().sqrt(),
+                new=pl.col("seb").mean().sqrt(),
+                delta=(pl.col("seb").mean().sqrt() - pl.col("sea").mean().sqrt()),
+            )
+            .sort("delta")
+            .to_dicts()
+        )
+
+    return "\n".join(
+        [
+            f"# {new_oof.name} vs {base_oof.name}",
+            "",
+            (
+                f"Paired rows {j.height:,}. Base **{rmse(y, pa):.2f}**, new **{rmse(y, pb):.2f}**, "
+                f"diff **{d['diff_rmse']:+.2f}** CI95 [{d['ci95'][0]:+.2f}, {d['ci95'][1]:+.2f}], "
+                f"P(new better) = {d['b_better_prob']:.4f}."
+            ),
+            "",
+            "## By airport (negative delta = the new model is better)",
+            "",
+            _md_table(split("ADEP_mvt")),
+            "## By clock source",
+            "",
+            _md_table(split("src")),
+        ]
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--oof", type=Path, default=None, help="OOF parquet (default: newest in experiments/)")
-    ap.add_argument("--out", type=Path, default=Path("docs/error_anatomy_generated.md"))
+    ap.add_argument("--compare", type=Path, nargs=2, metavar=("BASE", "NEW"), help="A/B two OOF parquets")
+    ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
-    oof = args.oof or latest_oof()
-    report = build_report(oof)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(report)
+    if args.compare:
+        report = compare(*args.compare)
+        out = args.out or Path("docs/ab_generated.md")
+    else:
+        report = build_report(args.oof or latest_oof())
+        out = args.out or Path("docs/error_anatomy_generated.md")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report)
     print(report)
-    print(f"\nwritten to {args.out}")
+    print(f"\nwritten to {out}")
     return 0
 
 
