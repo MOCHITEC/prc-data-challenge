@@ -178,8 +178,10 @@ def test_calibration_uses_the_inner_holdout_and_never_the_target_frame():
     cfg = TrainConfig(num_rounds=60, early_stopping=10, clf_num_rounds=40, calibrate_temperature=True)
     p, info = predict_fold_mixture(tr, tg, cfg)
     assert p.height == tg.height
-    assert "temperature" in info and info["temperature_holdout_rows"] > 0
-    assert set(info["temperature_curve"]) >= {"1.0"}
+    # the holdout has to be a real month, not a spill-over: an empty curve means fit_temperature declined
+    assert info["temperature_holdout_rows"] > 1000, info["temperature_holdout_rows"]
+    assert set(info["temperature_curve"]) >= {"1.0"}, "fit_temperature returned no curve, so it was a no-op"
+    assert info["temperature"] in {float(k) for k in info["temperature_curve"]}
     vals = p["pred"].to_numpy().astype(float)
     assert np.isfinite(vals).all() and (vals >= 0).all()
 

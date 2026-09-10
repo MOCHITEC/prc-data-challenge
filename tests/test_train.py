@@ -102,3 +102,43 @@ def test_parity_report_flags_a_column_that_vanishes_at_prediction_time():
     broken = rk.with_columns(pl.lit(None, dtype=pl.Float64).alias("mvt_minus_sched"))
     rep2 = feature_parity_report(tr, broken, TrainConfig())
     assert rep2.filter(pl.col("feature") == "mvt_minus_sched")["gap"].item() > 0.9
+
+
+def test_inner_holdout_ignores_a_month_that_is_only_a_spill_over():
+    """A file whose last flights cross a month boundary used to become the entire early-stopping holdout."""
+    import datetime as dt
+
+    from prc.train import _inner_holdout_mask
+
+    times = []
+    for month, n in ((5, 500), (6, 500), (7, 500), (8, 1)):
+        times += [dt.datetime(2025, month, 1) + dt.timedelta(hours=i) for i in range(n)]
+    df = pl.DataFrame({"MVT_TIME_UTC_mvt": times})
+    mask = _inner_holdout_mask(df, 1)
+    ym = (df["MVT_TIME_UTC_mvt"].dt.year() * 100 + df["MVT_TIME_UTC_mvt"].dt.month()).to_numpy()
+    assert mask.sum() == 500
+    assert sorted(set(ym[mask].tolist())) == [202507]  # the real last month, not the one-row August
+
+
+def test_inner_holdout_is_empty_when_there_are_too_few_months():
+    import datetime as dt
+
+    from prc.train import _inner_holdout_mask
+
+    df = pl.DataFrame({"MVT_TIME_UTC_mvt": [dt.datetime(2025, 7, 1) + dt.timedelta(hours=i) for i in range(100)]})
+    assert not _inner_holdout_mask(df, 1).any()  # one month cannot be both trained on and held out
+    assert not _inner_holdout_mask(df, 0).any()
+
+
+def test_inner_holdout_takes_several_months_when_asked():
+    import datetime as dt
+
+    from prc.train import _inner_holdout_mask
+
+    times = []
+    for month in (4, 5, 6, 7):
+        times += [dt.datetime(2025, month, 1) + dt.timedelta(hours=i) for i in range(400)]
+    df = pl.DataFrame({"MVT_TIME_UTC_mvt": times})
+    mask = _inner_holdout_mask(df, 2)
+    ym = (df["MVT_TIME_UTC_mvt"].dt.year() * 100 + df["MVT_TIME_UTC_mvt"].dt.month()).to_numpy()
+    assert sorted(set(ym[mask].tolist())) == [202506, 202507]

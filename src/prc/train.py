@@ -172,16 +172,24 @@ def _matrix(
     return X.to_numpy(), cols
 
 
-def _inner_holdout_mask(train: pl.DataFrame, months: int) -> np.ndarray:
-    """Boolean mask marking the latest `months` calendar months of the training side, used for early stopping."""
+def _inner_holdout_mask(train: pl.DataFrame, months: int, min_share: float = 0.02) -> np.ndarray:
+    """Boolean mask marking the latest `months` substantial calendar months of the training side.
+
+    Used for early stopping and, in prc.mixture, for calibrating the routing temperature.
+
+    "Substantial" matters: a movement file whose last flights spill past a month boundary contributes a month key
+    holding a handful of rows, and taking that as the holdout silently reduces early stopping to those rows. The
+    synthetic generator does exactly this, which is how the defect surfaced. Months holding less than `min_share`
+    of the training rows are therefore not eligible as the holdout and simply stay on the training side."""
     empty = np.zeros(train.height, dtype=bool)
     if months <= 0 or "MVT_TIME_UTC_mvt" not in train.columns or train.height == 0:
         return empty
     keys = year_month_key(train)
-    uniq = sorted(keys.unique().to_list())
-    if len(uniq) <= months:
+    counts = dict(zip(*[s.to_list() for s in keys.value_counts().sort("ym")], strict=True))
+    eligible = [m for m in sorted(counts) if counts[m] >= min_share * train.height]
+    if len(eligible) <= months or len(counts) <= months:
         return empty
-    return keys.is_in(uniq[-months:]).to_numpy()
+    return keys.is_in(eligible[-months:]).to_numpy()
 
 
 def _fit(
