@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pyarrow.parquet as pq
 
@@ -15,21 +16,34 @@ from .validate_submission import validate_files
 
 DAILY_LIMIT = 5
 LOG = Path("experiments/submissions.jsonl")
+BRUSSELS = ZoneInfo("Europe/Brussels")  # the organisers state the deadline in CET/CEST
 
 
-def _today_count(log: Path) -> tuple[int, set[int]]:
-    n, versions = 0, set()
+def _today_count(log: Path, now: dt.datetime | None = None) -> tuple[int, set[int]]:
+    """Real uploads counted today, plus the versions already used.
+
+    The daily quota's time zone is undocumented (docs/01 U9), so count on the UTC day and on the Brussels day
+    and take the larger - the safe side. Dry runs consume neither the quota nor a version number."""
+    now = now or dt.datetime.now(dt.UTC)
+    versions: set[int] = set()
     if not log.exists():
         return 0, versions
-    today_utc = dt.datetime.now(dt.UTC).date()
-    today_cet = (dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)).date()  # CEST during the competition
+    n_utc = n_cet = 0
     for line in log.read_text().splitlines():
+        if not line.strip():
+            continue
         rec = json.loads(line)
+        if rec.get("dry_run"):
+            continue
         versions.add(int(rec["version"]))
         ts = dt.datetime.fromisoformat(rec["uploaded_at"])
-        if ts.date() in (today_utc, today_cet):
-            n += 1
-    return n, versions
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=dt.UTC)
+        if ts.astimezone(dt.UTC).date() == now.astimezone(dt.UTC).date():
+            n_utc += 1
+        if ts.astimezone(BRUSSELS).date() == now.astimezone(BRUSSELS).date():
+            n_cet += 1
+    return max(n_utc, n_cet), versions
 
 
 def submit(
@@ -61,9 +75,23 @@ def submit(
         "uploaded_at": dt.datetime.now(dt.UTC).isoformat(),
         "dry_run": dry_run,
     }
-    if not dry_run:
-        entry["object_name"] = upload_submission(file_path, version, cfg)
     log.parent.mkdir(parents=True, exist_ok=True)
+    if dry_run:
+        _append(log, entry)
+        return entry
+    # write-ahead: an attempted upload must leave a trace even if the transfer dies, because whether a failed
+    # upload consumes the daily quota is undocumented (docs/01 U10) and we count it on the safe side.
+    _append(log, {**entry, "status": "attempted"})
+    try:
+        entry["object_name"] = upload_submission(file_path, version, cfg)
+    except Exception as exc:
+        _append(log, {**entry, "status": "failed", "error": repr(exc)})
+        raise
+    entry["status"] = "uploaded"
+    _append(log, entry)
+    return entry
+
+
+def _append(log: Path, entry: dict) -> None:
     with open(log, "a") as fh:
         fh.write(json.dumps(entry, default=str) + "\n")
-    return entry

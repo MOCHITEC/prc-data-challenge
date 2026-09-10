@@ -93,7 +93,7 @@ def clock_and_static_features(dep: pl.DataFrame) -> pl.DataFrame:
         if p.height:
             local = p["MVT_TIME_UTC_mvt"].dt.replace_time_zone("UTC").dt.convert_time_zone(tz)
             parts.append(p.with_columns(local.dt.hour().alias("hour_local")))
-    rest = out.filter(~pl.col("ADEP_mvt").is_in(list(AIRPORT_TZ)))
+    rest = out.filter(~pl.col("ADEP_mvt").is_in(list(AIRPORT_TZ)).fill_null(False))
     if rest.height:
         parts.append(rest.with_columns(pl.col("hour_utc").alias("hour_local")))
     return pl.concat(parts) if parts else out.with_columns(pl.col("hour_utc").alias("hour_local"))
@@ -171,7 +171,11 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
         rwy_cnt15 = np.zeros(len(t), dtype=np.int32)
         rwy_cnt60 = np.zeros(len(t), dtype=np.int32)
         for rwy in tgt["RUNWAY_mvt"].unique().to_list():
-            sel = (tgt["RUNWAY_mvt"] == rwy).to_numpy() if rwy is not None else tgt["RUNWAY_mvt"].is_null().to_numpy()
+            sel = (
+                (tgt["RUNWAY_mvt"] == rwy).fill_null(False).to_numpy()
+                if rwy is not None
+                else tgt["RUNWAY_mvt"].is_null().to_numpy()
+            )
             ev = d_apt.filter(pl.col("RUNWAY_mvt") == rwy)["_t"].to_numpy() if rwy is not None else np.array([])
             if len(ev) == 0:
                 continue
@@ -201,7 +205,52 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
         frames.append(pl.DataFrame(cols))
     if not frames:
         return pl.DataFrame({"MVT_ID_mvt": pl.Series([], dtype=pl.Int64)})
-    return pl.concat(frames, how="diagonal")
+    ctx = pl.concat(frames, how="diagonal")
+    float_cols = [c for c in ctx.columns if c.startswith(("rwy_headway", "nbr_aobt", "nbr_mvt", "arr_taxi_in_mean"))]
+    count_cols = [c for c in ctx.columns if c != "MVT_ID_mvt" and c not in float_cols]
+    return ctx.with_columns(
+        [pl.col(c).cast(pl.Float32) for c in float_cols] + [pl.col(c).cast(pl.Int32) for c in count_cols]
+    )
+
+
+WIDE_RANGE_COLS = (
+    "mvt_minus_aobt3",
+    "mvt_minus_sched",
+    "mvt_minus_eobt1",
+    "mvt_minus_lobt",
+    "mvt_minus_iobt",
+    "lobt_minus_eobt1",
+    "aobt3_minus_eobt1",
+    "aobt3_minus_sched",
+    "rwy_headway_prev_s",
+    "rwy_headway_next_s",
+)
+KEEP_RAW_COLS = (
+    "MVT_ID_mvt",
+    "FLIGHT_ID_mvt",
+    "PHASE_mvt",
+    "ADEP_mvt",
+    "ADES_mvt",
+    "RUNWAY_mvt",
+    "STAND_mvt",
+    "AIRCRAFT_TYPE_mvt",
+    "WK_TBL_CAT_flt",
+    "AIRCRAFT_OPERATOR_flt",
+    "MARKET_SEGMENT_flt",
+    "FLIGHT_TYPE_flt",
+    "ADES_REGION",
+    "MVT_TIME_UTC_mvt",
+    "BLOCK_TIME_UTC_mvt",
+    "TAXITIME_SEC_mvt",
+)
+
+
+def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) -> pl.DataFrame:
+    """sign(x)*log1p(|x|) copies so leaf-linear models cannot extrapolate wildly on the seconds-scale tails."""
+    present = [c for c in cols if c in df.columns]
+    return df.with_columns(
+        [(pl.col(c).sign() * (pl.col(c).abs() + 1.0).log()).cast(pl.Float32).alias(f"{c}_slog") for c in present]
+    )
 
 
 def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFrame | None = None) -> pl.DataFrame:
@@ -214,8 +263,15 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     dep = movements.filter(pl.col("PHASE_mvt") == "DEP")
     row = clock_and_static_features(dep)
     ctx = context_features(ctx_src, dep_ids=dep["MVT_ID_mvt"])
-    feats = row.join(ctx, on="MVT_ID_mvt", how="left")
-    return feats.sort("MVT_TIME_UTC_mvt")
+    keep = [c for c in KEEP_RAW_COLS if c in row.columns]
+    derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
+    row = row.select(keep + derived)
+    feats = add_signed_log(row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left"))
+    if feats.height != dep.height:
+        raise AssertionError(f"feature rows {feats.height} != departure rows {dep.height}")
+    if feats["MVT_ID_mvt"].n_unique() != feats.height:
+        raise AssertionError("duplicate MVT_ID_mvt in feature frame")
+    return feats
 
 
 def numeric_feature_columns(feats: pl.DataFrame) -> list[str]:

@@ -11,13 +11,26 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .config import SUBMISSION_ID_COL, SUBMISSION_TARGET_COL
-from .train import TrainConfig, predict_fold
+from .train import TrainConfig, feature_parity_report, predict_fold
 from .validate_submission import validate
 
+PARITY_GAP_LIMIT = 0.20
 
-def predict_ranking(train_feats: pl.DataFrame, rank_feats: pl.DataFrame, cfg: TrainConfig) -> pl.DataFrame:
+
+def predict_ranking(
+    train_feats: pl.DataFrame, rank_feats: pl.DataFrame, cfg: TrainConfig, parity_gap_limit: float = PARITY_GAP_LIMIT
+) -> tuple[pl.DataFrame, dict]:
+    """Predict the ranking frame after checking feature availability parity (docs/04 section 3)."""
+    parity = feature_parity_report(train_feats, rank_feats, cfg)
+    bad = parity.filter(pl.col("gap") > parity_gap_limit)
+    if bad.height:
+        raise ValueError(
+            "feature availability differs between training and ranking; fix or drop these features:\n"
+            + str(bad.select(["feature", "null_rate_train", "null_rate_target", "gap"]))
+        )
     pred, info = predict_fold(train_feats, rank_feats, cfg)
-    return rank_feats.select(["MVT_ID_mvt"]).with_columns(pl.Series("pred", pred)), info
+    info["parity_max_gap"] = float(parity["gap"].max()) if parity.height else 0.0
+    return pred, info
 
 
 def write_submission(pred: pl.DataFrame, template_path: Path, out_path: Path) -> pa.Table:

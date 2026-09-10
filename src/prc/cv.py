@@ -39,6 +39,19 @@ def rmse(y: np.ndarray, p: np.ndarray) -> float:
 
 
 def metrics(y: np.ndarray, p: np.ndarray) -> dict:
+    finite = np.isfinite(y) & np.isfinite(p)
+    n_dropped = int((~finite).sum())
+    y, p = y[finite], p[finite]
+    if len(y) == 0:
+        return {
+            "rmse_full": float("nan"),
+            "rmse_clean": float("nan"),
+            "n": 0,
+            "n_dropped": n_dropped,
+            "n_gt_7200": 0,
+            "top20_share_of_sse": 0.0,
+            "bias": float("nan"),
+        }
     clean = (y >= CLEAN_LO) & (y <= CLEAN_HI)
     se = (y - p) ** 2
     order = np.argsort(-se)
