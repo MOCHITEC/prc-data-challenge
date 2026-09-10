@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()  # PRC_TEAM_NAME lives in .env, which is git-ignored
 
 COMPETITION_ID = "bb3693e1-26bc-4a9e-8619-4fe78b4eab0c"
 API = f"https://datacomp.opensky-network.org/api/competitions/{COMPETITION_ID}/leaderboard"
@@ -81,14 +84,63 @@ def summarise(items: list[dict], our_team: str | None = None, prev: list[dict] |
     return "\n".join(lines)
 
 
+def reconcile(log_path: Path, items: list[dict], our_team: str | None) -> list[dict]:
+    """Join our upload log to the scores the board reports, keyed by the object name we uploaded.
+
+    This is the CV-to-leaderboard calibration table. Doing it from the API rather than by hand is the point:
+    a remembered score is a score that drifts. Uploads with no score yet are kept with score=None."""
+    scored = {it.get("filename"): it.get("score") for it in items if our_team is None or it.get("teamName") == our_team}
+    rows: list[dict] = []
+    seen: set[str] = set()
+    if not log_path.exists():
+        return rows
+    for line in log_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        obj = rec.get("object_name")
+        if rec.get("dry_run") or rec.get("status") != "uploaded" or not obj or obj in seen:
+            continue
+        seen.add(obj)
+        cv = rec.get("cv") or {}
+        rows.append(
+            {
+                "version": rec.get("version"),
+                "object": obj,
+                "exp_id": rec.get("exp_id"),
+                "cv_full": cv.get("rmse_full"),
+                "lb": scored.get(obj),
+                "gap": (scored[obj] - cv["rmse_full"]) if scored.get(obj) and cv.get("rmse_full") else None,
+                "note": rec.get("note", "")[:60],
+            }
+        )
+    return sorted(rows, key=lambda r: (r["version"] is None, r["version"]))
+
+
+def format_reconciliation(rows: list[dict]) -> str:
+    if not rows:
+        return "no scored uploads in the submission log yet"
+    out = ["", "our submissions (CV vs leaderboard):", f"{'v':>3} {'CV':>8} {'LB':>8} {'LB-CV':>7}  exp_id"]
+    for r in rows:
+        cv = f"{r['cv_full']:8.2f}" if r["cv_full"] else "       -"
+        lb = f"{r['lb']:8.2f}" if r["lb"] else "  unscored"
+        gap = f"{r['gap']:+7.2f}" if r["gap"] is not None else "      -"
+        out.append(f"{r['version']:>3} {cv} {lb} {gap}  {r['exp_id']}")
+    return "\n".join(out)
+
+
 def main() -> int:
     import os
 
+    team = os.getenv("PRC_TEAM_NAME") or None
+    if not team:
+        print("PRC_TEAM_NAME is not set: matching submissions by object name across every team")
     items = fetch_all()
     path = save_snapshot(items)
     prev_path = previous_snapshot(exclude=path)
     prev = load_snapshot(prev_path) if prev_path else None
-    print(summarise(items, our_team=os.getenv("PRC_TEAM_NAME") or None, prev=prev))
+    print(summarise(items, our_team=team, prev=prev))
+    print(format_reconciliation(reconcile(Path("experiments/submissions.jsonl"), items, team)))
     print(f"snapshot: {path}" + (f"  (compared with {prev_path.name})" if prev_path else ""))
     return 0
 

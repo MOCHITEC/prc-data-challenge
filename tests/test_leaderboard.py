@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from prc.leaderboard import best_per_team, summarise
 
 ITEMS = [
@@ -26,3 +30,47 @@ def test_summarise_reports_gap_and_delta():
     assert "gap_to_leader +30.25" in out
     assert "rank 2/2" in out
     assert "no scored submission yet" in summarise(ITEMS, our_team="delta")
+
+
+def test_reconcile_joins_uploads_to_scores_and_skips_dry_runs_and_failures(tmp_path):
+    from prc.leaderboard import format_reconciliation, reconcile
+
+    log = tmp_path / "submissions.jsonl"
+    log.write_text(
+        "\n".join(
+            json.dumps(r)
+            for r in [
+                {"version": 1, "dry_run": True, "status": "uploaded", "object_name": "t_v1.parquet"},
+                {"version": 1, "dry_run": False, "status": "attempted", "object_name": None},
+                {
+                    "version": 1,
+                    "dry_run": False,
+                    "status": "uploaded",
+                    "object_name": "t_v1.parquet",
+                    "exp_id": "a",
+                    "cv": {"rmse_full": 337.02},
+                    "note": "baseline",
+                },
+                {"version": 2, "dry_run": False, "status": "failed", "object_name": "t_v2.parquet"},
+                {
+                    "version": 3,
+                    "dry_run": False,
+                    "status": "uploaded",
+                    "object_name": "t_v3.parquet",
+                    "exp_id": "b",
+                    "cv": {"rmse_full": 320.0},
+                },
+            ]
+        )
+    )
+    items = [
+        {"teamName": "t", "filename": "t_v1.parquet", "score": 345.35},
+        {"teamName": "other", "filename": "t_v3.parquet", "score": 1.0},  # another team's row must not leak in
+    ]
+    rows = reconcile(log, items, our_team="t")
+    assert [r["version"] for r in rows] == [1, 3]
+    assert rows[0]["lb"] == 345.35
+    assert rows[0]["gap"] == pytest.approx(345.35 - 337.02)
+    assert rows[1]["lb"] is None and rows[1]["gap"] is None  # uploaded but not scored yet
+    text = format_reconciliation(rows)
+    assert "unscored" in text and "345.35" in text
