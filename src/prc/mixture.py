@@ -151,8 +151,10 @@ def predict_fold_mixture(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tra
     # head 1: the encodings the classifier sees are fitted on the training side only, as for the regressor
     enc = fit_encodings(train_src, cfg)
     tr_e, tg_e = attach_encodings(train_src, enc), attach_encodings(target_c, enc)
+    del train_src  # tr_e carries clock_src, so the pre-encoding copy of the training frame is dead weight here
+    gc.collect()
     if cfg.use_source_rates:
-        rates = source_rate_tables(train_src, cfg.source_rate_smoothing)
+        rates = source_rate_tables(tr_e, cfg.source_rate_smoothing)
         tr_e, tg_e = attach_source_rates(tr_e, rates), attach_source_rates(tg_e, rates)
         info["source_rate_groups"] = [t for t in rates if t != "_prior"]
     if tg_e.height != target_c.height or not tg_e["MVT_ID_mvt"].equals(target_c["MVT_ID_mvt"]):
