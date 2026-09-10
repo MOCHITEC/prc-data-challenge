@@ -21,6 +21,7 @@ import hashlib
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -63,6 +64,10 @@ class TrainConfig:
     linear_lambda: float = 1.0
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
+    # prc.mixture only (docs/06): tolerance for calling BLOCK_TIME a copy of another clock, and the round budget
+    # for the clock-source classifier, which converges much sooner than the regressor.
+    match_tol_s: int = 60
+    clf_num_rounds: int = 400
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -313,9 +318,19 @@ def feature_parity_report(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tr
     )
 
 
-def run_cv(feats: pl.DataFrame, cfg: TrainConfig, out_dir: Path = Path("experiments")) -> dict:
-    """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record."""
+def run_cv(
+    feats: pl.DataFrame,
+    cfg: TrainConfig,
+    out_dir: Path = Path("experiments"),
+    predictor: Callable[[pl.DataFrame, pl.DataFrame, TrainConfig], tuple[pl.DataFrame, dict]] | None = None,
+) -> dict:
+    """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record.
+
+    `predictor` has predict_fold's contract; pass prc.mixture.predict_fold_mixture to cross-validate the
+    clock-source mixture instead. Whatever is passed must be the same function the ranking path uses, or the
+    validated model is not the submitted one."""
     t0 = time.time()
+    predictor = predictor or predict_fold
     months = year_month_key(feats)
     folds: list[Fold] = month_block_folds(months.unique().to_list(), cfg.scheme)
     oof = pl.DataFrame({"MVT_ID_mvt": feats["MVT_ID_mvt"]}).with_columns(pl.lit(None, dtype=pl.Float64).alias("oof"))
@@ -323,7 +338,7 @@ def run_cv(feats: pl.DataFrame, cfg: TrainConfig, out_dir: Path = Path("experime
     for f in folds:
         tr_f = feats.filter(months.is_in(list(f.train_months)))
         va_f = feats.filter(months.is_in(list(f.valid_months)))
-        p, info = predict_fold(tr_f, va_f, cfg)
+        p, info = predictor(tr_f, va_f, cfg)
         joined = va_f.select(["MVT_ID_mvt", LABEL, "ADEP_mvt"]).join(p, on="MVT_ID_mvt", how="inner")
         y, pv = joined[LABEL].to_numpy().astype(float), joined["pred"].to_numpy().astype(float)
         fold_metrics[f.name] = {
@@ -344,6 +359,7 @@ def run_cv(feats: pl.DataFrame, cfg: TrainConfig, out_dir: Path = Path("experime
         "git_sha": _git_sha(),
         "folds": fold_metrics,
         "overall": overall,
+        "predictor": getattr(predictor, "__name__", str(predictor)),
         "train_seconds": round(time.time() - t0, 1),
         "n_features": len(numeric_feature_columns(feats)),
     }

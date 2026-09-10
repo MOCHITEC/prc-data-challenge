@@ -18,9 +18,17 @@ PARITY_GAP_LIMIT = 0.20
 
 
 def predict_ranking(
-    train_feats: pl.DataFrame, rank_feats: pl.DataFrame, cfg: TrainConfig, parity_gap_limit: float = PARITY_GAP_LIMIT
+    train_feats: pl.DataFrame,
+    rank_feats: pl.DataFrame,
+    cfg: TrainConfig,
+    parity_gap_limit: float = PARITY_GAP_LIMIT,
+    predictor=None,
 ) -> tuple[pl.DataFrame, dict]:
-    """Predict the ranking frame after checking feature availability parity (docs/04 section 3)."""
+    """Predict the ranking frame after checking feature availability parity (docs/04 section 3).
+
+    `predictor` defaults to the two-clock model; prc.pipeline passes whatever the config selected so that the
+    cross-validated model and the submitted model are the same function."""
+    predictor = predictor or predict_fold
     parity = feature_parity_report(train_feats, rank_feats, cfg)
     bad = parity.filter(pl.col("gap") > parity_gap_limit)
     if bad.height:
@@ -28,7 +36,7 @@ def predict_ranking(
             "feature availability differs between training and ranking; fix or drop these features:\n"
             + str(bad.select(["feature", "null_rate_train", "null_rate_target", "gap"]))
         )
-    pred, info = predict_fold(train_feats, rank_feats, cfg)
+    pred, info = predictor(train_feats, rank_feats, cfg)
     info["parity_max_gap"] = float(parity["gap"].max()) if parity.height else 0.0
     return pred, info
 

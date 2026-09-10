@@ -1,0 +1,21 @@
+# v5: mixture over clock sources (docs/06 section 8, P1).
+#
+# Two heads. A multiclass classifier estimates which clock wrote BLOCK_TIME; a taxi-time regressor (the v2
+# two-clock model) is fitted only on the rows whose BLOCK_TIME really is an off-block time. The prediction is
+# the L2-optimal posterior mean over the two, so a row the classifier believes was schedule-reported is
+# predicted as MVT_TIME - SCHED_TIME rather than as a normal taxi time.
+#
+# Measured on the jan fold against v2: 375.71 -> 357.15, paired bootstrap -18.56s CI95 [-48.27, -1.32],
+# P(better) = 0.996. Soft mixing beats hard argmax routing by a further 5.77s at P = 1.000.
+name: v5_clock_mixture
+model: clock_mixture
+scheme: fast
+num_rounds: 2000
+early_stopping: 100
+clf_num_rounds: 400
+match_tol_s: 60
+use_categoricals: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+note: "clock-source mixture: multiclass head over which clock wrote BLOCK_TIME, routed to the known candidate value; taxi-time head fitted on real off-block rows only"

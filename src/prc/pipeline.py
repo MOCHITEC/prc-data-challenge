@@ -70,6 +70,20 @@ def build_features(
     return f_tr, f_rk
 
 
+def resolve_predictor(name: str):
+    """Which model the config asks for. The same function is used for CV and for the ranking prediction, so a
+    config change can never validate one model and submit another."""
+    if name == "two_clock":
+        from .train import predict_fold
+
+        return predict_fold
+    if name == "clock_mixture":
+        from .mixture import predict_fold_mixture
+
+        return predict_fold_mixture
+    raise SystemExit(f"unknown model {name!r}; expected 'two_clock' or 'clock_mixture'")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", type=Path, required=True)
@@ -84,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     spec = yaml.safe_load(a.config.read_text())
     cfg = TrainConfig(**{k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__})
     use_weather = bool(spec.get("use_weather", False))
+    predictor = resolve_predictor(spec.get("model", "two_clock"))
     t0 = time.time()
 
     train, rank, sub_path = load_raw(a.raw_dir)
@@ -92,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cv_rec = None
     if not a.skip_cv:
-        cv_rec = run_cv(f_tr, cfg)
+        cv_rec = run_cv(f_tr, cfg, predictor=predictor)
         print(
             f"CV {cv_rec['exp_id']}: full={cv_rec['overall']['rmse_full']:.2f} "
             f"clean={cv_rec['overall']['rmse_clean']:.2f} ({cv_rec['train_seconds']}s)"
@@ -103,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"tail20={m['top20_share_of_sse']:.2f}"
             )
 
-    pred, info = predict_ranking(f_tr, f_rk, cfg)
+    pred, info = predict_ranking(f_tr, f_rk, cfg, predictor=predictor)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     name = spec.get("name", cfg.name)
     out_file = a.out_dir / f"{name}.parquet"
@@ -116,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
             "config": str(a.config),
             "train_config": asdict(cfg),
             "use_weather": use_weather,
+            "model": spec.get("model", "two_clock"),
             "cv": cv_rec["overall"] if cv_rec else None,
             "predict_info": info,
             "file": str(out_file),
