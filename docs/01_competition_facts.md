@@ -11,7 +11,8 @@
 - 登録フォーム: Google Forms（概要ページ「Request Team Creation!」）
 - 公開リーダーボード（第三者ミラー）: https://prc-challenge-2026.vercel.app/
 - 公式 API: `https://datacomp.opensky-network.org/api/competitions/bb3693e1-26bc-4a9e-8619-4fe78b4eab0c/leaderboard`（`nextCursor` でページング、`?teamName=&limit=`（最大 200）で絞り込み可）、`.../teams?page=&size=`、Swagger UI `https://datacomp.opensky-network.org/api/swagger-ui/`
-- MinIO 利用手順（2024 年版を参照するよう公式が指示）: https://prc-data-challenge.netlify.app/data.html
+- MinIO 利用手順（2024 年版を参照するよう公式が指示）: https://prc-data-challenge.netlify.app/data.html （`ansperformance.eu/study/data-challenge/dc2024/data.html` からのリダイレクト先。**2024 年版のページなのでバケット名・データ説明は 2026 年版のものではない**）
+- MinIO コンソール（S3 アクセスキーの発行画面。ブラウザで開くのはこちら）: https://s3-console.opensky-network.org/access-keys （2026 年データページ Buckets 節のスクリーンショット `media/minio_access_keys.png` に写っている URL。Login with SSO → OSN アカウント）
 - 過去回（Step 3 の入力）: JOAS 論文 https://journals.open.tudelft.nl/joas/article/view/7963 , /8252 , /8750 , /8764 、チームリポジトリ https://github.com/prc-data-challenge-2024 , https://github.com/prc-data-challenge-2025
 
 表記ルール: 「事実」= 公式記載の要約。「推論」= 公式記載から導いたが明示されていないもの。「未確認」= データ取得後または運営（Discord）で確認が必要なもの。
@@ -107,7 +108,7 @@ Flight 列（NM 由来）:
 
 ### 2.3 データアクセス
 
-- OSN の MinIO（S3 互換）バケット。エンドポイント `https://s3.opensky-network.org/`（2024 年版手順より）
+- OSN の MinIO（S3 互換）バケット。エンドポイント `https://s3.opensky-network.org/`（2024 年版手順より。**S3 API 専用でブラウザからは 403**。鍵の発行は別ホストのコンソール `https://s3-console.opensky-network.org/`）
 - アクセスキーについて公式サイト内で記述が食い違う: 概要ページは「確認メールに返信後、バケットのアクセスキーが届く」、データページは「OSN アカウント画面で自分でアクセスキーを生成する（スクリーンショット付き）」。承認メール受領後に実手順を確定する
 - 取得手段（2024 年版手順）: `mc alias set <alias> https://s3.opensky-network.org/ <ACCESS_KEY> <SECRET_KEY>` → `mc cp --recursive <alias>/<bucket>/ <dir>/`。または `pyopensky` の `S3Client`（設定ファイル `[default]` に `username / password / access_key / secret_key`）
 - 提出も同じ MinIO の**チーム専用バケット**へアップロード（§3）

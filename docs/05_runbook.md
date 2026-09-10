@@ -28,13 +28,26 @@ OSN_ACCESS_KEY=<MinIO のアクセスキー>
 OSN_SECRET_KEY=<MinIO のシークレット>
 ```
 
-**必要なのは MinIO（S3）のアクセスキーであって、OpenSky の API クライアントではない。** OSN アカウントは紛らわしい名前の認証情報を 2 種類発行する。API クライアント（`<user>-api-client` 形式の client_id + secret）は REST/Trino API 用で、S3 エンドポイントは `InvalidAccessKeyId` を返す。取得手順は `https://s3.opensky-network.org/` に OSN アカウントでサインイン → Access Keys → Create access key。2026-09-10 のセッションはこれを取り違えて Phase 1 が止まった（docs/decisions.md）。`make doctor` がこの取り違えを名指しで診断する。
+**必要なのは MinIO（S3）のアクセスキーであって、OpenSky の API クライアントではない。** OSN アカウントは紛らわしい名前の認証情報を 2 種類発行する。API クライアント（`<user>-api-client` 形式の client_id + secret）は REST/Trino API 用で、S3 エンドポイントは `InvalidAccessKeyId` を返す。2026-09-10 のセッションはこれを取り違えて Phase 1 が止まった（docs/decisions.md）。`make doctor` がこの取り違えを名指しで診断する。
+
+**鍵を発行する画面（ブラウザで開く）**:
+
+| | URL | 用途 |
+|---|---|---|
+| MinIO コンソール | **https://s3-console.opensky-network.org/access-keys** | 鍵の発行。ここを開く |
+| S3 API エンドポイント | `https://s3.opensky-network.org/` | プログラムからの接続先。**ブラウザで開いても 403**（Web UI は無い） |
+
+手順: 上のコンソールを開く → **Login with SSO** → OSN アカウントでサインイン → 左メニュー **Access Keys** → 右上 **Create access key** → 表示される Access Key / Secret Key を控える（Secret は作成時にしか表示されない）。
+
+出典は 2026 年公式データページの Buckets 節（`https://prc-data-challenge-2026.netlify.app/data.html#buckets`）とそのスクリーンショット `media/minio_access_keys.png`。同節は「MinIO の使い方は 2024 年版の手順を見よ」として `https://ansperformance.eu/study/data-challenge/dc2024/data.html#using-minio-client`（`prc-data-challenge.netlify.app/data.html` にリダイレクト）を案内している。**このリダイレクト先は 2024 年版（ATOW）のページなので、そこに書かれたバケット名・データ説明は 2026 年版のものではない**。
 
 キーの名前は複数の表記を受け付ける。アクセスキーは `OSN_ACCESS_KEY` / `OSN_ID` / `OSN_ACCESS_KEY_ID` / `OSN_KEY_ID` のいずれか、シークレットは `OSN_SECRET_KEY` / `OSN_SECRET` / `OSN_SECRET_ACCESS_KEY` のいずれかで良い（運営の表記が MinIO コンソールと OSN アカウント画面で異なるため）。
 
 `OSN_TEAM_BUCKET`（提出先バケット）と `PRC_TEAM_NAME`（提出ファイル名に使うチーム名）は **`make doctor` が接続後に検出して提案する**ので、最初から設定しなくてよい。提出を行う前に環境変数へ追加する。`OSN_S3_ENDPOINT` は既定値 `s3.opensky-network.org` で足りる。
 
-`OSN_COMPETITION_BUCKET` の既定値 `competition-data` は 2024 年版の手順から引いた推定で、**その名前のバケットの中身は実際には 2024 年版（ATOW）のデータセットだった**（匿名で一覧可能、日別 parquet + `challenge_set.csv`、最終更新 2024-10）。2026 年の 14 ファイルがどのバケットにあるかは鍵が通ってからでないと分からない。`make doctor` が可視バケットの一覧と 2024 年版の判定を出すので、正しい名前をそれで確認して環境変数に入れる。
+`OSN_COMPETITION_BUCKET` の既定値 `competition-data` は 2024 年版の手順から引いた推定で、**その名前のバケットの中身は実際には 2024 年版（ATOW）のデータセットだった**（匿名で一覧可能、368 オブジェクト・306 GB、日別 parquet `2022-01-01.parquet` … + `challenge_set.csv`、最終更新 2024-10）。既定値は削除済み。
+
+2026 年版の公式サイトはバケット名を明記していない（提出先も「チーム専用のバケット」とだけ書かれている）。匿名では存在確認もできない: エンドポイントは存在しないバケットにも既存の非公開バケットにも一律 `403 AccessDenied` を返すため、名前の推測による特定は不可能。**鍵が通れば一覧で分かる**ので、`make doctor`（`mc ls <alias>` 相当）の出力で確認して `OSN_COMPETITION_BUCKET` と `OSN_TEAM_BUCKET` に入れる。doctor は 2024 年版データセットの署名を検出したら警告する。
 
 サンドボックスの外向き通信は `HTTPS_PROXY` のエージェントプロキシ経由のみ。`prc.io_minio` はこれを読んで接続する（`requests` を使う `prc.leaderboard` / `prc.weather` は元から自動）。`too many 503 error responses` が出たらプロキシを迂回している合図。
 

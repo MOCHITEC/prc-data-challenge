@@ -24,6 +24,9 @@ EXPECTED_OFFICIAL = re.compile(
 LEGACY_2024 = re.compile(r"^(\d{4}-\d{2}-\d{2}\.parquet|challenge_set\.csv|(final_)?submission_set\.csv)$")
 
 OAUTH_TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+# The browser UI that issues S3 access keys. Not the same host as the S3 API endpoint, which is the mistake
+# the message below exists to prevent.
+CONSOLE_URL = "https://s3-console.opensky-network.org/access-keys"
 
 
 def looks_like_2024_dataset(object_names: list[str]) -> bool:
@@ -75,11 +78,15 @@ def main() -> int:
                 "\n  DIAGNOSIS: this pair is an OpenSky *API client* (OAuth2 client id + secret), not an S3\n"
                 "  access key. It authenticates fine against the OpenSky token endpoint, and the S3 endpoint\n"
                 "  rejects it. The two are issued in different places under confusingly similar names.\n"
-                "  Fix: sign in to https://s3.opensky-network.org/ with the OpenSky account, open\n"
-                "  'Access Keys' -> 'Create access key', and put THOSE two values in the cloud environment as\n"
-                "  OSN_ACCESS_KEY and OSN_SECRET_KEY. Then start a NEW session (variables are copied once).\n"
-                "  (The MinIO console's own OIDC client is the only one its STS accepts, so the API client\n"
-                "  cannot be exchanged for temporary S3 credentials either - this was tried.)"
+                f"  Fix: open {CONSOLE_URL}\n"
+                "  in a browser. That is the MinIO *console*, a different host from the S3 endpoint: the\n"
+                "  endpoint s3.opensky-network.org serves no web UI and answers 403 in a browser.\n"
+                "  'Login with SSO' -> the OpenSky account -> 'Create access key', then put those two values\n"
+                "  in the cloud environment as OSN_ACCESS_KEY and OSN_SECRET_KEY and start a NEW session\n"
+                "  (variables are copied once, at session start).\n"
+                "  Source: the 2026 data page, section 'Buckets', screenshot media/minio_access_keys.png.\n"
+                "  (The console's own OIDC client 'minio-client' is the only one the MinIO STS accepts, so an\n"
+                "  API client cannot be exchanged for temporary S3 credentials either - this was tried.)"
             )
         else:
             print("  Check the key/secret pair and that the team request was approved.")

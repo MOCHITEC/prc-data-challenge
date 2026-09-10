@@ -66,3 +66,25 @@
 **ブロックされていない範囲は完了**: `make bootstrap`（依存導入・35 テスト）、`make board`（首位 245.09 秒 youthful-giraffe、96 チーム。前スナップショットから 7 位が −0.04 のみ）、合成データでの v1 / v2 パイプライン全経路（特徴量 → 3 fold CV → ランキング予測 → 提出ゲート）。v1 CV full=567.91 / clean=139.32、v2 CV full=567.78 / clean=138.81。合成データは 2 つの時計の構造を模していないので、この差に意味は無い（実データでの再評価が前提）。
 
 **次の一手**（鍵が入り次第、docs/05 §2 の順）: `make download` → `make profile` で U1・U5〜U8・U11・U13 に回答 → docs/04 §4 の設計を確定 → v1 提出で採点遅延を実測 → v2。
+
+## 2026-09-10（続き 3）: 鍵の発行画面を一次情報で特定（前項の URL 訂正）
+
+前項で案内した「`https://s3.opensky-network.org/` にサインイン」は**誤り**。あのホストは S3 API 専用でブラウザからは 403 を返す（Web UI が無い）。正しい発行画面は**別ホストの MinIO コンソール**:
+
+- **https://s3-console.opensky-network.org/access-keys** → Login with SSO → OSN アカウント → 左メニュー Access Keys → 右上 Create access key
+- 根拠: 2026 年公式データページの Buckets 節（`https://prc-data-challenge-2026.netlify.app/data.html#buckets`）に貼られたスクリーンショット `media/minio_access_keys.png` のアドレスバーがこの URL。運営自身が「OSN アカウントでアクセスキーを生成する必要がある（Discord の JavierIOM 提供）」と添えている
+- コンソールの `/api/v1/login` は `loginStrategy: redirect` を返し、OSN の Keycloak（`client_id=minio-client`）へ飛ばす。**この `minio-client` が MinIO の STS が受け付ける唯一の OIDC クライアント**であることも、前項の STS 迂回が `azp` 不一致で失敗した理由として確定した
+
+**2026 年版のバケット名は公式サイトに書かれていない**（提出先も「チーム専用のバケット」とだけ）。匿名での特定も不可能: エンドポイントは存在しないバケットにも既存の非公開バケットにも一律 `403 AccessDenied` を返す（`this-bucket-surely-does-not-exist-xyz` と `submissions` が同じ応答であることを確認）。鍵が通れば一覧に出るので `make doctor` で確認する。
+
+**公式サイトの導線の罠**（2 つのサイトが並存している）:
+
+| | 2024 年版（ATOW） | 2026 年版（taxi-out time） |
+|---|---|---|
+| サイト | `prc-data-challenge.netlify.app` | `prc-data-challenge-2026.netlify.app` |
+| データ | 2022 年の飛行リスト + 日別軌跡（158 GiB） | 2025 年の 11 空港 movements（月次 14 ファイル） |
+| バケット | `competition-data`（匿名で一覧可）+ `submissions` | 未公表 |
+
+2026 年版の Buckets 節が「MinIO の使い方は 2024 年版を見よ」と `ansperformance.eu/study/data-challenge/dc2024/data.html#using-minio-client` を案内しており、これが 2024 年版サイトへリダイレクトする。**リンク先に書かれたバケット名（`competition-data`）は 2024 年版のもので、2026 年版のものではない**。`.env.example` の既定値がこの罠を踏んでいた。
+
+2024 年版ページから引き継いで有効な手順は、`mc` の使い方そのもの（`mc alias set <alias> https://s3.opensky-network.org/ <ACCESS_KEY> <SECRET_KEY>` → `mc ls <alias>` でバケット一覧 → `mc cp --recursive <alias>/<bucket>/ <dir>/`）と、`pyopensky` の `S3Client`（設定ファイルの `[default]` に `access_key` / `secret_key`）。エンドポイント自体は 2026 年版でも同じ。
