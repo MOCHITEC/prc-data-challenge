@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import polars as pl
+import pytest
 
 from prc.weather import hourly_weather_table, join_weather, parse_metar_csv
 
@@ -36,9 +37,48 @@ def test_deicing_gate_and_join():
             "ADEP_mvt": ["EHAM", "LEBL"],
             "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10), datetime(2026, 7, 15, 12, 30)],
         },
-        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us")},
+        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},  # what prc.features actually produces
     )
     j = join_weather(dep, hourly)
     r = j.filter(pl.col("MVT_ID_mvt") == 1).row(0, named=True)
     assert r["deicing_gate"] == 0  # 06:25 obs is above 3 C
     assert r["deicing_gate_prev1h"] == 1  # the 05:xx hour was freezing with snow
+
+
+@pytest.mark.parametrize("tz", [None, "UTC"])
+def test_join_weather_accepts_either_time_zone_on_the_departure_side(tz):
+    """The real feature frame is timezone-aware UTC and the METAR parse is naive; polars will not join those."""
+    hourly = pl.DataFrame(
+        {
+            "station": ["EDDF", "EDDF"],
+            "hour_utc": [datetime(2026, 1, 6, 5), datetime(2026, 1, 6, 6)],
+            "temp_c": [-2.0, -1.0],
+            "deicing_gate": [1, 0],
+        }
+    )
+    dep = pl.DataFrame(
+        {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
+        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", tz)},
+    )
+    out = join_weather(dep, hourly)
+    assert out.height == 1
+    assert out["deicing_gate"][0] == 0  # the take-off hour
+    assert out["deicing_gate_prev1h"][0] == 1  # and the hour before it
+    assert out["temp_c"][0] == -1.0
+
+
+def test_join_weather_refuses_to_multiply_rows():
+    """A duplicated station-hour would silently double-count departures downstream."""
+    hourly = pl.DataFrame(
+        {
+            "station": ["EDDF", "EDDF"],
+            "hour_utc": [datetime(2026, 1, 6, 6), datetime(2026, 1, 6, 6)],
+            "temp_c": [-2.0, -1.0],
+        }
+    )
+    dep = pl.DataFrame(
+        {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
+        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},
+    )
+    with pytest.raises(AssertionError, match="changed the row count"):
+        join_weather(dep, hourly)

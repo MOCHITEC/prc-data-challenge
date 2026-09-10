@@ -162,9 +162,19 @@ def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _align_tz(col: pl.Expr, like: pl.DataType) -> pl.Expr:
+    """Make a datetime column's time zone match `like`.
+
+    The METAR archive is parsed as naive UTC while prc.features produces timezone-aware UTC, and polars refuses
+    to join a datetime[us] key against a datetime[us, UTC] one. Both sides mean UTC, so this only relabels."""
+    tz = getattr(like, "time_zone", None)
+    return col.dt.replace_time_zone(tz) if tz else col.dt.replace_time_zone(None)
+
+
 def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
     """Attach the weather hour of the take-off time (and the previous hour) to departure features."""
-    w = hourly.rename({"station": "ADEP_mvt"})
+    dep_dtype = dep_feats.schema["MVT_TIME_UTC_mvt"]
+    w = hourly.rename({"station": "ADEP_mvt"}).with_columns(_align_tz(pl.col("hour_utc"), dep_dtype))
     prev = w.with_columns((pl.col("hour_utc") + pl.duration(hours=1)).alias("hour_utc")).rename(
         {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", "hour_utc")}
     )
