@@ -7,6 +7,7 @@
 ```bash
 cd /home/user/prc-data-challenge
 make bootstrap      # uv venv + 依存インストール + 環境変数確認 + データ取得（キーがあれば）+ pytest
+make doctor         # 認証情報の疎通確認とバケット名・チーム名の自動検出（読み取りのみ）
 make board          # リーダーボードを取得し、前回スナップショットとの差分を表示
 ```
 
@@ -23,13 +24,13 @@ MinIO のキーは **環境変数としてクラウド環境に登録する**。
 登録する変数（`.env.example` と同じ名前）:
 
 ```text
-OSN_ACCESS_KEY=<MinIO アクセスキー>
-OSN_SECRET_KEY=<MinIO シークレットキー>
-OSN_TEAM_BUCKET=<運営から通知されたチーム専用バケット名>
-PRC_TEAM_NAME=<チーム名（提出ファイル名に使う）>
+OSN_ID=<アクセスキー（ID）>
+OSN_SECRET_KEY=<シークレット>
 ```
 
-`OSN_S3_ENDPOINT` と `OSN_COMPETITION_BUCKET` は既定値（`s3.opensky-network.org` / `competition-data`）で足りるので省略可。
+キーの名前は複数の表記を受け付ける。アクセスキーは `OSN_ACCESS_KEY` / `OSN_ID` / `OSN_ACCESS_KEY_ID` / `OSN_KEY_ID` のいずれか、シークレットは `OSN_SECRET_KEY` / `OSN_SECRET` / `OSN_SECRET_ACCESS_KEY` のいずれかで良い（運営の表記が MinIO コンソールと OSN アカウント画面で異なるため）。
+
+`OSN_TEAM_BUCKET`（提出先バケット）と `PRC_TEAM_NAME`（提出ファイル名に使うチーム名）は **`make doctor` が接続後に検出して提案する**ので、最初から設定しなくてよい。提出を行う前に環境変数へ追加する。`OSN_S3_ENDPOINT` と `OSN_COMPETITION_BUCKET` は既定値（`s3.opensky-network.org` / `competition-data`）で足りる。
 
 ネットワークは確認済み: このクラウド環境から `s3.opensky-network.org` と `mesonet.agron.iastate.edu` に到達できる。
 

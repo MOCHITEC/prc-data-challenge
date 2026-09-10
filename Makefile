@@ -1,11 +1,11 @@
 PY=.venv/bin/python
-.PHONY: bootstrap test lint synth download board profile v1 v2
+.PHONY: bootstrap test lint synth download board profile doctor v1 v2
 
 bootstrap:            ## create venv, install, verify env, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
 	uv pip install -q --python $(PY) -e ".[dev]"
 	$(PY) -c "import prc, lightgbm, polars; print('env ok')"
-	@if [ -n "$$OSN_ACCESS_KEY" ]; then $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"; else echo "OSN_ACCESS_KEY not set: skipping download"; fi
+	@if [ -n "$$OSN_ACCESS_KEY" ] || [ -n "$$OSN_ID" ]; then $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"; else echo "OSN_ACCESS_KEY not set: skipping download"; fi
 	$(PY) -m pytest -q
 
 test:
@@ -31,3 +31,6 @@ v1:                   ## baseline submission (gate only, no upload)
 
 v2:                   ## two-clock model submission (gate only, no upload)
 	$(PY) -m prc.pipeline --config configs/v2_two_clock.yaml
+
+doctor:               ## verify the OpenSky credentials and discover the buckets (read-only)
+	$(PY) -m prc.doctor

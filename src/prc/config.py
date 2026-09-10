@@ -17,6 +17,20 @@ EXPECTED_SUBMISSION_ROWS = 344_841  # usedPairs on the leaderboard API (2026-09-
 TARGET_AIRPORTS = ["EDDF", "EDDM", "EGLL", "EHAM", "LEBL", "LEMD", "LFPG", "LIRF", "LTFM", "LSZH"]
 
 
+# The organisers' key pair is labelled differently depending on where you read it (the MinIO console says
+# "access key", the OSN account page says "ID"), so accept every spelling we have seen.
+ACCESS_KEY_VARS = ("OSN_ACCESS_KEY", "OSN_ID", "OSN_ACCESS_KEY_ID", "OSN_KEY_ID")
+SECRET_KEY_VARS = ("OSN_SECRET_KEY", "OSN_SECRET", "OSN_SECRET_ACCESS_KEY")
+
+
+def _first_env(names: tuple[str, ...]) -> str | None:
+    for n in names:
+        v = os.getenv(n)
+        if v and v.strip():
+            return v.strip()
+    return None
+
+
 @dataclass(frozen=True)
 class OsnConfig:
     endpoint: str
@@ -28,13 +42,20 @@ class OsnConfig:
 
     @classmethod
     def from_env(cls) -> OsnConfig:
-        missing = [k for k in ("OSN_ACCESS_KEY", "OSN_SECRET_KEY") if not os.getenv(k)]
+        access, secret = _first_env(ACCESS_KEY_VARS), _first_env(SECRET_KEY_VARS)
+        missing = []
+        if not access:
+            missing.append(" / ".join(ACCESS_KEY_VARS))
+        if not secret:
+            missing.append(" / ".join(SECRET_KEY_VARS))
         if missing:
-            raise RuntimeError(f"Missing environment variables: {missing} (see .env.example)")
+            raise RuntimeError(f"Missing environment variables, set one of each: {missing} (see .env.example)")
         return cls(
-            endpoint=os.getenv("OSN_S3_ENDPOINT", "s3.opensky-network.org"),
-            access_key=os.environ["OSN_ACCESS_KEY"],
-            secret_key=os.environ["OSN_SECRET_KEY"],
+            # minio wants a bare host, so tolerate a pasted URL
+            endpoint=os.getenv("OSN_S3_ENDPOINT", "s3.opensky-network.org").replace("https://", "").rstrip("/"),
+            access_key=access,
+            secret_key=secret,
+            # both of these are discoverable from the buckets themselves - see prc.doctor
             competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "competition-data"),
             team_bucket=os.getenv("OSN_TEAM_BUCKET", ""),
             team_name=os.getenv("PRC_TEAM_NAME", ""),

@@ -19,9 +19,13 @@ def client(cfg: OsnConfig | None = None) -> Minio:
     return Minio(cfg.endpoint, access_key=cfg.access_key, secret_key=cfg.secret_key, secure=True)
 
 
-def list_objects(bucket: str, prefix: str = "", cfg: OsnConfig | None = None) -> list[str]:
+def list_buckets(cfg: OsnConfig | None = None) -> list[str]:
+    return [b.name for b in client(cfg).list_buckets()]
+
+
+def list_objects(bucket: str, prefix: str = "", cfg: OsnConfig | None = None) -> list[tuple[str, int]]:
     c = client(cfg)
-    return [o.object_name for o in c.list_objects(bucket, prefix=prefix, recursive=True)]
+    return [(o.object_name, o.size or 0) for o in c.list_objects(bucket, prefix=prefix, recursive=True)]
 
 
 def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnConfig | None = None) -> list[Path]:
