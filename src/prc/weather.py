@@ -171,12 +171,44 @@ def _align_tz(col: pl.Expr, like: pl.DataType) -> pl.Expr:
     return col.dt.replace_time_zone(tz) if tz else col.dt.replace_time_zone(None)
 
 
-def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
-    """Attach the weather hour of the take-off time (and the previous hour) to departure features."""
+# The columns with an operational mechanism behind them, and the only ones carried by default.
+#
+# Measured on v11, which carried all twenty (ten fields plus a previous-hour copy of each): decisively better in
+# January (-3.79s, P = 1.000) and probably worse in July (+2.45s, P better = 0.195), for nothing net on the two
+# scored months. De-icing never fires in July, so every winter column is a noise dimension there, and twenty of
+# them across 2M rows buy enough spurious splits to cancel the January gain.
+#
+# Kept: the de-icing gate and its inputs, and visibility, which triggers low-visibility procedures year-round.
+# Dropped: gust_ms (97.7% null - only reported when present), dewp_spread_c and temp_x_precip (collinear with
+# the gate's inputs), frozen_wx (already inside the gate). Only the de-icing gate keeps a previous-hour copy,
+# because a de-icing queue persists past the weather that caused it, which is not true of visibility.
+MECHANISM_COLUMNS = ("deicing_gate", "temp_c", "precip_mm", "vis_km", "low_vis", "wind_ms")
+MECHANISM_PREV1H = ("deicing_gate",)
+
+
+def join_weather(
+    dep_feats: pl.DataFrame,
+    hourly: pl.DataFrame,
+    columns: tuple[str, ...] | None = MECHANISM_COLUMNS,
+    prev1h: tuple[str, ...] | None = MECHANISM_PREV1H,
+) -> pl.DataFrame:
+    """Attach the weather hour of the take-off time (and selected previous-hour fields) to departure features.
+
+    `columns=None` keeps every field, which is what v11 did; the default is MECHANISM_COLUMNS."""
     dep_dtype = dep_feats.schema["MVT_TIME_UTC_mvt"]
     w = hourly.rename({"station": "ADEP_mvt"}).with_columns(_align_tz(pl.col("hour_utc"), dep_dtype))
-    prev = w.with_columns((pl.col("hour_utc") + pl.duration(hours=1)).alias("hour_utc")).rename(
-        {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", "hour_utc")}
+    if columns is not None:
+        missing = [c for c in columns if c not in w.columns]
+        if missing:
+            raise ValueError(f"requested weather columns not in the hourly table: {missing}")
+        w = w.select(["ADEP_mvt", "hour_utc", *columns])
+    prev_cols = [c for c in w.columns if c not in ("ADEP_mvt", "hour_utc")]
+    if prev1h is not None:
+        prev_cols = [c for c in prev_cols if c in prev1h]
+    prev = (
+        w.select(["ADEP_mvt", "hour_utc", *prev_cols])
+        .with_columns((pl.col("hour_utc") + pl.duration(hours=1)).alias("hour_utc"))
+        .rename({c: f"{c}_prev1h" for c in prev_cols})
     )
     out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias("hour_utc"))
     out = out.join(w, on=["ADEP_mvt", "hour_utc"], how="left", maintain_order="left").join(

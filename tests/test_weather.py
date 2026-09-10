@@ -60,7 +60,7 @@ def test_join_weather_accepts_either_time_zone_on_the_departure_side(tz):
         {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
         schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", tz)},
     )
-    out = join_weather(dep, hourly)
+    out = join_weather(dep, hourly, columns=None, prev1h=None)  # column choice is tested separately
     assert out.height == 1
     assert out["deicing_gate"][0] == 0  # the take-off hour
     assert out["deicing_gate_prev1h"][0] == 1  # and the hour before it
@@ -81,4 +81,52 @@ def test_join_weather_refuses_to_multiply_rows():
         schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},
     )
     with pytest.raises(AssertionError, match="changed the row count"):
-        join_weather(dep, hourly)
+        join_weather(dep, hourly, columns=None, prev1h=None)
+
+
+def _full_hourly() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "station": ["EDDF", "EDDF"],
+            "hour_utc": [datetime(2026, 1, 6, 5), datetime(2026, 1, 6, 6)],
+            "temp_c": [-2.0, -1.0],
+            "dewp_spread_c": [1.0, 1.5],
+            "wind_ms": [4.0, 5.0],
+            "gust_ms": [None, 9.0],
+            "precip_mm": [0.3, 0.0],
+            "vis_km": [0.8, 3.0],
+            "frozen_wx": [True, False],
+            "deicing_gate": [1, 0],
+            "low_vis": [1, 0],
+            "temp_x_precip": [-0.6, 0.0],
+        }
+    )
+
+
+def _dep() -> pl.DataFrame:
+    return pl.DataFrame(
+        {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
+        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},
+    )
+
+
+def test_only_the_mechanism_columns_are_carried_by_default():
+    """v11 carried all twenty and gained nothing net on the scored months; the winter columns are July noise."""
+    from prc.weather import MECHANISM_COLUMNS, MECHANISM_PREV1H
+
+    out = join_weather(_dep(), _full_hourly())
+    added = [c for c in out.columns if c not in ("MVT_ID_mvt", "ADEP_mvt", "MVT_TIME_UTC_mvt")]
+    assert sorted(added) == sorted([*MECHANISM_COLUMNS, *(f"{c}_prev1h" for c in MECHANISM_PREV1H)])
+    assert "gust_ms" not in added and "frozen_wx" not in added and "temp_x_precip" not in added
+    assert out["deicing_gate"][0] == 0 and out["deicing_gate_prev1h"][0] == 1
+    assert "vis_km_prev1h" not in added  # visibility does not leave a queue behind it
+
+
+def test_all_columns_are_available_on_request():
+    out = join_weather(_dep(), _full_hourly(), columns=None, prev1h=None)
+    assert "gust_ms" in out.columns and "gust_ms_prev1h" in out.columns
+
+
+def test_a_misspelled_weather_column_is_rejected():
+    with pytest.raises(ValueError, match="not in the hourly table"):
+        join_weather(_dep(), _full_hourly(), columns=("deicing_gate", "temp_celsius"))
