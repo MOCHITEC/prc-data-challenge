@@ -87,3 +87,37 @@
 - 本書の全引用は調査エージェントが開いた URL に基づくが、第 2 エージェントによる再検証は実行環境の上限で未完了。特に数値（CODA 表、各研究の RMSE）は計画の意思決定に使う前に原典で再確認する。
 - 未完了の調査方向: (a) 空港運用知識（各空港の滑走路運用・遠隔スタンド・防除氷・A-CDM の TSAT/TOBT の影響、EHAM Polderbaan、EGLL の単一滑走路運用、LTFM の特性）、(b) 本設定特有の戦術（Discord・ブログ等で既に公開されている 2026 年の議論の有無、RMSE 向けの目的変数変換・外れ値方針）。→ Step 3 追加調査として小規模に再実行する。
 - 「現 LB 首位が空港内 SD を下回る」は CODA 夏季値との比較であり、冬季（1 月）は分布が異なる。
+
+---
+
+## 8. 2026 年参加チームの公開知見（追加調査 2026-09-10。出典は各チームの公開 GitHub。運営確認は Discord 経由の二次情報）
+
+計画に直結する事実（自データで再確認するまで「報告値」扱い）:
+
+- **評価セットは 09-04 に差し替え**られた（215,876 → 344,841 行）。09-04 以前の LB スコアは比較不可。出典: https://raw.githubusercontent.com/LeeMarshall1113/prc-taxiout-2026/main/notes/2026-09-04-data-findings.md
+- **`AOBT_3_flt` は Ranking 出発便の 98.52% に存在**。素朴予測 `MVT_TIME − AOBT_3` の RMSE は 384.9 秒（相関 0.536、1 分以内一致は 21%）で「強い特徴量だがリークではない」。`TAXITIME = MVT − BLOCK` は Training 全行で厳密に成立。出典: https://raw.githubusercontent.com/ahmetabdullahgultekin/prc-taxiout-2026/master/docs/data_probe_report_2026-09-01.md
+- **2 つの時計の差分**（`y = (MVT − AOBT_3) − f(x)`、`f = BLOCK − AOBT_3` を GBDT で学習）: 同一 fold・特徴量・シードで 285.2 → 252.7 秒。NM 無し行（1.53%）は別モデル（単一モデルだと 144 秒悪化）。出典: https://raw.githubusercontent.com/saurabhdxt-labs/prc-challenge/main/README.md
+- 同チームの負の結果: 気象 +0.5 秒、待ち行列特徴量 +2.7 秒、OOF TE −1.0 秒、winsorize −30 秒、絶対誤差損失 −15 秒（正 = 改善）。
+- **RMSE は尾部に支配**: Jan+Jul 2025 の 344,336 行のうち、y > 80,000 秒の 7 行が MSE の 44%、上位 20 行で 55%。体制は「LIRF の NM レコード無し」行で、`BLOCK == SCHED`（報告の代替）や 1 日ずれ。運営（Discord、二次情報）はこれらが Ranking の正解にも含まれると述べた。決定論的な LIRF 帯域ルールで LB −58 秒、ハード切替は +195 秒悪化。出典: https://raw.githubusercontent.com/skylinkapi/prc-data-challenge-2026-kind-mango/main/docs/MODEL_ANALYSIS.md
+- 学習から > 120 分の行を除くと +24 秒、> 60 分で +36 秒悪化。log 目的変数 / Huber は「MSE より大幅に悪い」。出典: https://raw.githubusercontent.com/ahmetabdullahgultekin/prc-taxiout-2026/master/docs/experiments.md
+- **LightGBM `linear_tree`** で CLEAN RMSE −10.5 秒（対差分 CI −14.5〜−7.3）。木は `y ≈ proxy − f(x)` の恒等部分を表せないため。広域入力には signed-log のコピーを添えて外挿を抑える。
+- **検証**: Jan+Jul 2025 ホールドアウトは LB より 12〜15% 悲観的（尾部行が多い）、Jul–Dec や Dec のみは楽観的。単一 RMSE のブートストラップ区間は約 131 秒幅で、行単位の対差分のみが約 5〜7 秒を解像する。12 fold 月ブロック CV を選択に使う。
+- **ドリフト**: 到着 taxi-in モデルの 2025 → 2026 劣化は +6%（EHAM +129 秒は 1 月の降雪危機）。クリーン行に大きな運用ドリフトは無い。
+- **外部データの落とし穴**: OPDI（ADS-B 由来イベント）の件数が 2026 に 5 空港で崩落し、学習で密・推論で空の特徴量が全行をずらした。被覆が変わる外部特徴量は敵対的検証で検出して除外。
+- 自己参照リーク: 「他便の直近 taxi」窓に自便レコードが入って相関の 45% が目的変数そのものだった例。窓の終端を 600 秒ずらす。
+- **気象**: −5〜0°C で降水ありの平均 taxi-out は乾燥時の 1.4〜1.7 倍（LFPG 2,354 vs 1,372 秒、EGLL 1,950 vs 1,416）。同じ降水でも 7°C 超では +60 秒未満。1 月の防除氷条件は LSZH 18%、EHAM 13%、EDDM 11%、LTFM 10%、EDDF 8% の時間帯で発生。IEM ASOS で 48 観測/日・欠損 < 0.03%。出典: https://raw.githubusercontent.com/ahmetabdullahgultekin/prc-taxiout-2026/master/docs/facts.md
+- ATXOT P10 参照値: 残差化の目的変数としては無効（±5 秒の雑音内）、特徴量としては LightGBM gain の 18.8%。
+- アンサンブル: 2026 のブレンド利得は 0.7〜1.8 秒（約 0.5%）。2024 の 20 シード平均で約 3%。
+- 上位チーム（elegant-alligator、LB 271）は Jul+Nov で調整し Dec で監査する凍結手順を採用。ローカル値は公式より 15〜70 秒楽観的だった。
+- 倫理面: kind-mango は `AOBT_3` / `LOBT` を「ランキング処理の悪用」に当たると読み使用を拒否し、自らの下限を約 300 秒と見積もる。運営のデータページは `AOBT_3_flt` を通常の列として説明し、使用チーム（LB 6〜21 位）に制裁は無い。→ 本プロジェクトの判断は docs/decisions.md。
+
+## 9. 空港運用の知見（追加調査 2026-09-10。要点のみ）
+
+- **PRU 月次 Additional taxi-out**（xlsx、2018-01〜2026-06）: 2025 年平均（分、追加 / 参照）EGLL 6.50 / 16.23、LIRF 6.74 / 12.31、LTFM 4.80 / 12.14、LFPG 4.32 / 11.80、LEBL 3.82 / 12.02、LEMD 3.62 / 13.16、EDDF 3.54 / 10.68、EDDM 3.39 / 9.54、LSZH 3.30 / 8.61、EHAM 3.25 / 9.76。**2026 年 1 月 EHAM は 7.03**（1/2〜7 の降雪・防除氷液不足）。テスト期間の値は使わない方針（docs/01 U12）だが、空港 × 月の季節性の理解には 2025 年以前の値を使う。出典: https://www.eurocontrol.int/performance/data/download/xls/Taxi-Out_Additional_Time.xlsx
+- **2026 年 1 月の降雪**: EHAM 1/2〜7、EDDM 1/4〜5、LSZH 1/3・10、LFPG 1/7、EGLL 1/9〜13、EDDF 1/12〜13、LTFM 1/12、LEMD 1/28。METAR 由来の気温 × 降水特徴量が最も効く日。
+- **2026 年 7 月の構造変化**: EGLL 北滑走路 09L/27R が 6〜10 月の日〜木 23:00〜06:00 現地に閉鎖（夜間単一滑走路）。**EDDF ターミナル 3**（滑走路系の南側、33 以上の新スタンド、新誘導路 S）が 4/23 開業、**EDDM T1 ピア**（西エプロン、非シェンゲン全便）が 4/21 開業 → 2025 年に存在しないスタンド ID が 7 月の Ranking に出る。
+- **2025 年（学習データ）の体制変化**: LFPG 09L/27R 閉鎖 4/14〜6/5、09R/27L 閉鎖 7/15〜12/8（北側ダブレットが単一滑走路の混合運用）。LTFM は 4/17 から 3 本独立平行運用（120 → 148 機/時）。EHAM Polderbaan の着陸制限（3 月）と滑走路整備（10〜11 月）。→ LFPG の滑走路別統計は 2025 の月で偏る。
+- **防除氷の場所**: リモートパッド（taxi-out に含まれる）= EDDM（滑走路端の EFM パッド）、EDDF（RWY 18 西の DP1/DP2、25 用の DP3/DP4。on-position も多い）、EHAM（4 ステーション 25 台、1 機 10〜30 分）、LSZH（パッド + on-stand）、LTFM（Deicing 1〜5 エプロン）。on-stand 主体 = EGLL（BA 専用パッドのみ例外）、LEBL、LEMD。
+- **A-CDM は全 10 空港で稼働**（LTFM は 2023 年末承認、2024 に DMAN）。TSAT ±5 分でオフブロックが集約され、待ち行列の一部はスタンドで吸収される。
+- **優先滑走路運用**（要点）: LEMD 北運用 = 出発 36L/36R（36R が既定、36L は長距離）、LEBL 西運用 = 到着 24R / 出発 24L（夜は到着 02 / 出発 06R）、LSZH は時間帯別コンセプト（日中出発 28/16、朝夕 32/34）、EDDF 出発 25C/07C + 18（南向き専用）、EGLL 西向き優先・15:00 に交替、EHAM Polderbaan（36L 出発は約 5 km の長距離タキシー）、LFPG 内側出発・外側着陸、EDDM 26 優先で北行きは北滑走路、LIRF 出発 25 主体、LTFM 5 本。
+- **オープンデータ**: IEM ASOS（公共ドメイン、1 秒/IP のスロットル、非米国は降水量なし、LTFM の METAR 備考に滑走路別風向風速）、Open-Meteo（CC BY 4.0、視程なし、降雪あり）、OurAirports（公共ドメイン、滑走路端座標）、OSM（ODbL、parking_position / taxiway）、ENAIRE AIP のスタンド座標 PDF（LEMD / LEBL）。

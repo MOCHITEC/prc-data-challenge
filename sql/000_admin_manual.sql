@@ -6,6 +6,9 @@
 -- 1) Session time zone for the working user (the account default is America/Los_Angeles).
 --    User-level setting also applies to the non-persistent MCP sessions.
 ALTER USER <ADMIN_USER> SET TIMEZONE = 'UTC';
+--    The MCP session cannot persist USE WAREHOUSE, so make the competition warehouse the default for the
+--    working user during the competition (or create a dedicated MCP user with DEFAULT_WAREHOUSE = PRC_WH).
+ALTER USER <ADMIN_USER> SET DEFAULT_WAREHOUSE = PRC_WH;
 
 -- 2) Resource monitor for the competition warehouse (created in 010_setup_db.sql).
 --    Enable e-mail notifications for ACCOUNTADMIN in Snowsight (Admin > Cost Management) beforehand.

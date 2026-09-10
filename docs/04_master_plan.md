@@ -1,6 +1,6 @@
-# 04. 全体計画（マスタープラン）
+# 04. 全体計画（マスタープラン）v2
 
-作成日: 2026-09-09。入力: docs/01（コンペ事実）、docs/02（Snowflake 環境）、docs/03（先行研究）。独立レビュー未実施（Step 4R で実施し改訂する）。
+作成 2026-09-09、改訂 2026-09-10（4 視点レビュー + 追加調査を反映。採用したのは勝敗・正しさ・安全・実行可能性に効く指摘のみ。詳細は docs/decisions.md）。
 
 ---
 
@@ -9,232 +9,167 @@
 | 種別 | 内容 |
 |---|---|
 | 主目的 | PRC Data Challenge 2026 で **優勝**（最終評価 RMSE 1 位 + 賞金条件充足） |
-| 副目的 | Snowflake を「データ基盤 + 特徴量生成基盤」として一連の流れ（ロード → EDA → 前処理 → 特徴量 → 学習 → 提出 → 改善）で使い切り、習得する |
-| 締切 | 2026-10-11 23:59:59 CET（内部締切 **21:00Z**） |
-| 数値目標 | 09-09 時点の LB 首位 246.4 秒。上位は日々改善しているため、**10/11 時点で ≤ 225 秒**を最終目標、中間目標を §4 の各フェーズに置く |
+| 副目的 | Snowflake を「データ基盤 + SQL 特徴量基盤」として実データで使い切り、習得する。**副目的は主目的のクリティカルパスに置かない** |
+| 締切 | 2026-10-11 23:59:59 CET（= 21:59:59Z = 10-12 06:59 JST）。**内部締切 10-11 12:00Z（21:00 JST 日曜）** |
+| 数値目標 | 絶対値ではなく相対で追う: 「首位との差」「CV−LB 差」。09-09 時点の首位 246 秒は日次で改善している前提。節目: 09-13 初 GBDT 提出、09-20 トップ 10、09-27 トップ 3、10-04 首位圏 |
 | 品質目標 | 隠し最終評価（別月・別サブセット）でも順位が落ちない汎化。GPLv3 公開・再現手順・JOAS 構成の README |
 
-## 1. 前提と制約
+## 1. 前提と制約（確定事項）
 
-- 期間 32 日、実働 1 人（+ Claude Code）。ユーザーは Snowflake・データコンペ初心者。
-- 提出は現時点で 1 日 5 回。全提出のうち最良値で順位付け。**隠し最終評価を既定シナリオ**とする（docs/01 U2）。
-- 実行環境: (a) Snowflake（MCP 経由、1 文ずつ、セッション非永続）、(b) Claude Code サンドボックス（4 core / 15 GB、Snowflake 認証情報なし）、(c) ユーザー PC（Snowsight・mc・pyopensky）。
-- 外部データはオープンライセンス + 文書化が必須。ADS-B からの目的変数復元・テスト期間の集計値利用は行わない（docs/01 §8）。
-- リポジトリは公開前提。機密識別子・認証情報・公式データ（再配布不可）はコミットしない。
+- 期間 32 日、実働 1 人 + Claude Code。提出は現時点で 1 日 5 回、全提出の最良値で順位付け。隠し最終評価を既定シナリオとする（2024・2025 の前例）。
+- **サンドボックスから Snowflake へは接続できない**（プロキシが証明書ピン留めクライアントを非対応と明記）。したがって Snowflake 認証情報はサンドボックスに置かない・置けない。Snowflake 操作は MCP（1 文・非永続・60 秒）のみ。
+- **Snowflake → サンドボックス**は `COPY INTO @stage` + `GET_PRESIGNED_URL` + curl で一方向エクスポート可能（Phase 1 で 1 ファイル往復を実証）。**サンドボックス → Snowflake** のバルク転送は無い。ロードは Snowflake が MinIO から直接取得（案 C）か、ユーザーの Snowsight アップロード（案 A′）。
+- MinIO（公式データ・提出バケット）へはサンドボックスから到達可（キーは環境変数で受領）。
+- 外部データはオープンライセンス + 文書化が必須。ADS-B からの目的変数復元、テスト期間の PRU 集計値は使わない。
+- Ranking の出発便 98.5% に `AOBT_3_flt`（NM 側の実オフブロック時刻）が残っている（参加チームの公開プローブ報告。自データで再確認する）。運営はこれを通常の列として説明しており、上位チームは公然と使用。**使う**（docs/decisions.md 2026-09-10）。
 
-## 2. 決定が必要な事項（ユーザー判断）
+## 2. 決定が必要な事項（ユーザー）
 
-| ID | 決定事項 | 推奨 | 期限 |
+| ID | 決定事項 | 推奨 / 既定 | 期限 |
 |---|---|---|---|
-| D1 | **チーム登録**（OSN アカウント作成 → Google Form 送信 → 承認 → バケット情報取得）。チーム種別・国・所属の記入 | 直ちに（承認まで最大 1 日。データ取得の唯一のクリティカルパス） | 09-10 |
-| D2 | **データ搬入とサンドボックスの認証経路**。(i) MinIO キーを Claude Code の環境設定（環境変数）に登録し、サンドボックスが直接 MinIO からデータ取得・提出アップロードを行う。Snowflake 側は Secret を Snowsight で作成し Snowflake が MinIO から直接取得（案 C）。(ii) ユーザー PC で取得・Snowsight でステージにアップロード（案 A′）。サンドボックスは Snowflake 経由の集計のみ | **(i)**。Claude が自律的にロード・提出・再取得まで回せる。キーはチャットに貼らず環境変数で渡す。(ii) はフォールバック | 09-10 |
-| D3 | Snowflake 管理作業（ACCOUNTADMIN、Snowsight で実施）: リソースモニター `PRC_RM`（月 50 credits）、Budget、`ALTER USER ... SET TIMEZONE='UTC'`、可能なら MCP 用ユーザー/ロールの分離 | 09-10〜09-11 に実施。手順書は `sql/000_admin_manual.sql` として用意 | 09-11 |
-| D4 | 外部データの範囲: 気象（METAR 経由の Iowa State ASOS アーカイブ / Open-Meteo 履歴）を使うか | 使う（ライセンス記録を `docs/external_data.md` に残す）。Phase 3 で効果検証し、効かなければ外す | 09-17 |
-| D5 | 作業時間の目安（平日 / 週末に割ける時間） | 計画のバッファ調整に使う | 09-10 |
+| D1 | チーム登録（OSN アカウント → Google Form → 承認 → バケット情報） | 直ちに。唯一のクリティカルパス | 09-10 |
+| D2 | MinIO キーを Claude Code の環境変数に登録（`OSN_ACCESS_KEY` 等）。Snowflake 側は Snowsight で `CREATE SECRET`（案 C）。案 A′（ユーザーが Snowsight でアップロード）はフォールバック | 両方。鍵はチャットに貼らない。**提出アップロードは Claude が検証ゲート通過後に実行し、必ず提出ログに記録**（プローブ禁止・1 日 5 回の内部カウンタ） | 09-10 |
+| D3 | ACCOUNTADMIN 作業（`sql/000_admin_manual.sql`）: `ALTER USER ... SET DEFAULT_WAREHOUSE = PRC_WH, TIMEZONE = 'UTC'`、リソースモニター `PRC_RM`、Budget、`PRC_ROLE` | **Phase 0 の出口条件**。未完のうちは MCP で 60 秒超の文を実行しない（MCP は現在、既定の社内ウェアハウスで走る） | 09-11 |
+| D4 | 気象データ（IEM ASOS の METAR、Open-Meteo）の利用 | 使う。1 月の防除氷（気温 × 降水）が尾部に効くと複数チームが報告 | 09-11 |
+| D5 | 平日 / 週末に割ける時間 | 日程の必須 / 任意の切り分けに使う | 09-10 |
 
-## 3. アーキテクチャ
-
-### 3.1 Snowflake（docs/02 §9 の設計をそのまま採用）
+## 3. アーキテクチャ（2 トラック）
 
 ```
-PRC_DC2026
- ├─ RAW   (permanent)  TRAINING_MOVEMENTS / RANKING / SUBMITTING / OFFICIAL_STAGE / PARQUET_FF
- ├─ REF   (permanent)  WEATHER_HOURLY / AIRPORTS / TIMEZONES / HOLIDAYS
- ├─ STG   (transient)  MOVEMENTS（型・列名統一、DEP/ARR、不整合フラグ、UTC 固定）
- ├─ FEAT  (transient)  F_STATIC / F_SCHEDULE / F_RUNWAY_QUEUE / F_ARR_CONTEXT / F_STAND_REF / F_WEATHER / F_NM_TIMES
- ├─ ML    (transient)  TRAIN_WIDE / FOLDS / PREDICTIONS / SUBMISSIONS / EXPERIMENTS
- └─ SUB   (transient)  V_SUBMISSION（公式列名・型に復元）
-PRC_WH (XS Gen1, QAS off, timeouts) / PRC_RM / PRC_ROLE / PRC_SVC
+Track A（勝つ・クリティカルパス）  サンドボックス完結
+  MinIO → data/raw/*.parquet → polars/duckdb 特徴量 → LightGBM/CatBoost → 予測 → validate_submission → MinIO 提出
+  実験ログ: リポジトリ内 experiments/*.jsonl（git 管理）。モデル・OOF はディスク（git 外）
+
+Track B（学ぶ・並走）  Snowflake = SQL 特徴量基盤
+  RAW（案 C / A′でロード）→ STG（UTC 固定・型統一）→ FEAT（window / ASOF JOIN）→ ML.FOLDS
+  同一 MVT_ID で Track A の特徴量と値一致を検査（parity テスト）
+  有用な SQL 特徴量は COPY INTO @stage → GET_PRESIGNED_URL → サンドボックスへ取り込み
+  ML.EXPERIMENTS / ML.SUBMISSIONS にはメタデータ数行のみ MCP で INSERT
 ```
 
-- 特徴量は **SQL（window 関数・ASOF JOIN・バケット自己結合）で FEAT に作り、ML.TRAIN_WIDE に結合**。学習は原則サンドボックス（LightGBM/CatBoost）、予測結果を ML.PREDICTIONS に書き戻し、SUB ビューで提出ファイルを生成。
-- Training でも DEP 行の `BLOCK_TIME` / `TAXITIME` を**マスクした派生テーブル**を作り、Ranking と同一の SQL で文脈特徴量を計算する（feature-availability parity）。
+- Training でも DEP 行の `BLOCK_TIME` / `TAXITIME` を**マスクした派生表**から文脈特徴量を計算する（feature-availability parity）。ただし他便の `AOBT_3_flt` は Ranking にも残るため、**近傍便のプッシュバック近似として使える**（循環しない）。
+- リポジトリ構成は v1 のまま（`docs/ sql/ src/prc/ tests/ configs/ experiments/`）。
 
-### 3.2 リポジトリ構成（Step 5 で作成）
+## 4. モデル設計の中核（追加調査で確定した方針）
 
-```
-README.md                 JOAS 構成で育てる（課題・データ・手法・検証・再現手順・ライセンス）
-LICENSE                   GPLv3
-docs/                     01〜04 + external_data.md + submissions_log.md + decisions.md
-sql/                      000_admin_manual.sql（ACCOUNTADMIN 手動）, 010_setup_db.sql, 020_raw_load.sql,
-                          030_stg.sql, 040_feat_*.sql, 050_ml_folds.sql, 060_sub.sql（番号順に EXECUTE IMMEDIATE FROM）
-src/prc/                  config.py, io_minio.py, io_snowflake.py, features_local.py, train.py, predict.py,
-                          validate_submission.py, cv.py
-tests/                    合成データで SQL/Python の整合性テスト（parity 検査、提出ゲート）
-notebooks/                EDA（出力はコミットしない）
-configs/                  experiment yaml（特徴量セット・モデル・fold）
-.env.example              必要な環境変数名のみ
-```
+1. **2 つの時計の差分**: 目的変数を `y = (MVT_TIME − AOBT_3) − f(x)` と再パラメータ化し、GBDT は `f = BLOCK_TIME − AOBT_3`（空港報告とNM報告のずれ）を学習する。木は恒等関係を表現できないため、生の y を学習するより数十秒良い（公開報告 285 → 253 秒）。代替として LightGBM `linear_tree` を比較。
+2. **NM レコード無し（約 1.5%）は別モデル**: スケジュール差（`MVT_TIME − SCHED_TIME`）基準。単一モデルにすると大幅劣化の報告あり。
+3. **尾部は捨てない**: RMSE の半分近くを数十行の報告エラー（LIRF 中心、`BLOCK == SCHED` や 1 日ずれ）が占め、運営はこれらが Ranking の正解にも含まれると（Discord で）述べたと報告されている。学習から外れ値を除外・winsorize・Huber/L1・log 変換はいずれも悪化報告。**L2・生秒・全行**で学習し、報告エラー体制を「ソフトな体制ヘッド」（校正済み確率 × 体制別予測の混合）で明示的に扱う。ハードな切替は禁止。
+4. **文脈特徴量は離陸時刻をアンカー**に固定窓（前後 5/10/15/30/60 分の離陸・着陸数、同一滑走路のヘッドウェイ、直前 30 分の到着 taxi-in 統計、他便の `AOBT_3 − EOBT_1` 遅延の平均 = 空港の「乱れ」状態）。自便レコードを窓から除く（自己参照リーク報告あり）。トランスダクティブ反復は効果報告が無く優先度を下げる。
+5. **参照値**: スタンド × 滑走路の unimpeded P10（PRU 方式）は目的変数の残差化には効かず、特徴量としては有効。特徴量として使う。
+6. **気象**: 気温 × 降水（防除氷条件、`temp < 3°C かつ降水`）を 1 月向けに。IEM ASOS の METAR（公共ドメイン）を主、Open-Meteo（CC BY 4.0）を補完。
+7. **カテゴリ**: スタンド約 1,900・目的地約 1,560・匿名運航者約 680 水準。fold 内 OOF ターゲットエンコーディング、または CatBoost `has_time` の順序 TS。**2026 年に新設されたスタンド**（EDDF ターミナル 3、EDDM T1 ピア）は学習に無いため、スタンド → スタンド群 → 空港の階層フォールバックを必須にする。
+8. **外部データの被覆チェック**: 2025 に密で 2026 に空になる外部特徴量（他チームが OPDI で被害）は敵対的検証で検出し、被覆指標を付けるか除外。
+9. **アンサンブル**は最後（0.5〜3%）。シード平均と CatBoost ブレンドを最終候補にのみ適用。
 
-### 3.3 実験管理
+## 5. 検証設計
 
-- 1 実験 = `configs/*.yaml`（特徴量セット ID・モデル・パラメータ・fold 定義・シード）。結果は `ML.EXPERIMENTS`（exp_id, config_hash, fold 別 RMSE, 尾部寄与, 学習時間, git sha）に記録。
-- 提出ログ `docs/submissions_log.md`: v 番号、exp_id、ローカル CV、LB スコア、変更点、判断。
-- 乱数シード固定、`deterministic=True`、依存バージョン固定（`uv lock`）。
+- **選択用**: 12 fold 月ブロック（leave-one-month-out）で OOF を作り、**A/B は行単位の対差分のブートストラップ**で判断（単一 RMSE のブートストラップ区間は 100 秒超で無意味との報告）。
+- **報告用**: Jan 2025 / Jul 2025 fold の RMSE（テスト月と同季節。LB より 12〜15% 悲観的との報告）、Nov–Dec 2025 forward（楽観的）。両方を提出ログに併記し、CV−LB のオフセットを自分の提出履歴から推定する。**素朴な予測器を LB に投げて較正する手法は採らない**（プローブに当たる）。
+- 検証母集団は LB と同じく**全行**（目的変数のフィルタなし）。early stopping も同じ母集団で。3 つの数値を常に出す: CLEAN RMSE（30 ≤ y ≤ 7200）、7200 秒超の行一覧、FULL RMSE。
+- TE・参照値は学習側で nested OOF（自行・同月を除く）。文脈特徴量は Training でもマスク派生表 + 同一コード。特徴量ごとに Training/Ranking の分布比較（KS）と**カテゴリ被覆率**を Phase 1 の data_profile に含める。
+- モデル外のスカラー（クリップ閾値、体制ヘッドの校正、ブレンド重み）は OOF で決め、LB で候補比較する提出は行わない。
+- 速度: 日中の反復は 3 fold（Jan / Jul / forward）× 1 シード、12 fold と多シードは夜間バッチ。1 実験の壁時計時間を Phase 2 初日に実測して計画を補正。
 
-## 4. フェーズ計画（日付は 2026 年。各フェーズに成果物・完了条件・レビュー R）
+## 6. フェーズ計画（日付は 2026 年）
 
-### Phase 0: 登録・基盤（09-10 〜 09-11）
+### Phase 0: 登録・基盤（09-10 〜 09-11）— 出口条件: D1 送信済、D2 環境変数登録、D3 の TIMEZONE / DEFAULT_WAREHOUSE / RM 完了
 
-| 作業 | 担当 | 成果物 / 完了条件 |
+| 作業 | 担当 |
+|---|---|
+| D1〜D5 | ユーザー |
+| Snowflake 基盤 DDL（済）、`sql/000` の追記、Secret 手順書 | Claude |
+| 合成データ生成器 + ローカル特徴量・学習・提出パイプラインの雛形を合成データで通す（実データ到着即日に回すため） | Claude |
+| `make bootstrap`（uv sync → 環境変数検証 → データ取得 → pytest）を 10 分以内・冪等で用意 | Claude |
+
+R0: 骨格・DDL・セキュリティのレビュー（済: 2R で実施）。
+
+### Phase 1: データ到着 → 48 時間で初 GBDT 提出（到着日 = D 日、D 〜 D+2）
+
+| 作業 | 完了条件 |
+|---|---|
+| MinIO から 14 ファイル取得、pyarrow で schema / 行数 / 欠損表現を記録 | `docs/data_profile.md` |
+| データプロファイル（`sql/021` 相当を polars でも実行）: U1（`AOBT_3` 充足率と情報量）、U5〜U8、U11、U13、カテゴリ被覆率、報告エラー体制の発生率（空港別） | 同上。**U1 の結果で §4-1/2 の設計を確定** |
+| v1 = 空港 × 滑走路 × 時間帯中央値（提出ゲート・アップロード・API 確認・採点遅延の実測） | LB スコア、`docs/submissions_log.md` |
+| **v2 = 2 つの時計の差分 LightGBM**（静的 + スケジュール差 + 離陸アンカー窓 + 参照値）、3 fold | 48 時間以内に提出。LB で首位との差を記録 |
+| Snowflake: 案 C（Secret はユーザー）または A′ で RAW ロード、`sql/020`、行数照合、presigned URL で 1 ファイル往復 | Track B 開始 |
+
+R1: データプロファイルと U1 結論のレビュー（リーク・体制の見落とし）。
+
+### Phase 2: 尾部・体制・気象・文脈（D+2 〜 09-20）
+
+- 体制ヘッド（NM 無し / `BLOCK == SCHED` / 1 日ずれ）の校正付き混合、空港別校正
+- 文脈特徴量 v2（他便 `AOBT_3` を用いた待ち行列近似、到着 taxi-in 統計、乱れ状態）、参照値、OOF TE、階層フォールバック
+- 気象（IEM ASOS）: 気温・露点差・降水・視程・風、防除氷フラグ。ライセンス記録
+- 12 fold OOF、対差分ブートストラップの運用開始。毎日 1〜3 提出（CV 非劣化 + 何かが違う候補のみ）
+- Snowflake: STG / FEAT（window・ASOF JOIN）で同じ特徴量を SQL 化し parity テスト
+
+R2: 検証設計・parity・リークの独立レビュー（最重要）。
+
+### Phase 3: 誤差分析と絞り込み（09-20 〜 09-30）
+
+- 空港 × 月 × 尾部の誤差分解。LIRF / LFPG の体制ヘッドの精緻化、EHAM 1 月の防除氷
+- 特徴量アブレーション → 小さな集合に確定（隠しテストでは小集合が勝つ前例）。`linear_tree` 比較、CatBoost 追加、シード平均
+- 隠し最終評価リハーサル（別月・部分サブセット・前月無しの 3 シナリオで劣化幅を測る）
+- 10-01 〜 10-03 はバッファ
+
+R3: 過学習・LB 依存の意思決定が無いかのレビュー。
+
+### Phase 4: 再現性・文書化・凍結（10-03 〜 10-11）
+
+- 決定論的パイプライン（新環境で `make all`）、README を JOAS 構成に、外部データ表、公開チェックリスト
+- 10-09 モデル凍結。10-10 に最終提出リハーサル（採点遅延の実測）。10-11 12:00Z までに最終提出、SUCCEEDED 確認、予備 1 枠
+- 締切後: リポジトリ公開、JOAS 論文の判断
+
+R4: 第三者が README だけで再現できるかのレビュー。
+
+## 7. 特徴量カタログ（「R」= Ranking で計算可。全て U1/U13 の確認後に確定）
+
+| 群 | 特徴量 | R |
 |---|---|---|
-| D1 チーム登録、OSN Discord 参加 | ユーザー | 承認メール、バケット情報、チーム名 |
-| D2 認証経路の決定と環境変数登録 | ユーザー | サンドボックスから `mc ls` 相当でバケット一覧が見える |
-| D3 管理作業（RM / Budget / TIMEZONE） | ユーザー（手順書は Claude） | `SHOW RESOURCE MONITORS` に PRC_RM |
-| リポジトリ骨格（Step 5）: README 骨格、LICENSE、.gitignore、pyproject、`sql/000〜010`、`src/prc` 雛形、`tests/` | Claude | CI 相当のローカルテストが通る |
-| Snowflake 基盤 DDL（DB / スキーマ / WH / Stage / File Format / Role）を MCP で実行 | Claude | `PRC_DC2026` の各スキーマが存在 |
-| Discord・ranking.html 監視の運用開始（毎日） | 両者 | `docs/decisions.md` に告知記録 |
+| 時計差分 | `MVT − AOBT_3`（基準）、`MVT − SCHED`、`MVT − EOBT_1`、`MVT − LOBT`、`MVT − IOBT`、`LOBT − EOBT_1`、`AOBT_3 − EOBT_1`、NM 有無・各列の欠損指標 | ○ |
+| 体制指標 | NM レコード無し、`SCHED` との一致傾向を持つ空港・時間帯の事前確率（fold 内） | ○ |
+| 静的 | 空港、滑走路、スタンド（階層フォールバック付き）、機種、WTC、匿名運航者、市場区分、便種、目的地・方位・距離帯 | ○ |
+| 参照値 | スタンド × 滑走路の P10 / P20 / 中央値（12 か月、fold 内）、空港 × 滑走路 × 時間帯の中央値 | ○ |
+| カレンダー | 空港ローカル時・曜日・月・祝日、季節 | ○ |
+| 離陸アンカー文脈 | 同一空港 / 同一滑走路の離陸数（前後 5/10/15/30/60 分）、着陸数、直前・直後離陸とのヘッドウェイ、離陸系列内順位 | ○ |
+| 近傍便状態 | 近傍出発便の `AOBT_3 − EOBT_1` 平均（乱れ）、近傍便の `MVT − AOBT_3` 分布（直前 30/60 分。自便除外） | ○ |
+| 到着文脈 | 直前 30/60 分の到着 taxi-in 中央値 / P90（空港・滑走路別）、同一スタンドの直前インブロックからの経過、次インブロックまでの余裕 | ○ |
+| 滑走路運用 | 離陸 ±15 分に使われた滑走路集合（水準数を抑える）、DEP/ARR 同一滑走路フラグ | ○ |
+| 気象 | 気温、露点差、降水、視程、風、防除氷条件（前 1 時間） | ○（外部） |
+| 使わない | 他 DEP の実オフブロック由来 N(t)、テスト期間の外部集計値、ADS-B 復元、被覆が 2026 で変わる外部特徴量 | × |
 
-R0: 骨格と DDL のコードレビュー（セキュリティ: 機密なし、命名、権限最小）。
+## 8. 提出運用
 
-### Phase 1: データ取得・RAW ロード・初回提出（09-11 〜 09-13）
+- 検証ゲート（行数・ID・NaN・dtype・schema）→ アップロード → API で SUCCEEDED 確認 → `docs/submissions_log.md`（v、exp_id、3 fold CV、12 fold OOF、LB、変更点、モデル外スカラーの根拠）。
+- 1 日 5 回は UTC と CET の両方の日境界で安全側に運用。プローブ提出・部分差し替え・素朴予測器の較正提出は行わない。
+- 最終週は 1 日 2 枠を予備に。最終候補は締切前日までに提出済みにする。
 
-| 作業 | 成果物 / 完了条件 |
+## 9. Snowflake 学習ロードマップ（Track B、クリティカルパス外）
+
+| 時期 | 触る機能 |
 |---|---|
-| MinIO から 14 ファイル取得（サンドボックス）、`pyarrow` で schema dump（U13） | `docs/data_profile.md` に schema・行数・欠損表現 |
-| 案 C: network rule + EAI + Secret（ユーザーが Snowsight で作成）+ Python SP で OFFICIAL_STAGE へ取得。フォールバック A′ | ステージに 14 ファイル |
-| `020_raw_load.sql`: INFER_SCHEMA → RAW 3 テーブル、`METADATA$FILENAME` 付与、COPY_HISTORY 保存 | 行数照合（4,167,797 / DEP 344,841）、`MVT_ID` 一意 |
-| 未確認事項の一括回答（U1, U1b, U5, U6, U7, U8, U11, U13）を SQL で集計 | `docs/data_profile.md` 更新。**U1 の結果で §5 の特徴量優先度を再決定** |
-| 提出ゲート実装（行数・ID 一致・NaN ゼロ・dtype・schema equals） | `validate_submission.py` + テスト |
-| **初回提出 v1**: 空港 × 滑走路 × 時間帯の中央値ベースライン（Snowflake SQL のみで生成） | LB スコア取得、`processedAt` 遅延を記録（U10）。想定 330〜400 秒 |
+| Phase 0〜1 | DB/スキーマ/WH/RM/Budget、内部ステージ、ファイルフォーマット、INFER_SCHEMA、COPY（メタデータ列）、External Access Integration + Secret + Python SP（案 C）、GET_PRESIGNED_URL |
+| Phase 2 | window 関数（RANGE INTERVAL）、ASOF JOIN、QUALIFY、TRANSIENT、TASK、EXECUTE IMMEDIATE FROM、parity テスト |
+| Phase 3 | 外部データ（REF）、パーセンタイル関数、Snowpark（必要なら）、コスト分析（ACCOUNT_USAGE） |
 
-R1: データプロファイルと U1 結論の独立レビュー（リーク・不整合の見落とし）。
+## 10. リスク登録簿
 
-中間目標: LB 提出成功、ベースライン RMSE 把握。
-
-### Phase 2: STG・検証設計・特徴量 v1・GBDT v1（09-13 〜 09-17）
-
-| 作業 | 成果物 / 完了条件 |
+| リスク | 対策 |
 |---|---|
-| `030_stg.sql`: 型・列名統一、UTC 固定、DEP/ARR 分割、`_flt` 不整合フラグ、目的変数フィルタ（負値、> 120 分は学習から除外。閾値は分布を見て決定） | STG.MOVEMENTS + アサーション |
-| **検証設計** `050_ml_folds.sql`: (a) leave-one-month-out（12 fold、主指標は Jan/Jul 2025 fold）、(b) forward holdout（Nov–Dec 2025）。fold 表を ML.FOLDS に固定 | fold 定義書 `docs/validation.md` |
-| **マスク派生テーブル**: Training の DEP 行 `BLOCK_TIME`/`TAXITIME` を NULL にした STG.MOVEMENTS_MASKED。文脈特徴量は必ずこちらから計算 | parity テスト（同一 SQL を Ranking と Training に適用し列集合・欠損率が一致） |
-| 特徴量 v1（`040_feat_*.sql`）: 静的（空港・滑走路・スタンド・機種・WTC・運航者・市場区分・便種）、カレンダー（空港ローカル時刻・曜日・月・祝日）、スケジュール（`SCHED`, `EOBT_1`, `LOBT`, `IOBT` と離陸時刻の差）、**離陸アンカー混雑**（同一空港/滑走路で離陸前 5/10/20/30 分の離陸数・着陸数、直前/直後離陸との間隔、離陸系列内の位置、PRU 式 20 分スループット）、**スタンド × 滑走路の unimpeded 参照値**（P10/P20、過去 12 か月ローリング、fold 内で計算） | FEAT テーブル群 + 各特徴量の「Ranking で計算可」フラグ表 |
-| LightGBM v1（サンドボックス）: 目的変数 = taxi-out − 参照値（additional）、損失 RMSE、early stopping は fold 内 | CV RMSE（fold 別・空港別・尾部）、特徴量重要度 |
-| 提出 v2〜v3 | LB と CV の対応を記録 |
+| 登録・承認の遅れ | D1 最優先。待ち時間に合成データでパイプラインを完成させる |
+| `AOBT_3` の情報量が公開報告と異なる | Phase 1 の U1 集計で確認。`_flt` 無し経路を最初から持つ |
+| 尾部行の扱いで CV が誤誘導 | 全行評価、対差分ブートストラップ、3 つの数値の併記 |
+| 隠し最終評価で順位変動 | 月ブロック CV、小さい特徴量集合、LB 非依存の選択、決定論パイプライン、リハーサル |
+| 2026 の新スタンド・運用変更（EDDF T3、EDDM T1 ピア、EGLL 夜間単一滑走路、LFPG 2025 の滑走路閉鎖） | 階層フォールバック、滑走路運用特徴量、LFPG は 2025 の月別バイアスを確認 |
+| 運営のルール変更 | Discord（ユーザー）・ranking.html（Claude、日次 curl）監視。`_flt` 非依存の構成を残す |
+| Snowflake コスト（特にコンピュートプール、既定 WH での長時間クエリ） | D3 を Phase 0 出口条件に。QAS 無効、timeout、TASK 化 |
+| タイムゾーン事故 | TIMEZONE=UTC、TIMESTAMP_NTZ 固定、ロード後アサーション |
+| Claude 側の利用上限・セッション断 | 全スクリプト冪等・再開可能、状態はリポジトリのファイルに、1 ステップ ≤ 1 時間、`make bootstrap` |
+| 機密のコミット | .gitignore、Secret は Snowsight で、公開前スキャン（実施済み） |
+| 時間不足 | Phase 3 の任意項目（trans­ductive、多シード）を落とす。10-01〜03 バッファ |
 
-R2: 検証設計・parity・リークの独立レビュー（最重要レビュー）。
+## 11. 分担
 
-中間目標: CV と LB の差が説明可能。LB ≤ 280 秒。
-
-### Phase 3: 特徴量 v2・二層モデル・気象（09-17 〜 09-24）
-
-| 作業 | 成果物 / 完了条件 |
-|---|---|
-| **ARR 由来区間制約**: 同一スタンドの直前インブロック + 最小折返し（空港 × 運航者 × 機種別の分布から推定）→ taxi-out 上限、次インブロック → 下限、予定時刻ソフト上限。特徴量 + 事後クリップ | 効果を CV で定量化 |
-| **NM 時刻列の情報量**（U1 結果に基づく）: `AOBT_3`, `LOBT`, `EOBT_1` と実オフブロックの差の分布、派生値シグネチャ検定。`_flt` あり／なしの二層モデル | `docs/data_profile.md` 追記、モデル分岐 |
-| **taxi-in ドリフト**: 2026 年 ARR の taxi-in 分布を 2025 年と比較し、空港 × 月の補正項 | ドリフト表 |
-| 気象（D4）: REF.WEATHER_HOURLY（IEM ASOS: 気温・視程・降水・風、Open-Meteo 補完）、防除氷条件フラグ、低視程フラグ。ライセンス記録 | `docs/external_data.md` |
-| CatBoost v1、LightGBM シード平均（5→10） | アンサンブル候補 |
-| 提出 v4〜v8 | |
-
-R3: 特徴量カタログと外部データのライセンス・再現性レビュー。
-
-中間目標: LB ≤ 255 秒。
-
-### Phase 4: 誤差分析・トランスダクティブ・アンサンブル（09-24 〜 10-03）
-
-| 作業 | 成果物 / 完了条件 |
-|---|---|
-| 誤差分析: 空港 × 月 × 時間帯 × 尾部（> P95）の寄与分解。悪い区分に特徴量を追加 | `docs/error_analysis.md` |
-| トランスダクティブ反復: 全 DEP のオフブロック予測 → N(t)・待ち行列特徴量を再計算 → 再予測（2〜3 反復）。CV でも同じ手順を踏む | 効果を fold 別に検証。効かなければ廃止 |
-| 目的変数変換の比較（raw / additional / log 変換 + バイアス補正）、サンプル重み | 最良を採用 |
-| アンサンブル: LightGBM × シード + CatBoost の OOF 重み最適化。特徴量集合は小さく保つ（bright-lobster の教訓） | OOF RMSE |
-| 軽いハイパラ探索（Optuna ≤ 50 試行、fold 固定） | 過剰チューニング禁止 |
-| 提出 v9〜v20 | |
-
-R4: モデル・アンサンブルの過学習レビュー（LB 依存の意思決定が無いか）。
-
-中間目標: LB ≤ 235 秒。
-
-### Phase 5: 再現性・文書化・隠しセット対応（10-03 〜 10-09）
-
-| 作業 | 成果物 / 完了条件 |
-|---|---|
-| 決定論的パイプライン: `make all`（取得 → ロード → STG → FEAT → 学習 → 予測 → 提出ファイル）を新環境で通す | 再現テスト記録 |
-| **隠しセット・リハーサル**: Ranking の一部月を「新ファイル」と見立て、配布から提出までを 3 時間以内で通す | 手順書 |
-| README を JOAS 構成に整備、`docs/` 整理、LICENSE、外部データの出典・ライセンス表 | レビュー可能な状態 |
-| 公開準備: 機密スキャン、GitHub Secret scanning / Push protection、リポジトリ公開タイミングの決定（締切前公開が必要か Discord で確認） | 公開チェックリスト |
-| 提出は改善が CV で確認できたもののみ | |
-
-R5: 文書・再現性の独立レビュー（第三者が README だけで再現できるか）。
-
-### Phase 6: 凍結・最終提出（10-09 〜 10-11）
-
-- 10-09: モデル凍結。以後は再現性確認と最終評価ファイル（配布された場合）への適用のみ。
-- 10-11 21:00Z までに最終提出完了。API で SUCCEEDED を確認。
-- 締切後: リポジトリ公開、Discord で報告、JOAS 論文執筆の判断。
-
-## 5. 特徴量カタログ（v1/v2。列「R」= Ranking で計算可能か）
-
-| 群 | 特徴量 | R | 備考 |
-|---|---|---|---|
-| 静的 | 空港、滑走路、スタンド、スタンド群（近接クラスタ）、機種、WTC、匿名運航者、市場区分、便種、飛行規則、目的地（国・距離帯） | ○ | 高カーディナリティは fold 内ターゲットエンコーディング（過去期間のみ） |
-| 参照値 | スタンド × 滑走路の unimpeded P10/P20（12 か月ローリング、≥10 便）、空港 × 滑走路 × 時間帯の中央値 | ○ | fold 内で再計算（未来を見ない） |
-| カレンダー | 空港ローカル時・曜日・月・祝日・季節、離陸時刻の分・時 | ○ | IANA tz 参照表 |
-| スケジュール | 離陸 − SCHED、離陸 − EOBT_1、離陸 − LOBT、離陸 − IOBT、LOBT − EOBT_1（遅延更新回数の代理） | ○ | NM 未マッチ行は欠損 |
-| NM 実績 | AOBT_3 の有無・離陸 − AOBT_3、ARVT_3 − ARVT_1 | △ | U1 で情報量確認後に採否 |
-| 離陸アンカー混雑 | 同一空港・同一滑走路の離陸数（前 5/10/20/30 分、後 5/10 分）、着陸数（前 10/20/30 分）、直前/直後離陸との間隔、離陸系列内順位、PRU 式 20 分スループット、飽和比 | ○ | 他 DEP の離陸時刻は Ranking にも残る |
-| 到着文脈 | 同一空港の到着 taxi-in の直前 30/60 分中央値（滑走路運用・地上混雑の代理）、同一スタンド直前インブロックからの経過、次インブロックまでの余裕 | ○ | 区間制約にも使用 |
-| スケジュール需要 | 予定出発数（前後 15/30 分）、予定到着数、NM EOBT_1 ベースの需要 | ○ | 実績でなく計画値 |
-| 気象 | 気温、視程、降水、風速・風向、防除氷条件、低視程条件（前 1 時間） | ○ | 外部データ（D4） |
-| ドリフト | 空港 × 月の taxi-in 中央値差（2026 vs 2025） | ○ | 補正項 |
-| 禁止 | 他 DEP 行の実オフブロック由来の N(t)、テスト期間の外部集計値、ADS-B 復元 | × | parity と趣旨のため |
-
-## 6. 検証設計の詳細
-
-- **Fold A（主）**: leave-one-month-out。各月を検証、他 11 か月で学習。参照値・ターゲットエンコーディングは学習側のみで計算。主指標は Jan 2025 fold と Jul 2025 fold の RMSE（テスト月と同季節）。
-- **Fold B（補）**: forward holdout（学習 Jan–Oct、検証 Nov–Dec 2025）。時間方向の汎化を確認。
-- 全 fold で DEP の `BLOCK_TIME`/`TAXITIME` をマスクした派生表から文脈特徴量を計算（parity）。
-- 指標: RMSE（全体・空港別・月別）、尾部寄与（残差² の上位 5% が占める割合）、CV と LB の差の推移。
-- リーク検査: 特徴量ごとに「Ranking で計算した値の分布」と「マスク Training で計算した値の分布」を比較（KS 距離）。差が大きい特徴量は疑う。
-- LB は sanity check のみ。モデル選択・重みは OOF で決める。
-
-## 7. 提出運用
-
-- 1 日 5 回の枠は「CV で改善が確認できた変更」にだけ使う。プローブ提出は禁止（docs/01 §8）。
-- 提出前ゲート → アップロード → API で SUCCEEDED 確認 → `docs/submissions_log.md` 記録。
-- 日境界は UTC / CET の両方で安全側に運用。
-- 最終週は新規特徴量を凍結し、再現性と最終評価ファイル対応に充てる。
-
-## 8. Snowflake 学習ロードマップ（副目的）
-
-| Phase | 触る機能 |
-|---|---|
-| 0 | DB/スキーマ/ウェアハウス設計、ロール・権限、リソースモニター・Budget、TIMEZONE、内部ステージ、ファイルフォーマット |
-| 1 | INFER_SCHEMA / CREATE TABLE USING TEMPLATE、COPY INTO（メタデータ列、COPY_HISTORY）、External Access Integration + Secret + Python ストアドプロシージャ、EXECUTE IMMEDIATE FROM |
-| 2 | Window 関数（RANGE INTERVAL 枠）、ASOF JOIN、QUALIFY、バケット自己結合、TRANSIENT テーブル、TASK |
-| 3 | 外部データの取り込み（REF）、半構造化（VARIANT）が出れば FLATTEN、時系列 JOIN、パーセンタイル関数 |
-| 4 | Snowpark Python（必要なら）、結果の書き戻し、ビューでの提出生成 |
-| 5 | 再現手順のスクリプト化、コスト分析（ACCOUNT_USAGE） |
-
-## 9. リスク登録簿
-
-| リスク | 影響 | 対策 |
-|---|---|---|
-| 登録・承認の遅れ | 全工程遅延 | D1 を最優先。承認待ちの間に骨格・合成データテストを進める |
-| `MVT_TIME` や `_flt` 列が Ranking で想定と異なる（U1） | 戦略前提の崩れ | Phase 1 で即確認。二層モデルと予定時刻ベースの経路を用意 |
-| CV が LB と乖離（リーク・parity 違反） | 誤った意思決定 | R2 レビュー、parity テスト、KS 検査 |
-| 隠し最終評価で順位変動 | 最終順位低下 | 月ブロック CV、小さい特徴量集合、LB 非依存の選択、決定論パイプライン |
-| 運営のルール変更（列の追加空欄化、提出制限） | 手戻り | Discord・ranking.html 毎日確認。`_flt` 非依存の構成 |
-| Snowflake コスト超過（特にコンピュートプール） | 予算 | PRC_RM + Budget、QAS 無効、TASK のタイムアウト、Container Runtime 不使用が既定 |
-| タイムゾーン事故 | 特徴量全滅 | docs/02 §5 の手順、ロード後アサーション |
-| 機密のコミット | 公開時に致命的 | .gitignore、Secret は Snowsight で作成、公開前スキャン |
-| 1 人作業の時間不足 | フェーズ遅延 | Claude が自律実行できる部分を最大化（D2 で (i) を選ぶ）。フェーズ 4 を圧縮可能に設計 |
-| 外部データが効かない | 工数の無駄 | Phase 3 で早期に効果検証し撤退基準（CV 改善 < 1 秒なら外す） |
-
-## 10. 分担
-
-- **ユーザー**: D1〜D5 の決定と実施（登録、環境変数、Snowsight での管理作業と Secret 作成）、Discord の監視・質問（U3, U9, U12 の運営確認）、各 R レビュー結果の確認と方針判断。
-- **Claude**: それ以外の全工程（DDL・SQL・Python・テスト・EDA・特徴量・学習・提出ファイル生成・文書・レビュー手配）。各 Step は小さく作り、独立レビューを通してから次へ進む。
-
-## 11. 未確定事項の解消予定
-
-| 事項 | 解消予定 |
-|---|---|
-| docs/01 U1, U1b, U5–U8, U11, U13 | Phase 1（データ取得直後） |
-| docs/01 U2 | 設計で吸収。Discord 監視継続 |
-| docs/01 U3, U9, U10, U12 | Phase 0〜1 で Discord 確認 |
-| docs/02 S1 | Phase 1 |
-| docs/02 S2〜S5 | 必要時 |
-| docs/03 §7 の追加調査 | Step 3b（実行中） |
+- **ユーザー**: D1〜D5、Snowsight での Secret 作成と ACCOUNTADMIN 作業、Discord の監視・質問（U3, U9, U12）、各 R の確認と方針判断。
+- **Claude**: それ以外の全工程。各 Step は小さく作り、レビューを通してから次へ。
