@@ -1,5 +1,5 @@
 PY=.venv/bin/python
-.PHONY: bootstrap test lint synth download board profile doctor v1 v2
+.PHONY: bootstrap test lint synth download board profile anatomy doctor v1 v2
 
 bootstrap:            ## create venv, install, verify env, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
@@ -25,6 +25,9 @@ board:                ## snapshot the official leaderboard and show movement vs 
 
 profile:              ## answer the docs/01 open questions from the real files
 	$(PY) -m prc.profile
+
+anatomy:              ## where the squared error sits, per clock source (docs/06)
+	$(PY) -m prc.anatomy
 
 v1:                   ## baseline submission (gate only, no upload)
 	$(PY) -m prc.pipeline --config configs/v1_baseline.yaml
