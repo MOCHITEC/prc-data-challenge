@@ -110,3 +110,44 @@ def test_missing_anchor_time_gives_null_counts_not_zero():
     assert no_anchor["anchor_ok"].sum() == 0
     assert no_anchor["dep_tko_prev_15m"].null_count() == no_anchor.height  # not a misleading zero
     assert feats.filter(pl.col("MVT_TIME_UTC_mvt").is_not_null())["anchor_ok"].min() == 1
+
+
+def test_candidate_spread_summarises_the_clock_disagreement():
+    """cand_spread/cand_n describe how far apart the routing candidates are, which is where the loss lives."""
+    f = build_departure_features(generate_month(2025, 7, seed=41, deps_per_airport_day=6))
+    cands = ["mvt_minus_aobt3", "mvt_minus_sched", "mvt_minus_eobt1", "mvt_minus_lobt", "mvt_minus_iobt"]
+    got = f.select(["cand_min", "cand_max", "cand_spread", "cand_n"] + cands).head(200)
+    arr = got.select(cands).to_numpy()
+    assert np.allclose(np.nanmin(arr, axis=1), got["cand_min"].to_numpy(), equal_nan=True)
+    assert np.allclose(np.nanmax(arr, axis=1), got["cand_max"].to_numpy(), equal_nan=True)
+    assert (got["cand_spread"].to_numpy() >= 0).all()
+    assert got["cand_n"].to_list() == [int(n) for n in (~np.isnan(arr)).sum(axis=1)]
+
+
+def test_rows_without_an_nm_record_have_only_the_schedule_candidate():
+    f = build_departure_features(generate_month(2025, 7, seed=42, deps_per_airport_day=8))
+    no_nm = f.filter(pl.col("nm_matched") == 0)
+    if no_nm.height:  # SCHED_TIME is the one clock that is never missing
+        assert no_nm["cand_n"].to_list() == [1] * no_nm.height
+        assert no_nm["cand_spread"].to_list() == [0.0] * no_nm.height
+
+
+def test_feature_cache_is_rebuilt_when_the_feature_builder_changes(tmp_path):
+    """A new feature column used to leave the cached parquet in place and never reach the model."""
+    from prc.pipeline import build_features, feature_fingerprint
+
+    df = generate_month(2025, 7, seed=43, deps_per_airport_day=4)
+    rk = generate_month(2026, 7, seed=44, deps_per_airport_day=2, blank_dep=True)
+    full, _ = build_features(df, rk, use_weather=False, work=tmp_path)
+    assert (tmp_path / "feat_fingerprint.txt").read_text().strip() == feature_fingerprint(False)
+
+    # a matching fingerprint means the cache is trusted verbatim, however wrong it is
+    full.head(3).write_parquet(tmp_path / "feat_train.parquet")
+    truncated, _ = build_features(df, rk, use_weather=False, work=tmp_path)
+    assert truncated.height == 3
+
+    # a stale fingerprint forces the rebuild, which is the case that used to fail silently
+    (tmp_path / "feat_fingerprint.txt").write_text("stale")
+    rebuilt, _ = build_features(df, rk, use_weather=False, work=tmp_path)
+    assert rebuilt.height == full.height
+    assert (tmp_path / "feat_fingerprint.txt").read_text().strip() == feature_fingerprint(False)

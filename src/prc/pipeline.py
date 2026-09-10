@@ -11,6 +11,7 @@ Everything is written to disk as it goes, so a session that dies mid-way can res
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from dataclasses import asdict
@@ -51,6 +52,16 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.Da
     return join_weather(feats, hourly)
 
 
+def feature_fingerprint(use_weather: bool) -> str:
+    """Identity of the feature builder, so a stale cache is rebuilt instead of silently used.
+
+    Adding a column to prc.features used to leave the cached parquet in place: the new feature simply never
+    reached the model, with no error anywhere. The fingerprint covers the builder's source and the weather flag,
+    which is what actually determines the columns."""
+    src = (Path(__file__).parent / "features.py").read_bytes()
+    return hashlib.sha1(src + str(use_weather).encode()).hexdigest()[:12]
+
+
 def build_features(
     train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -60,13 +71,18 @@ def build_features(
     ranking.parquet, exactly as at scoring time."""
     work.mkdir(parents=True, exist_ok=True)
     f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
+    stamp_path, stamp = work / "feat_fingerprint.txt", feature_fingerprint(use_weather)
     if f_tr_path.exists() and f_rk_path.exists():
-        return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
+        cached = stamp_path.read_text().strip() if stamp_path.exists() else "(none)"
+        if cached == stamp:
+            return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
+        print(f"feature cache is stale ({cached} != {stamp}); rebuilding")
     wcache = data_dir() / "ref" / "metar_hourly.parquet"
     f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache)
     f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache)
     f_tr.write_parquet(f_tr_path)
     f_rk.write_parquet(f_rk_path)
+    stamp_path.write_text(stamp)
     return f_tr, f_rk
 
 

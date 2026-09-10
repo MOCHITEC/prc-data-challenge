@@ -54,6 +54,12 @@ def _sec(a: str, b: str) -> pl.Expr:
     return (pl.col(a) - pl.col(b)).dt.total_seconds().cast(pl.Float64)
 
 
+# What the target would be under each candidate clock; prc.clocks routes to exactly these values.
+_CANDIDATE_EXPRS = [
+    _sec("MVT_TIME_UTC_mvt", c) for c in ("AOBT_3_flt", "SCHED_TIME_UTC_mvt", "EOBT_1_flt", "LOBT_flt", "IOBT_flt")
+]
+
+
 def clock_and_static_features(dep: pl.DataFrame) -> pl.DataFrame:
     """Row-local features for departures (no other rows involved)."""
     out = dep.with_columns(
@@ -66,6 +72,12 @@ def clock_and_static_features(dep: pl.DataFrame) -> pl.DataFrame:
             _sec("LOBT_flt", "EOBT_1_flt").alias("lobt_minus_eobt1"),
             _sec("AOBT_3_flt", "EOBT_1_flt").alias("aobt3_minus_eobt1"),
             _sec("AOBT_3_flt", "SCHED_TIME_UTC_mvt").alias("aobt3_minus_sched"),
+            # Remaining pairwise gaps between the candidate off-block clocks. Where two candidates coincide the
+            # clock-source classes are degenerate and the routed answer is the same either way (docs/06 §2), so
+            # knowing which clocks agree is what tells the classifier where its decision actually matters.
+            _sec("AOBT_3_flt", "LOBT_flt").alias("aobt3_minus_lobt"),
+            _sec("SCHED_TIME_UTC_mvt", "EOBT_1_flt").alias("sched_minus_eobt1"),
+            _sec("SCHED_TIME_UTC_mvt", "LOBT_flt").alias("sched_minus_lobt"),
             pl.col("FLIGHT_ID_mvt").is_not_null().cast(pl.Int8).alias("nm_matched"),
             pl.col("AOBT_3_flt").is_null().cast(pl.Int8).alias("aobt3_null"),
             pl.col("LOBT_flt").is_null().cast(pl.Int8).alias("lobt_null"),
@@ -78,6 +90,11 @@ def clock_and_static_features(dep: pl.DataFrame) -> pl.DataFrame:
             .cast(pl.Int8)
             .alias("actype_mismatch"),
             pl.col("ADES_mvt").str.slice(0, 2).alias("ADES_REGION"),
+            # How far apart the candidate answers are, and how many there are. A tight cluster means the routing
+            # decision is cheap; a wide spread means it is where the squared error lives.
+            pl.max_horizontal(_CANDIDATE_EXPRS).alias("cand_max"),
+            pl.min_horizontal(_CANDIDATE_EXPRS).alias("cand_min"),
+            pl.sum_horizontal([e.is_not_null().cast(pl.Int8) for e in _CANDIDATE_EXPRS]).alias("cand_n"),
             pl.col("MVT_TIME_UTC_mvt").dt.month().alias("month"),
             pl.col("MVT_TIME_UTC_mvt").dt.weekday().alias("dow"),
             pl.col("MVT_TIME_UTC_mvt").dt.hour().alias("hour_utc"),
@@ -85,7 +102,7 @@ def clock_and_static_features(dep: pl.DataFrame) -> pl.DataFrame:
                 "minute_of_day_utc"
             ),
         ]
-    )
+    ).with_columns((pl.col("cand_max") - pl.col("cand_min")).alias("cand_spread"))
     # airport-local hour via IANA zones (docs/02 §5: never rely on session time zone)
     parts = []
     for apt, tz in AIRPORT_TZ.items():
@@ -238,6 +255,12 @@ WIDE_RANGE_COLS = (
     "lobt_minus_eobt1",
     "aobt3_minus_eobt1",
     "aobt3_minus_sched",
+    "aobt3_minus_lobt",
+    "sched_minus_eobt1",
+    "sched_minus_lobt",
+    "cand_max",
+    "cand_min",
+    "cand_spread",
     "rwy_headway_prev_s",
     "rwy_headway_next_s",
 )
