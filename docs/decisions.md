@@ -21,3 +21,4 @@
 - **計画 v2**（docs/04）を確定。実装フェーズのタスクを細分化して登録。
 - **Snowflake → サンドボックスの転送経路を実証**（Phase 1 の完了条件を先取り）: `PRC_DC2026.ML.EXPORT_STAGE`（SSE, directory 有効）を作成し、`COPY INTO @stage/... SINGLE=TRUE` で 50,000 行を parquet 化 → `GET_PRESIGNED_URL` → サンドボックスから curl で取得（HTTP 200、780 KB）→ pyarrow で読めることを確認。型の注意 2 点を `sql/090_export.sql` に記録: Snowflake NUMBER は parquet DECIMAL になるため SELECT 側で `::DOUBLE` / `::INT` にキャストする。TIMESTAMP_NTZ は isAdjustedToUTC 付きで書かれ、pyarrow ではタイムゾーン付きになる。
 - **合成データでパイプライン全体を実行**: 生成（14.5 万行）→ 特徴量（出発 7.2 万行 × 60 列）→ 3 fold CV → ランキング予測 → 提出ゲート通過まで 23 秒。実データ（出発 208 万行）でも同じ経路で回せる見込み。
+- **気象データを取得・検証**: IEM ASOS（パブリックドメイン）から 10 空港・2025-01〜2026-07 の METAR を取得（138,446 時間）。防除氷ゲートの 2026 年 1 月時間割合が他チームの公開報告とほぼ一致（LSZH 18.0%、EDDM 11.2%、EDDF 8.3% など）。docs/03 §8 の気象に関する主張と自前パイプラインの相互検証になった。台帳は docs/external_data.md。
