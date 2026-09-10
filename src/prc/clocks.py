@@ -24,6 +24,15 @@ CANDIDATES: dict[str, str] = {
     "lobt": "LOBT_flt",
     "iobt": "IOBT_flt",
 }
+# What the target would be if BLOCK_TIME were a copy of that clock. These are the columns prc.features already
+# builds (MVT_TIME - clock), so the routing target and the model feature are the same number by construction.
+CANDIDATE_VALUE: dict[str, str] = {
+    "aobt3": "mvt_minus_aobt3",
+    "sched": "mvt_minus_sched",
+    "eobt1": "mvt_minus_eobt1",
+    "lobt": "mvt_minus_lobt",
+    "iobt": "mvt_minus_iobt",
+}
 # Classes the model routes over. "genuine" means BLOCK_TIME matches no candidate, i.e. it really is a measured
 # off-block time and the taxi time has to be regressed.
 GENUINE = "genuine"
@@ -34,15 +43,16 @@ DAY_S = 86_400
 
 
 def with_candidates(df: pl.DataFrame) -> pl.DataFrame:
-    """Add cand_<clock> = MVT_TIME - <clock>, i.e. what the target would be if BLOCK_TIME copied that clock.
+    """Ensure the candidate value columns exist, recomputing them from the timestamps.
 
-    Every one of these is computable on the ranking frame, which is the whole point. The candidate columns are
-    cast to the MVT column's dtype first: a frame filtered down to rows without an NM record can carry an
-    all-null AOBT_3, which polars types as Null and refuses to subtract."""
+    prc.features already produces these for the model, so on a feature frame this is an identity; it exists so
+    the anatomy report and the tests can work from raw timestamps. The candidate columns are cast to the MVT
+    column's dtype first: a frame filtered down to rows without an NM record carries an all-null AOBT_3, which
+    polars types as Null and refuses to subtract."""
     dtype = df.schema["MVT_TIME_UTC_mvt"]
     return df.with_columns(
         [
-            (pl.col("MVT_TIME_UTC_mvt") - pl.col(col).cast(dtype)).dt.total_seconds().alias(f"cand_{name}")
+            (pl.col("MVT_TIME_UTC_mvt") - pl.col(col).cast(dtype)).dt.total_seconds().alias(CANDIDATE_VALUE[name])
             for name, col in CANDIDATES.items()
         ]
     )
@@ -83,13 +93,13 @@ def routed_prediction(
     Under L2 the optimum is E[y|x] = sum_k P(k|x) E[y|x,k]; for a copied clock E[y|x,k] is the known candidate
     value. Probability mass on a candidate that is null for this row (no NM record) cannot be spent, so it is
     moved onto the genuine branch rather than dropped - dropping it would shrink every such prediction toward
-    zero. `cand` is (n, len(CANDIDATES)) in CANDIDATES order and may contain NaN.
+    zero. `cand` is (n, len(CANDIDATE_VALUE)) in CANDIDATE_VALUE order and may contain NaN.
 
     ROLLOVER, if present as a class, contributes DAY_S + genuine_pred: docs/06 section 4 measured the remainder
     after removing the day offset to be an ordinary taxi time."""
     if probs.shape != (len(genuine_pred), len(class_names)):
         raise ValueError(f"probs {probs.shape} does not match {len(genuine_pred)} rows x {len(class_names)} classes")
-    names = list(CANDIDATES)
+    names = list(CANDIDATE_VALUE)
     if cand.shape != (len(genuine_pred), len(names)):
         raise ValueError(f"cand {cand.shape} does not match {len(genuine_pred)} rows x {len(names)} candidates")
     num = np.zeros(len(genuine_pred))

@@ -5,6 +5,7 @@ import polars as pl
 import pytest
 
 from prc.clocks import (
+    CANDIDATE_VALUE,
     CANDIDATES,
     DAY_S,
     GENUINE,
@@ -65,13 +66,13 @@ def test_rollover_outranks_a_clock_match():
 def test_candidate_equals_the_label_when_block_is_a_copy():
     f = _frame([{"block": 120, "mvt": 1020, "aobt3": 120, "sched": 300}])
     g = with_candidates(f)
-    assert g["cand_aobt3"][0] == float(g["TAXITIME_SEC_mvt"][0])  # the routed answer is exact
-    assert g["cand_sched"][0] == 720.0
-    assert g["cand_lobt"][0] is None  # a missing clock stays missing, it does not become 0
+    assert g[CANDIDATE_VALUE["aobt3"]][0] == float(g["TAXITIME_SEC_mvt"][0])  # the routed answer is exact
+    assert g[CANDIDATE_VALUE["sched"]][0] == 720.0
+    assert g[CANDIDATE_VALUE["lobt"]][0] is None  # a missing clock stays missing, it does not become 0
 
 
 def test_routed_prediction_picks_an_available_candidate():
-    names = list(CANDIDATES)
+    names = list(CANDIDATE_VALUE)
     cls = classes()
     probs = np.zeros((1, len(cls)))
     probs[0, cls.index("sched")] = 1.0
@@ -82,7 +83,7 @@ def test_routed_prediction_picks_an_available_candidate():
 
 def test_mass_on_a_missing_candidate_falls_back_instead_of_shrinking():
     """Half the mass on a null AOBT_3 must not drag the prediction toward zero."""
-    names, cls = list(CANDIDATES), classes()
+    names, cls = list(CANDIDATE_VALUE), classes()
     probs = np.zeros((1, len(cls)))
     probs[0, cls.index("aobt3")] = 0.5
     probs[0, cls.index(GENUINE)] = 0.5
@@ -91,7 +92,7 @@ def test_mass_on_a_missing_candidate_falls_back_instead_of_shrinking():
 
 
 def test_soft_mixture_is_the_posterior_mean():
-    names, cls = list(CANDIDATES), classes()
+    names, cls = list(CANDIDATE_VALUE), classes()
     probs = np.zeros((1, len(cls)))
     probs[0, cls.index("sched")] = 0.25
     probs[0, cls.index(GENUINE)] = 0.75
@@ -102,7 +103,7 @@ def test_soft_mixture_is_the_posterior_mean():
 
 
 def test_rollover_class_adds_a_day_to_the_regression():
-    names, cls = list(CANDIDATES), classes(with_rollover=True)
+    names, cls = list(CANDIDATE_VALUE), classes(with_rollover=True)
     probs = np.zeros((1, len(cls)))
     probs[0, cls.index(ROLLOVER)] = 1.0
     cand = np.full((1, len(names)), np.nan)
@@ -112,9 +113,9 @@ def test_rollover_class_adds_a_day_to_the_regression():
 def test_shape_mismatch_is_an_error_not_a_broadcast():
     cls = classes()
     with pytest.raises(ValueError):
-        routed_prediction(np.zeros((2, len(cls))), np.zeros((2, len(CANDIDATES))), np.array([900.0]), cls)
+        routed_prediction(np.zeros((2, len(cls))), np.zeros((2, len(CANDIDATE_VALUE))), np.array([900.0]), cls)
     with pytest.raises(ValueError):
-        routed_prediction(np.zeros((1, len(cls))), np.zeros((1, len(CANDIDATES) - 1)), np.array([900.0]), cls)
+        routed_prediction(np.zeros((1, len(cls))), np.zeros((1, len(CANDIDATE_VALUE) - 1)), np.array([900.0]), cls)
 
 
 def test_genuine_is_class_zero():

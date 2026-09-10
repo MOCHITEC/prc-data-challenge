@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from .clocks import CANDIDATES, GENUINE, MATCH_TOL_S, ROLLOVER, with_candidates, with_clock_source
+from .clocks import CANDIDATE_VALUE, CANDIDATES, GENUINE, MATCH_TOL_S, ROLLOVER, with_candidates, with_clock_source
 from .profile import _md_table
 from .train import LABEL
 
@@ -86,7 +86,7 @@ def source_mix(feat_path: Path = FEAT_TRAIN) -> list[dict]:
 def sse_by_source(j: pl.DataFrame) -> tuple[list[dict], dict]:
     """Share of squared error per clock source, plus the oracle-routing RMSE (docs/06 section 3)."""
     tot = float(j["se"].sum())
-    exact = pl.coalesce([pl.when(pl.col("src") == name).then(pl.col(f"cand_{name}")) for name in CANDIDATES])
+    exact = pl.coalesce([pl.when(pl.col("src") == name).then(pl.col(col)) for name, col in CANDIDATE_VALUE.items()])
     g = j.with_columns(exact=exact)
     g = g.with_columns(se_oracle=(pl.col("y") - pl.col("exact")) ** 2)
     rows = (
