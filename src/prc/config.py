@@ -39,6 +39,7 @@ class OsnConfig:
     competition_bucket: str
     team_bucket: str
     team_name: str
+    region: str = "us-east-1"
 
     @classmethod
     def from_env(cls) -> OsnConfig:
@@ -59,6 +60,9 @@ class OsnConfig:
             competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "competition-data"),
             team_bucket=os.getenv("OSN_TEAM_BUCKET", ""),
             team_name=os.getenv("PRC_TEAM_NAME", ""),
+            # Pinning the region stops minio from calling GET /<bucket>?location=, which the OpenSky endpoint
+            # answers with 503 and which made the first upload attempt fail before any data was sent.
+            region=os.getenv("OSN_S3_REGION", "us-east-1"),
         )
 
 

@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 def client(cfg: OsnConfig | None = None) -> Minio:
     cfg = cfg or OsnConfig.from_env()
-    return Minio(cfg.endpoint, access_key=cfg.access_key, secret_key=cfg.secret_key, secure=True)
+    return Minio(cfg.endpoint, access_key=cfg.access_key, secret_key=cfg.secret_key, secure=True, region=cfg.region)
 
 
 def list_buckets(cfg: OsnConfig | None = None) -> list[str]:

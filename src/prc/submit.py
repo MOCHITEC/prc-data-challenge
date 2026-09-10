@@ -25,17 +25,24 @@ def _today_count(log: Path, now: dt.datetime | None = None) -> tuple[int, set[in
     The daily quota's time zone is undocumented (docs/01 U9), so count on the UTC day and on the Brussels day
     and take the larger - the safe side. Dry runs consume neither the quota nor a version number."""
     now = now or dt.datetime.now(dt.UTC)
-    versions: set[int] = set()
     if not log.exists():
-        return 0, versions
-    n_utc = n_cet = 0
+        return 0, set()
+    # Keep the last record per version: an attempt that ended in "failed" created no object, so it consumes
+    # neither the version name nor a slot of the daily quota.
+    last: dict[int, dict] = {}
     for line in log.read_text().splitlines():
         if not line.strip():
             continue
         rec = json.loads(line)
         if rec.get("dry_run"):
             continue
-        versions.add(int(rec["version"]))
+        last[int(rec["version"])] = rec
+    versions: set[int] = set()
+    n_utc = n_cet = 0
+    for version, rec in last.items():
+        if rec.get("status") == "failed":
+            continue
+        versions.add(version)
         ts = dt.datetime.fromisoformat(rec["uploaded_at"])
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=dt.UTC)

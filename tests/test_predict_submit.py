@@ -77,3 +77,16 @@ def test_integer_and_null_typed_templates(tmp_path):
         pq.write_table(t, tp)
         sub = write_submission(pred, tp, tmp_path / f"out_{target.type}.parquet")
         assert sub[SUBMISSION_TARGET_COL].to_pylist() == expect
+
+
+def test_failed_attempt_frees_the_version_and_the_slot(tmp_path):
+    """A 503 before any bytes moved must not burn a version number or one of the five daily slots."""
+    log = tmp_path / "sub.jsonl"
+    rows = [
+        {"version": 1, "uploaded_at": "2026-10-10T09:00:00+00:00", "status": "attempted"},
+        {"version": 1, "uploaded_at": "2026-10-10T09:00:00+00:00", "status": "failed"},
+        {"version": 2, "uploaded_at": "2026-10-10T10:00:00+00:00", "status": "uploaded"},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    n, versions = _today_count(log, now=dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.UTC))
+    assert versions == {2} and n == 1
