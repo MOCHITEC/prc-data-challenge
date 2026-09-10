@@ -16,6 +16,7 @@ Invariants enforced here (each one was a real bug caught in review):
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import subprocess
@@ -132,34 +133,49 @@ def attach_encodings(df: pl.DataFrame, enc: dict[str, pl.DataFrame]) -> pl.DataF
 # ---------- fitting ----------
 
 
-def _matrix(df: pl.DataFrame, feature_cols: list[str], cat_cols: list[str]) -> tuple[np.ndarray, list[str]]:
-    cols = feature_cols + cat_cols
-    X = df.select(cols)
+def _cat_dtypes(frames: list[pl.DataFrame], cat_cols: list[str]) -> dict[str, pl.Enum]:
+    """One fixed category list per column, shared by every frame.
+
+    polars assigns Categorical codes per frame, so encoding the training and prediction frames separately would
+    give the same string different codes. A pl.Enum with an explicit category list is stable across frames, which
+    lets us build one matrix per frame instead of concatenating them (the concatenated matrix is what ran the
+    machine out of memory at full size)."""
+    out: dict[str, pl.Enum] = {}
     for c in cat_cols:
-        X = X.with_columns(
-            pl.col(c).cast(pl.Utf8).fill_null("__NA__").cast(pl.Categorical).to_physical().cast(pl.Float64).alias(c)
-        )
-    return X.to_numpy().astype(np.float64), cols
+        vals: set[str] = set()
+        for f in frames:
+            vals |= set(f[c].cast(pl.Utf8).drop_nulls().unique().to_list())
+        out[c] = pl.Enum(["__NA__", *sorted(vals)])
+    return out
 
 
-def _inner_split(train: pl.DataFrame, months: int) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Carve the latest `months` calendar months out of the training side for early stopping."""
-    if months <= 0 or "MVT_TIME_UTC_mvt" not in train.columns:
-        return train, train.head(0)
-    keys = train.select(
-        (pl.col("MVT_TIME_UTC_mvt").dt.year() * 100 + pl.col("MVT_TIME_UTC_mvt").dt.month()).alias("ym")
-    )["ym"]
+def _matrix(
+    df: pl.DataFrame, feature_cols: list[str], cat_cols: list[str], cat_dtypes: dict[str, pl.Enum]
+) -> tuple[np.ndarray, list[str]]:
+    """Dense float32 design matrix. float32 halves the footprint and LightGBM bins the values anyway."""
+    cols = feature_cols + cat_cols
+    X = df.select(cols).with_columns(
+        [pl.col(c).cast(pl.Utf8).fill_null("__NA__").cast(cat_dtypes[c]).to_physical() for c in cat_cols]
+    )
+    X = X.with_columns([pl.col(c).cast(pl.Float32) for c in cols])
+    return X.to_numpy(), cols
+
+
+def _inner_holdout_mask(train: pl.DataFrame, months: int) -> np.ndarray:
+    """Boolean mask marking the latest `months` calendar months of the training side, used for early stopping."""
+    empty = np.zeros(train.height, dtype=bool)
+    if months <= 0 or "MVT_TIME_UTC_mvt" not in train.columns or train.height == 0:
+        return empty
+    keys = year_month_key(train)
     uniq = sorted(keys.unique().to_list())
     if len(uniq) <= months:
-        return train, train.head(0)
-    hold = set(uniq[-months:])
-    mask = keys.is_in(list(hold)).to_numpy()
-    return train.filter(pl.Series(~mask)), train.filter(pl.Series(mask))
+        return empty
+    return keys.is_in(uniq[-months:]).to_numpy()
 
 
 def _fit(
     train: pl.DataFrame,
-    target_expr,
+    target_fn,
     cfg: TrainConfig,
     feature_cols: list[str],
     cat_cols: list[str],
@@ -167,46 +183,45 @@ def _fit(
 ) -> tuple[list[np.ndarray], int]:
     """Early-stop on an inner holdout of `train`, refit on all of `train`, then predict each frame.
 
-    `target_expr(frame) -> np.ndarray` builds the model-space target, so the caller decides the parameterisation.
+    `target_fn(frame) -> np.ndarray` builds the model-space target, so the caller owns the parameterisation.
     Returns one prediction array per frame (in model space) and the number of rounds actually used."""
-    inner_tr, inner_va = _inner_split(train, cfg.inner_holdout_months)
-    frames = [train, *predict_frames]
-    if inner_va.height:
-        frames = [inner_tr, inner_va, *frames]
-    Xall, cols = _matrix(
-        pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed"), feature_cols, cat_cols
-    )
-    offs, i = [], 0
-    for f in frames:
-        offs.append((i, i + f.height))
-        i += f.height
+    cat_dtypes = _cat_dtypes([train, *predict_frames], cat_cols)
+    Xtr, cols = _matrix(train, feature_cols, cat_cols, cat_dtypes)
     cat_idx = [cols.index(c) for c in cat_cols]
     params = cfg.lgb_params()
+    y = target_fn(train)
+    if not np.isfinite(y).all():
+        raise AssertionError(f"{int((~np.isfinite(y)).sum())} non-finite training targets reached the fitter")
 
+    dfull = lgb.Dataset(Xtr, label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
     rounds = cfg.num_rounds
-    if inner_va.height:
-        (a, b), (c, d) = offs[0], offs[1]
-        dtr = lgb.Dataset(
-            Xall[a:b], label=target_expr(inner_tr), categorical_feature=cat_idx, free_raw_data=False, params=params
-        )
-        dva = lgb.Dataset(Xall[c:d], label=target_expr(inner_va), categorical_feature=cat_idx, reference=dtr)
+    hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
+    if hold.any() and not hold.all():
+        idx_in, idx_ho = np.flatnonzero(~hold), np.flatnonzero(hold)
+        # subset() reuses the parent's binned data instead of materialising two more dense copies
         booster = lgb.train(
             params,
-            dtr,
+            dfull.subset(idx_in),
             num_boost_round=cfg.num_rounds,
-            valid_sets=[dva],
+            valid_sets=[dfull.subset(idx_ho)],
             callbacks=[lgb.log_evaluation(0), lgb.early_stopping(cfg.early_stopping, verbose=False)],
         )
         best = int(booster.best_iteration or cfg.num_rounds)
-        # scale the round count to the larger refit set, then cap
-        rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, inner_tr.height)))))
-    fi = 2 if inner_va.height else 0
-    (a, b) = offs[fi]
-    dfull = lgb.Dataset(
-        Xall[a:b], label=target_expr(train), categorical_feature=cat_idx, free_raw_data=False, params=params
-    )
+        # the refit sees more rows than the inner split, so scale the round count up in proportion
+        rounds = int(min(cfg.num_rounds, max(10, round(best * len(y) / max(1, len(idx_in))))))
+        del booster
+        gc.collect()
+
     model = lgb.train(params, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
-    preds = [model.predict(Xall[s:e]) for (s, e) in offs[fi + 1 :]]
+    del dfull, Xtr
+    gc.collect()
+
+    preds = []
+    for f in predict_frames:
+        Xp, _ = _matrix(f, feature_cols, cat_cols, cat_dtypes)
+        preds.append(model.predict(Xp))
+        del Xp
+        gc.collect()
     return preds, rounds
 
 

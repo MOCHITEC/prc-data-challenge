@@ -74,7 +74,8 @@ def main() -> int:
     print("\n== submission target")
     if team:
         print(f"  candidate team bucket: '{team}'")
-        guess = re.sub(r"^(submissions?[-_]?|prc[-_]?)", "", team)
+        # buckets are named prc-<year>-<team-name>, and the team name is what goes in the submission filename
+        guess = re.sub(r"^prc[-_]\d{4}[-_]|^(submissions?[-_]?|prc[-_])", "", team)
         print(
             f"  suggested PRC_TEAM_NAME: '{cfg.team_name or guess}'  "
             f"(submission files are named <team-name>_v<N>.parquet)"
