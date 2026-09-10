@@ -43,44 +43,71 @@ SOURCE_RATE_GROUPS: dict[str, list[str]] = {
 
 
 def source_rate_tables(train_src: pl.DataFrame, smoothing: float) -> dict[str, pl.DataFrame]:
-    """P(clock source | group) per group, fitted on the training side only.
+    """Per-group counts of each clock source, fitted on the training side only.
 
-    Additive smoothing toward the global rate does two jobs: it keeps a two-row group from asserting a rate of
-    1.0, and it bounds the self-inclusion leak, which for a group of n rows is at most 1/(n + smoothing)."""
+    Counts rather than rates, because the rate has to be computed at attach time: on the training side a row's
+    own class must be removed from its own group's counts first (see attach_source_rates)."""
     names = classes()
     n_all = train_src.height
     prior = {c: (train_src.filter(pl.col("clock_src") == c).height + 1) / (n_all + len(names)) for c in names}
-    tables: dict[str, pl.DataFrame] = {}
+    tables: dict[str, pl.DataFrame] = {"_prior": pl.DataFrame([{f"sr_prior_{c}": prior[c] for c in names}])}
     for tag, keys in SOURCE_RATE_GROUPS.items():
         if any(k not in train_src.columns for k in keys):
             continue
-        counts = train_src.group_by([*keys, "clock_src"]).len()
-        wide = counts.pivot(on="clock_src", index=keys, values="len").fill_null(0)
+        wide = train_src.group_by([*keys, "clock_src"]).len().pivot(on="clock_src", index=keys, values="len")
+        cnt_cols = []
         for c in names:  # a class absent from the training months still needs its column
-            if c not in wide.columns:
-                wide = wide.with_columns(pl.lit(0, dtype=pl.UInt32).alias(c))
-        total = pl.sum_horizontal([pl.col(c) for c in names])
-        tables[tag] = wide.select(
-            [*keys, total.alias(f"srn_{tag}")]
-            + [((pl.col(c) + smoothing * prior[c]) / (total + smoothing)).alias(f"sr_{tag}_{c}") for c in names]
+            col = pl.col(c) if c in wide.columns else pl.lit(0, dtype=pl.UInt32)
+            # fill only the count columns: filling the whole frame would put 0 into the string group keys
+            cnt_cols.append(col.fill_null(0).cast(pl.Int64).alias(f"cnt_{tag}_{c}"))
+        wide = wide.select([*keys, *cnt_cols])
+        tables[tag] = wide.with_columns(
+            pl.sum_horizontal([pl.col(f"cnt_{tag}_{c}") for c in names]).alias(f"srn_{tag}")
         )
-    tables["_prior"] = pl.DataFrame([{f"sr_prior_{c}": prior[c] for c in names}])
     return tables
 
 
-def attach_source_rates(df: pl.DataFrame, tables: dict[str, pl.DataFrame]) -> pl.DataFrame:
-    """Join the fitted rates onto any frame. Pure join: nothing is derived from df's own clock sources."""
+def attach_source_rates(
+    df: pl.DataFrame, tables: dict[str, pl.DataFrame], smoothing: float, leave_one_out: bool = False
+) -> pl.DataFrame:
+    """Join the group counts and turn them into P(clock source | group).
+
+    `leave_one_out` must be set on the training side and only there. Without it every training row's feature
+    includes that row's own class, so the classifier sees a shaved-down version of its own label - the same
+    self-inclusion defect that the stand x runway reference table guards against with min_count. At prediction
+    time the row was never counted, so the feature is strictly less informative than in training, and the
+    classifier's reliance on it is miscalibrated by exactly that amount.
+
+    Rows whose group key is null (STAND_mvt and AIRCRAFT_OPERATOR_flt are both nullable) miss the join and fall
+    back on the global prior; they were never counted, so leave-one-out subtracts nothing for them."""
     names = classes()
+    prior = tables["_prior"]
+    if leave_one_out and "clock_src" not in df.columns:
+        raise ValueError("leave_one_out needs the clock_src column, which only labelled rows have")
     out = df
     for tag, keys in SOURCE_RATE_GROUPS.items():
         if tag not in tables:
             continue
         out = out.join(tables[tag], on=keys, how="left", maintain_order="left")
-        prior = tables["_prior"]
+        joined = pl.col(f"srn_{tag}").is_not_null()
+        # `own` is 1 for the class this row contributed to its own group and 0 otherwise; a row that missed the
+        # join contributed nothing, so nothing is subtracted for it either
+        if leave_one_out:
+            own = {c: (joined & (pl.col("clock_src") == c)).cast(pl.Int64) for c in names}
+            n = pl.when(joined).then(pl.col(f"srn_{tag}") - 1).otherwise(0)
+        else:
+            own = {c: pl.lit(0, dtype=pl.Int64) for c in names}
+            n = pl.col(f"srn_{tag}").fill_null(0)
         out = out.with_columns(
-            [pl.col(f"sr_{tag}_{c}").fill_null(prior[f"sr_prior_{c}"][0]) for c in names]
+            [
+                (
+                    (pl.col(f"cnt_{tag}_{c}").fill_null(0) - own[c] + smoothing * prior[f"sr_prior_{c}"][0])
+                    / (n + smoothing)
+                ).alias(f"sr_{tag}_{c}")
+                for c in names
+            ]
             + [pl.col(f"srn_{tag}").fill_null(0)]
-        )
+        ).drop([f"cnt_{tag}_{c}" for c in names])
     if out.height != df.height:
         raise AssertionError("attach_source_rates changed the row count")
     return out
@@ -155,7 +182,8 @@ def predict_fold_mixture(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tra
     gc.collect()
     if cfg.use_source_rates:
         rates = source_rate_tables(tr_e, cfg.source_rate_smoothing)
-        tr_e, tg_e = attach_source_rates(tr_e, rates), attach_source_rates(tg_e, rates)
+        tr_e = attach_source_rates(tr_e, rates, cfg.source_rate_smoothing, leave_one_out=True)
+        tg_e = attach_source_rates(tg_e, rates, cfg.source_rate_smoothing, leave_one_out=False)
         info["source_rate_groups"] = [t for t in rates if t != "_prior"]
     if tg_e.height != target_c.height or not tg_e["MVT_ID_mvt"].equals(target_c["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed the target row count or order")

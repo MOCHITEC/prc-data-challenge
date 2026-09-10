@@ -4,7 +4,7 @@ import pytest
 
 from prc.clocks import CANDIDATE_VALUE, GENUINE, classes, with_candidates, with_clock_source
 from prc.features import build_departure_features
-from prc.mixture import REAL_OFFBLOCK_SOURCES, predict_fold_mixture
+from prc.mixture import REAL_OFFBLOCK_SOURCES, SOURCE_RATE_GROUPS, predict_fold_mixture
 from prc.synth import generate_month
 from prc.train import TrainConfig, run_cv
 
@@ -83,10 +83,9 @@ def test_source_rates_are_fitted_on_the_training_side_and_joined_only():
     tr_src = with_clock_source(with_candidates(tr.drop_nulls("TAXITIME_SEC_mvt")), 60, with_rollover=False)
     tables = source_rate_tables(tr_src, smoothing=50.0)
 
-    a = attach_source_rates(tg, tables)
-    # flipping every clock source on the target side cannot move a single attached rate
-    flipped = tg.with_columns(pl.lit(None, dtype=tg.schema["BLOCK_TIME_UTC_mvt"]).alias("BLOCK_TIME_UTC_mvt"))
-    b = attach_source_rates(flipped, tables)
+    a = attach_source_rates(tg, tables, 50.0)
+    blanked = tg.with_columns(pl.lit(None, dtype=tg.schema["BLOCK_TIME_UTC_mvt"]).alias("BLOCK_TIME_UTC_mvt"))
+    b = attach_source_rates(blanked, tables, 50.0)
     rate_cols = [c for c in a.columns if c.startswith("sr_")]
     assert rate_cols
     for c in rate_cols:
@@ -99,18 +98,72 @@ def test_source_rates_sum_to_one_and_fall_back_to_the_prior():
     tr = build_departure_features(generate_month(2025, 7, seed=23, deps_per_airport_day=10))
     tr_src = with_clock_source(with_candidates(tr.drop_nulls("TAXITIME_SEC_mvt")), 60, with_rollover=False)
     tables = source_rate_tables(tr_src, smoothing=50.0)
-    got = attach_source_rates(tr, tables)
-    for tag in ("apt", "apt_op", "apt_hour", "apt_stand"):
+    got = attach_source_rates(tr, tables, 50.0)
+    for tag in SOURCE_RATE_GROUPS:
         cols = [f"sr_{tag}_{c}" for c in classes()]
         if cols[0] not in got.columns:
             continue
         total = got.select(pl.sum_horizontal([pl.col(c) for c in cols]).alias("t"))["t"].to_numpy()
         np.testing.assert_allclose(total, 1.0, atol=1e-9)
 
-    # an airport that never appeared in training gets the global prior, not a null
     unseen = tr.head(3).with_columns(pl.lit("ZZZZ").alias("ADEP_mvt"))
-    out = attach_source_rates(unseen, tables)
+    out = attach_source_rates(unseen, tables, 50.0)
     prior = tables["_prior"]
     for c in classes():
-        assert out[f"sr_apt_{c}"].to_list() == [prior[f"sr_prior_{c}"][0]] * 3
+        # the fallback is (0 + s*prior) / (0 + s), which round-trips through a division
+        assert out[f"sr_apt_{c}"].to_list() == pytest.approx([prior[f"sr_prior_{c}"][0]] * 3)
         assert out["srn_apt"].to_list() == [0, 0, 0]
+
+
+def test_leave_one_out_removes_the_row_s_own_class_from_its_own_group():
+    """Without this the classifier's feature carries a shaved-down copy of the row's own label."""
+    from prc.mixture import attach_source_rates, source_rate_tables
+
+    tr = build_departure_features(generate_month(2025, 7, seed=24, deps_per_airport_day=10))
+    tr_src = with_clock_source(with_candidates(tr.drop_nulls("TAXITIME_SEC_mvt")), 60, with_rollover=False)
+    tables = source_rate_tables(tr_src, smoothing=50.0)
+    plain = attach_source_rates(tr_src, tables, 50.0, leave_one_out=False)
+    loo = attach_source_rates(tr_src, tables, 50.0, leave_one_out=True)
+
+    # for its own class the leave-one-out rate is strictly lower; for the others it is strictly higher
+    # (the denominator lost a row too)
+    for c in classes():
+        own = pl.col("clock_src") == c
+        if not tr_src.filter(own).height:
+            continue
+        idx = plain.with_row_index().filter(own)["index"].to_list()
+        p_own = plain[f"sr_apt_{c}"].gather(idx).to_numpy()
+        l_own = loo[f"sr_apt_{c}"].gather(idx).to_numpy()
+        assert (l_own < p_own).all(), c
+        other = next(o for o in classes() if o != c)
+        assert (loo[f"sr_apt_{other}"].gather(idx).to_numpy() > plain[f"sr_apt_{other}"].gather(idx).to_numpy()).all()
+
+    assert attach_source_rates(tr_src, tables, 50.0, leave_one_out=True).height == tr_src.height
+    with pytest.raises(ValueError):  # the ranking frame has no clock_src, so leave-one-out is meaningless there
+        attach_source_rates(tr_src.drop("clock_src"), tables, 50.0, leave_one_out=True)
+
+
+def test_nullable_group_keys_survive_the_pivot_and_fall_back_to_the_prior():
+    """STAND_mvt and AIRCRAFT_OPERATOR_flt are both nullable; filling the whole pivot would corrupt the keys."""
+    from prc.mixture import attach_source_rates, source_rate_tables
+
+    tr = build_departure_features(generate_month(2025, 7, seed=25, deps_per_airport_day=10))
+    tr_src = with_clock_source(with_candidates(tr.drop_nulls("TAXITIME_SEC_mvt")), 60, with_rollover=False)
+    tr_src = tr_src.with_columns(
+        pl.when(pl.int_range(pl.len()) % 3 == 0).then(None).otherwise(pl.col("STAND_mvt")).alias("STAND_mvt"),
+        pl.lit(None, dtype=pl.Utf8).alias("AIRCRAFT_OPERATOR_flt"),
+    )
+    tables = source_rate_tables(tr_src, smoothing=50.0)
+    assert tables["apt_stand"].schema["STAND_mvt"] == pl.Utf8  # not silently cast by a blanket fill_null(0)
+    out = attach_source_rates(tr_src, tables, 50.0, leave_one_out=True)
+    assert out.height == tr_src.height
+    prior = tables["_prior"]
+    # every operator is null, so no row joins the operator group and all of them get the prior
+    for c in classes():
+        assert out[f"sr_apt_op_{c}"].to_list() == pytest.approx([prior[f"sr_prior_{c}"][0]] * out.height)
+    null_stand = out.filter(pl.col("STAND_mvt").is_null())
+    assert null_stand.height
+    for c in classes():
+        assert null_stand[f"sr_apt_stand_{c}"].to_list() == pytest.approx(
+            [prior[f"sr_prior_{c}"][0]] * null_stand.height
+        )
