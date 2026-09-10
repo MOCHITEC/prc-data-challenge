@@ -151,3 +151,19 @@ def test_feature_cache_is_rebuilt_when_the_feature_builder_changes(tmp_path):
     rebuilt, _ = build_features(df, rk, use_weather=False, work=tmp_path)
     assert rebuilt.height == full.height
     assert (tmp_path / "feat_fingerprint.txt").read_text().strip() == feature_fingerprint(False)
+
+
+def test_fingerprint_covers_every_module_that_decides_columns():
+    """weather.py decides columns too; leaving it out of the hash reused a 20-column cache for a 6-column run."""
+    import hashlib
+    from pathlib import Path
+
+    from prc.pipeline import FEATURE_SOURCES, feature_fingerprint
+
+    assert set(FEATURE_SOURCES) == {"features.py", "weather.py"}
+    src_dir = Path(__file__).resolve().parents[1] / "src" / "prc"
+    for name in FEATURE_SOURCES:
+        assert (src_dir / name).exists(), name
+    expected = hashlib.sha1(b"".join((src_dir / n).read_bytes() for n in FEATURE_SOURCES) + b"True").hexdigest()
+    assert feature_fingerprint(True) == expected[:12]
+    assert feature_fingerprint(True) != feature_fingerprint(False)

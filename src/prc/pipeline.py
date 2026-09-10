@@ -52,13 +52,21 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.Da
     return join_weather(feats, hourly)
 
 
+# Every module whose source decides which columns end up in the cached feature frames.
+FEATURE_SOURCES = ("features.py", "weather.py")
+
+
 def feature_fingerprint(use_weather: bool) -> str:
     """Identity of the feature builder, so a stale cache is rebuilt instead of silently used.
 
     Adding a column to prc.features used to leave the cached parquet in place: the new feature simply never
-    reached the model, with no error anywhere. The fingerprint covers the builder's source and the weather flag,
-    which is what actually determines the columns."""
-    src = (Path(__file__).parent / "features.py").read_bytes()
+    reached the model, with no error anywhere.
+
+    weather.py is in the hash because it decides columns too. Leaving it out made exactly the same mistake one
+    level down: restricting the weather join to the mechanism columns changed nothing in features.py, so the
+    fingerprint matched, the twenty-column cache was reused, and v12 would have been a bit-identical rerun of
+    v11 while claiming to test a six-column subset."""
+    src = b"".join((Path(__file__).parent / name).read_bytes() for name in FEATURE_SOURCES)
     return hashlib.sha1(src + str(use_weather).encode()).hexdigest()[:12]
 
 
