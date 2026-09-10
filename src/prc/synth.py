@@ -124,11 +124,7 @@ def generate_month(
                     if ph == "DEP":
                         delay = rng.gamma(2.0, 300) - 300 + (600 if rng.random() < 0.05 else 0)
                         block = sched + timedelta(seconds=float(delay))
-                        taxi = (
-                            AIRPORT_BASE_SEC[apt] * congestion * rng.lognormal(0, 0.25)
-                            + stand_eff[si]
-                            + rwy_eff[ri]
-                        )
+                        taxi = AIRPORT_BASE_SEC[apt] * congestion * rng.lognormal(0, 0.25) + stand_eff[si] + rwy_eff[ri]
                         taxi = max(120.0, taxi)
                         # reporting-failure regime: block reported as schedule (mostly unmatched LIRF rows)
                         if not matched and apt == "LIRF" and rng.random() < 0.08:
@@ -141,26 +137,17 @@ def generate_month(
                             else sched + timedelta(seconds=float(delay + taxi))
                         )
                         taxi_sec = (mvt - block).total_seconds()
-                        aobt3 = (
-                            block + timedelta(seconds=float(rng.normal(0, 90))) if matched else None
-                        )
+                        aobt3 = block + timedelta(seconds=float(rng.normal(0, 90))) if matched else None
                         adep, ades = apt, rng.choice(DESTS)
                     else:
                         landing = sched + timedelta(seconds=float(rng.normal(0, 600)))
-                        taxi = (
-                            AIRPORT_BASE_SEC[apt] * 0.5 * congestion * rng.lognormal(0, 0.25)
-                            + stand_eff[si] * 0.5
-                        )
+                        taxi = AIRPORT_BASE_SEC[apt] * 0.5 * congestion * rng.lognormal(0, 0.25) + stand_eff[si] * 0.5
                         taxi = max(90.0, taxi)
                         mvt = landing
                         block = landing + timedelta(seconds=float(taxi))
                         taxi_sec = taxi
                         aobt3 = (
-                            (
-                                sched
-                                - timedelta(hours=2)
-                                + timedelta(seconds=float(rng.normal(0, 600)))
-                            )
+                            (sched - timedelta(hours=2) + timedelta(seconds=float(rng.normal(0, 600))))
                             if matched
                             else None
                         )
@@ -185,15 +172,9 @@ def generate_month(
                             "AIRCRAFT_TYPE_mvt": ac,
                             "RUNWAY_mvt": runways[ri],
                             "STAND_mvt": stands[si],
-                            "TAXITIME_SEC_mvt": None
-                            if (blank_dep and ph == "DEP")
-                            else float(round(taxi_sec)),
-                            "LOBT_flt": (eobt1 + timedelta(seconds=float(rng.normal(300, 300))))
-                            if matched
-                            else None,
-                            "CALLSIGN_flt": f"OP{rng.integers(1, 60):02d}{rng.integers(10, 999)}"
-                            if matched
-                            else None,
+                            "TAXITIME_SEC_mvt": None if (blank_dep and ph == "DEP") else float(round(taxi_sec)),
+                            "LOBT_flt": (eobt1 + timedelta(seconds=float(rng.normal(300, 300)))) if matched else None,
+                            "CALLSIGN_flt": f"OP{rng.integers(1, 60):02d}{rng.integers(10, 999)}" if matched else None,
                             "ADEP_flt": adep if matched else None,
                             "ADES_flt": ades if matched else None,
                             "ADES_FILED_flt": ades if matched else None,
@@ -203,15 +184,11 @@ def generate_month(
                             "FLIGHT_TYPE_flt": "S" if matched else None,
                             "AIRCRAFT_TYPE_flt": ac if matched else None,
                             "WK_TBL_CAT_flt": WTC[ac] if matched else None,
-                            "AIRCRAFT_OPERATOR_flt": f"OP{rng.integers(1, 60):02d}"
-                            if matched
-                            else None,
+                            "AIRCRAFT_OPERATOR_flt": f"OP{rng.integers(1, 60):02d}" if matched else None,
                             "EOBT_1_flt": eobt1 if matched else None,
                             "ARVT_1_flt": (eobt1 + timedelta(hours=2)) if matched else None,
                             "AOBT_3_flt": aobt3,
-                            "ARVT_3_flt": (aobt3 + timedelta(hours=2))
-                            if (matched and aobt3 is not None)
-                            else None,
+                            "ARVT_3_flt": (aobt3 + timedelta(hours=2)) if (matched and aobt3 is not None) else None,
                         }
                     )
     df = pl.DataFrame(

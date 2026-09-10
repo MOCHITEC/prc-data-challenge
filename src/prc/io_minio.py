@@ -24,9 +24,7 @@ def list_objects(bucket: str, prefix: str = "", cfg: OsnConfig | None = None) ->
     return [o.object_name for o in c.list_objects(bucket, prefix=prefix, recursive=True)]
 
 
-def download_all(
-    bucket: str | None = None, dest: Path | None = None, cfg: OsnConfig | None = None
-) -> list[Path]:
+def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnConfig | None = None) -> list[Path]:
     """Download every object of the competition bucket into dest (skips files already present with same size)."""
     cfg = cfg or OsnConfig.from_env()
     bucket = bucket or cfg.competition_bucket

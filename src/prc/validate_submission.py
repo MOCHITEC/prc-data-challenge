@@ -38,14 +38,9 @@ def validate(
 
     # 1) schema: same column names, order and types as the template
     if submission.schema.names != template.schema.names:
-        res.errors.append(
-            f"column names/order differ: {submission.schema.names} vs {template.schema.names}"
-        )
+        res.errors.append(f"column names/order differ: {submission.schema.names} vs {template.schema.names}")
     for name in template.schema.names:
-        if (
-            name in submission.schema.names
-            and submission.schema.field(name).type != template.schema.field(name).type
-        ):
+        if name in submission.schema.names and submission.schema.field(name).type != template.schema.field(name).type:
             res.errors.append(
                 f"dtype of {name} differs: {submission.schema.field(name).type} vs template {template.schema.field(name).type}"
             )
@@ -64,9 +59,7 @@ def validate(
         if submission.num_rows == template.num_rows and not ids_s.equals(ids_t):
             same_set = set(ids_s.to_pylist()) == set(ids_t.to_pylist())
             (res.warnings if same_set else res.errors).append(
-                "MVT_ID_mvt order differs from template"
-                if same_set
-                else "MVT_ID_mvt set differs from template"
+                "MVT_ID_mvt order differs from template" if same_set else "MVT_ID_mvt set differs from template"
             )
 
     # 4) target values
@@ -85,12 +78,8 @@ def validate(
             mn, mx = pc.min(vals).as_py(), pc.max(vals).as_py()
             if mn is not None and mn < 0:
                 res.errors.append(f"negative prediction found (min={mn})")
-            if mx is not None and (
-                isinstance(mx, float) and math.isnan(mx) or mx > MAX_PLAUSIBLE_SECONDS
-            ):
-                res.warnings.append(
-                    f"max prediction {mx} exceeds {MAX_PLAUSIBLE_SECONDS}s; check outliers"
-                )
+            if mx is not None and (isinstance(mx, float) and math.isnan(mx) or mx > MAX_PLAUSIBLE_SECONDS):
+                res.warnings.append(f"max prediction {mx} exceeds {MAX_PLAUSIBLE_SECONDS}s; check outliers")
 
     res.ok = not res.errors
     return res

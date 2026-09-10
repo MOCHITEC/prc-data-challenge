@@ -8,9 +8,7 @@ def test_month_schema_and_identity():
     df = generate_month(2025, 1, seed=1, deps_per_airport_day=5)
     assert df.columns == ALL_COLS
     dep = df.filter(pl.col("PHASE_mvt") == "DEP")
-    diff = (dep["MVT_TIME_UTC_mvt"] - dep["BLOCK_TIME_UTC_mvt"]).dt.total_seconds() - dep[
-        "TAXITIME_SEC_mvt"
-    ]
+    diff = (dep["MVT_TIME_UTC_mvt"] - dep["BLOCK_TIME_UTC_mvt"]).dt.total_seconds() - dep["TAXITIME_SEC_mvt"]
     assert diff.abs().max() <= 1
     assert dep["FLIGHT_ID_mvt"].null_count() > 0  # unmatched rows exist
 
