@@ -4,6 +4,7 @@ import json
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from prc.config import SUBMISSION_ID_COL, SUBMISSION_TARGET_COL
 from prc.features import build_departure_features
@@ -90,3 +91,56 @@ def test_failed_attempt_frees_the_version_and_the_slot(tmp_path):
     log.write_text("\n".join(json.dumps(r) for r in rows))
     n, versions = _today_count(log, now=dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.UTC))
     assert versions == {2} and n == 1
+
+
+def test_upload_refuses_to_replace_an_existing_submission(monkeypatch, tmp_path):
+    """Re-PUTting a scored name is the one observed way a leaderboard score moves, and it can move down."""
+    from minio.error import S3Error
+
+    from prc import io_minio
+    from prc.config import OsnConfig
+
+    cfg = OsnConfig(
+        endpoint="e",
+        access_key="a",
+        secret_key="b",
+        competition_bucket="c",
+        team_bucket="t",
+        team_name="team",
+    )
+    put_calls = []
+
+    class FakeStat:
+        size = 2_222_186
+        last_modified = "2026-09-11 00:42:24+00:00"
+
+    class FakeClient:
+        def __init__(self, exists):
+            self._exists = exists
+
+        def stat_object(self, bucket, name):
+            if self._exists:
+                return FakeStat()
+            # minio's signature is (response, code, message, resource, request_id, host_id)
+            raise S3Error(None, "NoSuchKey", "not found", name, "rid", "hid")
+
+        def fput_object(self, bucket, name, path):
+            put_calls.append(name)
+
+    f = tmp_path / "sub.parquet"
+    f.write_bytes(b"x")
+
+    monkeypatch.setattr(io_minio, "client", lambda c=None: FakeClient(exists=True))
+    with pytest.raises(FileExistsError, match="already exists"):
+        io_minio.upload_submission(f, 4, cfg=cfg)
+    assert put_calls == []  # nothing was sent
+
+    # an explicit overwrite is still possible, because sometimes it is genuinely what you want
+    io_minio.upload_submission(f, 4, cfg=cfg, overwrite=True)
+    assert put_calls == ["team_v4.parquet"]
+
+    # and a fresh version number uploads normally
+    put_calls.clear()
+    monkeypatch.setattr(io_minio, "client", lambda c=None: FakeClient(exists=False))
+    assert io_minio.upload_submission(f, 5, cfg=cfg) == "team_v5.parquet"
+    assert put_calls == ["team_v5.parquet"]
