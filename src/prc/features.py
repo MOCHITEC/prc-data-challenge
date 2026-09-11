@@ -134,10 +134,12 @@ def _in_system(anchor: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.nda
     Since every start precedes its own end, the count of intervals covering t is simply (how many have started)
     minus (how many have already finished), so two binary searches suffice instead of an interval tree.
 
-    That identity only holds over *complete* intervals, so start and end are filtered jointly. Filtering them
-    independently let a flight with a missing off-block but a known take-off contribute an end with no matching
-    start, and the count went as low as -11."""
-    ok = np.isfinite(start) & np.isfinite(end)
+    That identity only holds over *complete, forward* intervals, so pairs are filtered jointly on three
+    conditions. Filtering start and end independently let a flight with a missing off-block but a known take-off
+    contribute an end with no matching start; and 1,012 real flights (0.05%) have an NM off-block recorded
+    *after* their take-off, by up to 11,521s, which inverts the interval so it finishes before it starts. Either
+    one drives the count negative, and a negative queue length is not a thing."""
+    ok = np.isfinite(start) & np.isfinite(end) & (start < end)
     s_ = np.sort(start[ok])
     e_ = np.sort(end[ok])
     out = (np.searchsorted(s_, anchor, side="right") - np.searchsorted(e_, anchor, side="right")).astype(np.float64)
@@ -255,7 +257,9 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
         a_all = d_apt["AOBT_3_flt"].dt.epoch("s").cast(pl.Float64).to_numpy()
         a_tgt = tgt["AOBT_3_flt"].dt.epoch("s").cast(pl.Float64).to_numpy()
         pushback_ok = np.isfinite(a_tgt)
-        own = np.where(np.isfinite(a_tgt) & np.isfinite(t), 1.0, 0.0)
+        # self-exclusion must use the *same* condition _in_system filters on, or a row whose own interval was
+        # dropped as inverted gets 1 subtracted for an interval that was never counted, giving -1
+        own = np.where(np.isfinite(a_tgt) & np.isfinite(t) & (a_tgt < t), 1.0, 0.0)
         cols["q_in_system_at_pushback"] = _in_system(a_tgt, a_all, dep_times) - own
         # at take-off the interval is half-open, so the row itself is already out and nothing is subtracted
         cols["q_in_system_at_tko"] = _in_system(t, a_all, dep_times)

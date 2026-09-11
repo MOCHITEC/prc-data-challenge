@@ -193,6 +193,16 @@ def test_in_system_ignores_incomplete_intervals():
     assert (_in_system(np.array([5.0, 13.0, 30.0, 50.0]), start, end) >= 0).all()
 
 
+def test_in_system_ignores_intervals_that_run_backwards():
+    """1,012 real flights have an NM off-block after their take-off; that interval cannot hold a queue."""
+    from prc.features import _in_system
+
+    start = np.array([0.0, 100.0])  # the second flight "pushed back" after it departed
+    end = np.array([50.0, 90.0])
+    got = _in_system(np.array([60.0, 95.0, 120.0]), start, end)
+    assert (got == 0).all(), got  # without the start < end filter the last two anchors were negative
+
+
 def test_in_system_is_half_open_at_the_end():
     from prc.features import _in_system
 
@@ -231,3 +241,17 @@ def test_queue_features_have_parity_between_training_and_ranking_views():
         a = tr[c].null_count() / tr.height
         b = rk[c].null_count() / rk.height
         assert abs(a - b) < 0.2, (c, a, b)  # the ranking view must not lose a feature the model trained on
+
+
+def test_self_exclusion_matches_the_interval_filter():
+    """A row whose own off-block follows its take-off was never counted, so nothing may be subtracted for it."""
+    import numpy as np
+
+    from prc.features import _in_system
+
+    # one ordinary flight [0, 100) and one inverted flight whose "pushback" is at 200 and take-off at 150
+    start, end = np.array([0.0, 200.0]), np.array([100.0, 150.0])
+    anchors = np.array([50.0, 200.0])
+    raw = _in_system(anchors, start, end)
+    own = ((np.isfinite(anchors)) & (np.array([100.0, 150.0]) > anchors)).astype(float)
+    assert (raw - own >= 0).all(), (raw, own)  # the inverted row contributes own = 0, not 1
