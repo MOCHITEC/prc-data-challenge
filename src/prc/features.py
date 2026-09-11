@@ -124,6 +124,26 @@ def _counts_in_windows(anchor: np.ndarray, events: np.ndarray, w_sec: int) -> tu
     return before.astype(np.int32), after.astype(np.int32)
 
 
+def _in_system(anchor: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.ndarray:
+    """For each anchor time, how many intervals [start_j, end_j) contain it.
+
+    This is the queue length, which is what the existing window counts do *not* measure: a count of take-offs in
+    the last 15 minutes is throughput, and throughput is high both when the airport is empty and when it is
+    saturated. The number of aircraft that have pushed back and not yet taken off separates those.
+
+    Since every start precedes its own end, the count of intervals covering t is simply (how many have started)
+    minus (how many have already finished), so two binary searches suffice instead of an interval tree.
+
+    That identity only holds over *complete* intervals, so start and end are filtered jointly. Filtering them
+    independently let a flight with a missing off-block but a known take-off contribute an end with no matching
+    start, and the count went as low as -11."""
+    ok = np.isfinite(start) & np.isfinite(end)
+    s_ = np.sort(start[ok])
+    e_ = np.sort(end[ok])
+    out = (np.searchsorted(s_, anchor, side="right") - np.searchsorted(e_, anchor, side="right")).astype(np.float64)
+    return np.where(np.isfinite(anchor), out, np.nan)
+
+
 def _window_mean(
     anchor: np.ndarray, times: np.ndarray, values: np.ndarray, w_sec: int, lag_sec: int = 0
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -228,9 +248,47 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
             mean, n = _window_mean(t, arr_inblock, taxi_in, w * 60, lag_sec=0)
             cols[f"arr_taxi_in_mean_{w}m"] = mean
             cols[f"arr_taxi_in_n_{w}m"] = n
+        # Queue state at pushback, using the Network Manager off-block as the pushback proxy. AOBT_3 survives
+        # the mask (only BLOCK_TIME and TAXITIME are blanked) and is present for 98.5% of ranking departures,
+        # so every input here exists at scoring time. Self-exclusion matters: a row's own interval
+        # [AOBT_3, MVT_TIME) always covers its own pushback, which would add a constant 1 to every count.
+        a_all = d_apt["AOBT_3_flt"].dt.epoch("s").cast(pl.Float64).to_numpy()
+        a_tgt = tgt["AOBT_3_flt"].dt.epoch("s").cast(pl.Float64).to_numpy()
+        pushback_ok = np.isfinite(a_tgt)
+        own = np.where(np.isfinite(a_tgt) & np.isfinite(t), 1.0, 0.0)
+        cols["q_in_system_at_pushback"] = _in_system(a_tgt, a_all, dep_times) - own
+        # at take-off the interval is half-open, so the row itself is already out and nothing is subtracted
+        cols["q_in_system_at_tko"] = _in_system(t, a_all, dep_times)
+        for w in (5, 15, 30):
+            b, _ = _counts_in_windows(a_tgt, a_all, w * 60)
+            cols[f"q_pushed_prev_{w}m"] = np.where(pushback_ok, b, np.nan)
+            b2, _ = _counts_in_windows(a_tgt, dep_times, w * 60)
+            cols[f"q_tko_before_pushback_{w}m"] = np.where(pushback_ok, b2, np.nan)
+        # same-runway queue: the physical server is the runway, not the airport
+        q_rwy = np.full(len(t), np.nan)
+        for rwy in tgt["RUNWAY_mvt"].unique().to_list():
+            sel = (
+                (tgt["RUNWAY_mvt"] == rwy).fill_null(False).to_numpy()
+                if rwy is not None
+                else tgt["RUNWAY_mvt"].is_null().to_numpy()
+            )
+            if not sel.any() or rwy is None:
+                continue
+            same = d_apt.filter(pl.col("RUNWAY_mvt") == rwy)
+            q_rwy[sel] = (
+                _in_system(
+                    a_tgt[sel],
+                    same["AOBT_3_flt"].dt.epoch("s").cast(pl.Float64).to_numpy(),
+                    same["_t"].to_numpy(),
+                )
+                - own[sel]
+            )
+        cols["q_in_system_at_pushback_rwy"] = q_rwy
+        cols["pushback_ok"] = pushback_ok.astype(np.int8)
+
         frame = pl.DataFrame(cols)
         if (~anchor_ok).any():
-            ctx_cols = [c for c in frame.columns if c not in ("MVT_ID_mvt", "anchor_ok")]
+            ctx_cols = [c for c in frame.columns if c not in ("MVT_ID_mvt", "anchor_ok", "pushback_ok")]
             frame = frame.with_columns(
                 [pl.when(pl.col("anchor_ok") == 1).then(pl.col(c)).otherwise(None).alias(c) for c in ctx_cols]
             )
@@ -238,11 +296,19 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
     if not frames:
         return pl.DataFrame({"MVT_ID_mvt": pl.Series([], dtype=pl.Int64)})
     ctx = pl.concat(frames, how="diagonal")
-    ctx = ctx.with_columns(pl.col("anchor_ok").cast(pl.Int8))
-    float_cols = [c for c in ctx.columns if c.startswith(("rwy_headway", "nbr_aobt", "nbr_mvt", "arr_taxi_in_mean"))]
+    ctx = ctx.with_columns(pl.col("anchor_ok").cast(pl.Int8), pl.col("pushback_ok").cast(pl.Int8))
+    # the q_* counts are floats, not ints: a departure without an NM off-block has no pushback anchor, and a
+    # null there has to stay a null rather than collapse to zero (docs/06: zero means "empty airport")
+    float_cols = [
+        c for c in ctx.columns if c.startswith(("rwy_headway", "nbr_aobt", "nbr_mvt", "arr_taxi_in_mean", "q_"))
+    ]
     count_cols = [c for c in ctx.columns if c != "MVT_ID_mvt" and c not in float_cols]
+    # NaN -> null. These columns are built with numpy, which has no null, and polars keeps the two distinct:
+    # LightGBM treats both as missing so the model is unaffected, but feature_parity_report counts *nulls*, so a
+    # NaN-valued feature reports 0% missing on both sides and the parity gate goes blind to it. That gate exists
+    # because docs/03 section 8 records a team losing a submission to a feature that vanished at scoring time.
     return ctx.with_columns(
-        [pl.col(c).cast(pl.Float32) for c in float_cols] + [pl.col(c).cast(pl.Int32) for c in count_cols]
+        [pl.col(c).cast(pl.Float32).fill_nan(None) for c in float_cols] + [pl.col(c).cast(pl.Int32) for c in count_cols]
     )
 
 

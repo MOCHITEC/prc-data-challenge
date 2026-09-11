@@ -167,3 +167,67 @@ def test_fingerprint_covers_every_module_that_decides_columns():
     expected = hashlib.sha1(b"".join((src_dir / n).read_bytes() for n in FEATURE_SOURCES) + b"True").hexdigest()
     assert feature_fingerprint(True) == expected[:12]
     assert feature_fingerprint(True) != feature_fingerprint(False)
+
+
+def test_in_system_counts_intervals_covering_each_anchor():
+    """Queue length, not throughput: how many have pushed back and not yet taken off."""
+    from prc.features import _in_system
+
+    start = np.array([0.0, 10.0, 20.0, 30.0])
+    end = np.array([15.0, 25.0, 40.0, 50.0])
+    # at t=12: [0,15) and [10,25) cover it -> 2 ; at t=45: only [30,50) -> 1
+    got = _in_system(np.array([12.0, 45.0, -5.0, np.nan]), start, end)
+    assert got[0] == 2 and got[1] == 1 and got[2] == 0
+    assert np.isnan(got[3])  # a missing anchor cannot be counted, and must not silently become len(start)
+
+
+def test_in_system_ignores_incomplete_intervals():
+    """A take-off with no recorded off-block must not contribute an end without a start."""
+    from prc.features import _in_system
+
+    start = np.array([0.0, np.nan, 20.0])  # the middle flight has no off-block time
+    end = np.array([15.0, 12.0, 40.0])
+    assert _in_system(np.array([13.0]), start, end)[0] == 1  # only [0,15); the nan-start pair is dropped
+    assert _in_system(np.array([30.0]), start, end)[0] == 1  # only [20,40)
+    assert _in_system(np.array([16.0]), start, end)[0] == 0  # nothing open: without the pairing this was -1
+    assert (_in_system(np.array([5.0, 13.0, 30.0, 50.0]), start, end) >= 0).all()
+
+
+def test_in_system_is_half_open_at_the_end():
+    from prc.features import _in_system
+
+    # an interval that ends exactly at the anchor is already finished
+    assert _in_system(np.array([15.0]), np.array([0.0]), np.array([15.0]))[0] == 0
+    # one that starts exactly at the anchor is already in
+    assert _in_system(np.array([15.0]), np.array([15.0]), np.array([30.0]))[0] == 1
+
+
+def test_queue_at_pushback_excludes_the_row_itself():
+    """A row's own [AOBT_3, MVT_TIME) always covers its own pushback: forgetting that adds a constant 1."""
+    f = build_departure_features(generate_month(2025, 7, seed=61, deps_per_airport_day=12))
+    q = f.filter(pl.col("pushback_ok") == 1)
+    assert q.height
+    assert q["q_in_system_at_pushback"].min() >= 0  # never negative, so self-exclusion is not double-counting
+    # a runway queue can never exceed the airport-wide queue it is part of
+    both = q.drop_nulls(["q_in_system_at_pushback", "q_in_system_at_pushback_rwy"])
+    assert both.height
+    assert (both["q_in_system_at_pushback_rwy"] <= both["q_in_system_at_pushback"]).all()
+
+
+def test_pushback_features_are_null_without_an_nm_off_block():
+    f = build_departure_features(generate_month(2025, 7, seed=62, deps_per_airport_day=10))
+    no_push = f.filter(pl.col("pushback_ok") == 0)
+    if no_push.height:
+        for c in ("q_in_system_at_pushback", "q_pushed_prev_15m", "q_tko_before_pushback_15m"):
+            assert no_push[c].null_count() == no_push.height, c
+        # but the take-off-anchored queue still works: MVT_TIME is never missing at ranking time
+        assert no_push.filter(pl.col("anchor_ok") == 1)["q_in_system_at_tko"].null_count() == 0
+
+
+def test_queue_features_have_parity_between_training_and_ranking_views():
+    tr = build_departure_features(generate_month(2025, 7, seed=63, deps_per_airport_day=10))
+    rk = build_departure_features(generate_month(2026, 7, seed=64, deps_per_airport_day=10, blank_dep=True))
+    for c in ("q_in_system_at_pushback", "q_in_system_at_tko", "q_in_system_at_pushback_rwy"):
+        a = tr[c].null_count() / tr.height
+        b = rk[c].null_count() / rk.height
+        assert abs(a - b) < 0.2, (c, a, b)  # the ranking view must not lose a feature the model trained on
