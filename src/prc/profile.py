@@ -166,7 +166,11 @@ def clock_profile(dep: pl.DataFrame) -> list[dict]:
 
 
 def regime_profile(dep: pl.DataFrame) -> list[dict]:
-    """Reporting-failure regimes: block time reported as the schedule, or a whole-day offset (docs/03 section 8)."""
+    """Reporting-failure regimes: block time reported as the schedule, or a whole-day offset (docs/03 section 8).
+
+    The day-offset columns measure the label, not BLOCK - SCHED. An earlier version tested (BLOCK - SCHED) +
+    86400, which is a different phenomenon and the wrong sign besides: what actually drives the RMSE tail is a
+    TAXITIME of about a day (docs/07), i.e. BLOCK and MVT landing on different dates."""
     d = dep.filter(pl.col("BLOCK_TIME_UTC_mvt").is_not_null() & pl.col("SCHED_TIME_UTC_mvt").is_not_null())
     if not d.height:
         return []
@@ -177,7 +181,10 @@ def regime_profile(dep: pl.DataFrame) -> list[dict]:
             [
                 pl.len().alias("rows"),
                 (pl.col("bs").abs() <= 1).mean().alias("block_eq_sched_rate"),
-                ((pl.col("bs") + 86400).abs() <= 60).mean().alias("day_offset_rate"),
+                # A day offset in either direction: BLOCK ahead of SCHED by a day is as plausible as behind.
+                ((pl.col("bs").abs() - 86400).abs() <= 60).mean().alias("sched_day_offset_rate"),
+                # The tail that dominates the metric: a taxi time of a day or more.
+                (pl.col("TAXITIME_SEC_mvt") >= 86400 - 3600).mean().alias("day_offset_rate"),
                 pl.col("FLIGHT_ID_mvt").is_null().mean().alias("nm_unmatched_rate"),
                 ((pl.col("TAXITIME_SEC_mvt") > 14400).mean()).alias("gt_4h_rate"),
             ]
