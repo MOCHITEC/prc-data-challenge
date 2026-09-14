@@ -1,0 +1,16 @@
+# Phase 1 ablation: does the A/B split earn its keep? (docs/08 section 7)
+# split_mode=single. Everything else is identical to v8 so the only variable is the split.
+name: p1_single
+scheme: fast
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+split_mode: single
+unmatched_num_leaves: 255
+unmatched_min_data_in_leaf: 20
+unmatched_num_rounds: 3000
+n_seeds: 3
+note: "Phase 1 分割アブレーション: single"

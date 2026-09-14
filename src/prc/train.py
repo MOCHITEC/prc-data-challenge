@@ -70,6 +70,16 @@ class TrainConfig:
     unmatched_num_leaves: int = 255
     unmatched_min_data_in_leaf: int = 20
     unmatched_num_rounds: int = 3000
+    # How the two regimes (NM record present / absent) are fitted. This was fixed at "separate" from the first
+    # commit and never measured, which is how model B ended up learning from 22,470 rows while discarding
+    # 2,062,577 (docs/08 section 5). The taxi-out structure of an airport, hour and aircraft type does not
+    # depend on whether an NM record happened to match, so that data should transfer.
+    #   separate: model B sees only the rows with no NM record (the original design)
+    #   shared_b: model B is fitted on every labelled row with the same schedule-only feature set, and still
+    #             predicts only the rows with no NM record
+    #   single:   one model, target LABEL - coalesce(proxy, 0), prediction adds the same term back. The
+    #             reparameterisation still applies where the proxy exists and the model branches on nm_matched.
+    split_mode: str = "separate"
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/03 section 5). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
@@ -257,6 +267,21 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     num_cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
     parts = []
+    if cfg.split_mode not in ("separate", "shared_b", "single"):
+        raise ValueError(f"unknown split_mode {cfg.split_mode!r}")
+    info["split_mode"] = cfg.split_mode
+
+    if cfg.split_mode == "single":
+        cols = [c for c in num_cols if c != PROXY] + [PROXY]
+        if tr.height >= 200:
+            (g,), rounds = _fit(tr, _offset_label, cfg, cols, cat_cols, [tg])
+            info["rounds_matched"] = rounds
+        else:
+            info["rounds_matched"] = 0
+            g = np.zeros(tg.height)
+        info["rounds_unmatched"] = 0
+        parts.append(pl.DataFrame({"MVT_ID_mvt": tg["MVT_ID_mvt"], "pred": _proxy_offset(tg) + g}))
+        return _assemble(parts, tr, tg, target_f, info)
 
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
@@ -277,7 +302,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             g = np.zeros(m_tg.height)
         parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": m_tg[PROXY].to_numpy().astype(float) + g}))
 
-    u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
+    # shared_b keeps the same predictions but fits model B on every labelled row, not just the 1% with no NM
+    # record. The feature set is identical either way (cols_b below drops every NM-derived clock), so the extra
+    # rows add airport/hour/aircraft structure without leaking a clock the unmatched rows will not have.
+    u_tg = tg.filter(pl.col(PROXY).is_null())
+    u_tr = tr if cfg.split_mode == "shared_b" else tr.filter(pl.col(PROXY).is_null())
     if u_tg.height:
         cols_b = [
             c
@@ -287,9 +316,10 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             )
         ]
         if u_tr.height >= 200:
-            (g,), rounds = _fit(
-                u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg.for_unmatched(), cols_b, cat_cols, [u_tg]
-            )
+            # Capacity follows the training set, not the regime: under shared_b model B is fitted on the same
+            # 2.08M rows as model A, so the size tuned for 22k rows (cfg.for_unmatched) no longer applies.
+            b_cfg = cfg if cfg.split_mode == "shared_b" else cfg.for_unmatched()
+            (g,), rounds = _fit(u_tr, lambda f: f[LABEL].to_numpy().astype(float), b_cfg, cols_b, cat_cols, [u_tg])
             info["rounds_unmatched"] = rounds
         else:
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))
@@ -297,6 +327,19 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             info["rounds_unmatched"] = 0
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
+    return _assemble(parts, tr, tg, target_f, info)
+
+
+def _proxy_offset(f: pl.DataFrame) -> np.ndarray:
+    """The two-clock offset, zero where there is no NM record so the same expression covers both regimes."""
+    return f[PROXY].fill_null(0.0).fill_nan(0.0).to_numpy().astype(float)
+
+
+def _offset_label(f: pl.DataFrame) -> np.ndarray:
+    return f[LABEL].to_numpy().astype(float) - _proxy_offset(f)
+
+
+def _assemble(parts: list[pl.DataFrame], tr: pl.DataFrame, tg: pl.DataFrame, target_f: pl.DataFrame, info: dict):
     pred = pl.concat(parts) if parts else pl.DataFrame({"MVT_ID_mvt": tg["MVT_ID_mvt"].head(0), "pred": []})
     fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float))) if tr.height else 0.0
     out = (
