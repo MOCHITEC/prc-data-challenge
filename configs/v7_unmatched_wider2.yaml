@@ -1,0 +1,16 @@
+# v7: v6 の方向をさらに押す。model B の容量を再度拡大。
+#
+# 根拠: v5(31葉)→v2(127葉)→v6(255葉) で未マッチ行が 2411.5 → 2318.9 → 1892.8 と単調改善。
+# 頭打ちがどこかを確かめる。v6 の rounds_unmatched は 199 で上限 3000 に遠く、早期打ち切りが効いている。
+name: v7_unmatched_wider2
+scheme: fast
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 511
+unmatched_min_data_in_leaf: 10
+unmatched_num_rounds: 3000
+note: "v6 と同一。model B の容量のみ 255葉/min20 -> 511葉/min10"
