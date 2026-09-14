@@ -68,6 +68,9 @@ class TrainConfig:
     unmatched_num_leaves: int = 31
     unmatched_min_data_in_leaf: int = 40
     unmatched_num_rounds: int = 600
+    # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
+    # 20 seeds (docs/03 section 5). Cost is linear in n_seeds, so keep it small until the effect is measured.
+    n_seeds: int = 1
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -226,8 +229,14 @@ def _fit(
         del dtr, dva, booster, Xtrain  # the fancy-indexed copies are the peak of this function
 
     dfull = lgb.Dataset(Xall[a:b], label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
-    model = lgb.train(params, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
-    preds = [model.predict(Xall[s:e]) for (s, e) in offs[1:]]
+    # Refit under each seed and average. One seed is the default, and then this is the single fit it was before.
+    acc = [np.zeros(e - s) for (s, e) in offs[1:]]
+    for k in range(max(1, cfg.n_seeds)):
+        p_k = dict(params, seed=cfg.seed + k, bagging_seed=cfg.seed + k, feature_fraction_seed=cfg.seed + k)
+        model = lgb.train(p_k, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
+        for i, (s_, e_) in enumerate(offs[1:]):
+            acc[i] += model.predict(Xall[s_:e_])
+    preds = [a_ / max(1, cfg.n_seeds) for a_ in acc]
     return preds, rounds
 
 

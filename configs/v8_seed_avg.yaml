@@ -1,0 +1,18 @@
+# v8: v6 を土台に、シード平均を導入。
+#
+# 根拠: v6 でマッチ行は 218.6 のまま一切動いていない（誤差の 41.4%）。容量の軸は v7 で飽和した。
+# シード平均は 2024 年優勝チームが 20 シードで 1,612 -> 1,562 を得た手法（docs/03 §5）。
+# 乱数の当たり外れを消すだけなので悪化しない。まず 3 シードで効果量を測る。
+name: v8_seed_avg
+scheme: fast
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 255
+unmatched_min_data_in_leaf: 20
+unmatched_num_rounds: 3000
+n_seeds: 3
+note: "v6 + 3シード平均"
