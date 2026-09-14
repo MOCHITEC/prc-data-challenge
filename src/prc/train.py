@@ -20,7 +20,7 @@ import hashlib
 import json
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import lightgbm as lgb
@@ -62,9 +62,27 @@ class TrainConfig:
     linear_lambda: float = 1.0
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
+    # The rows with no NM record are 1.2% of the data and 58.6% of the squared error (measured 2026-09-14 on
+    # the v2 out-of-fold predictions). Model B sees ~8k rows where model A sees 2.1M, so it cannot use the same
+    # capacity: 127 leaves over 8k rows is one leaf per 65 rows. These override the shared params for model B.
+    unmatched_num_leaves: int = 31
+    unmatched_min_data_in_leaf: int = 40
+    unmatched_num_rounds: int = 600
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
+
+    def for_unmatched(self) -> TrainConfig:
+        """A copy sized for model B's much smaller training set."""
+        return replace(
+            self,
+            params={
+                **self.params,
+                "num_leaves": self.unmatched_num_leaves,
+                "min_data_in_leaf": self.unmatched_min_data_in_leaf,
+            },
+            num_rounds=self.unmatched_num_rounds,
+        )
 
     def lgb_params(self) -> dict:
         p = dict(self.params, seed=self.seed)
@@ -258,7 +276,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             )
         ]
         if u_tr.height >= 200:
-            (g,), rounds = _fit(u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg, cols_b, cat_cols, [u_tg])
+            (g,), rounds = _fit(
+                u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg.for_unmatched(), cols_b, cat_cols, [u_tg]
+            )
             info["rounds_unmatched"] = rounds
         else:
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))

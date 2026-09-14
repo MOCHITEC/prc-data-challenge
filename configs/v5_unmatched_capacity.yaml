@@ -1,0 +1,17 @@
+# v5: v2 と同一。変更点は「NM レコードが無い行のモデル（model B）の容量」だけ。
+#
+# 根拠（2026-09-14、v2 の OOF 67 万行で実測）: 未マッチ行は全体の 1.2% でありながら二乗誤差の 58.6% を占める。
+# model A は 208 万行、model B は約 8 千行を見るのに、両者が同じ 127 葉・2000 ラウンドを使っていた。
+# 8 千行に 127 葉は 1 葉あたり 65 行で、過学習以外になりようがない。
+name: v5_unmatched_capacity
+scheme: fast
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 31
+unmatched_min_data_in_leaf: 40
+unmatched_num_rounds: 600
+note: "v2 と同一。model B の容量のみ 127葉/2000本 -> 31葉/600本"
