@@ -65,6 +65,10 @@ class TrainConfig:
     use_categoricals: bool = True
     use_linear_tree: bool = False  # docs/README: reported worth about -10 s CLEAN RMSE; compare explicitly
     linear_lambda: float = 1.0
+    # The nine label-derived columns (stand x runway P10/P20/median, airport x runway x hour median, airport
+    # median, and the coalesced fallback). Present since the first commit and never ablated; the flag exists to
+    # settle whether they earn the 40 lines of fold-wise fitting they cost.
+    use_encodings: bool = True
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
     # The rows with no NM record are 1.2% of the data and roughly half the squared error. Model B sees ~22k
@@ -260,6 +264,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         raise AssertionError("attach_encodings changed row count or order")
 
     num_cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]
+    if not cfg.use_encodings:
+        num_cols = [c for c in num_cols if c not in ENCODING_COLS]
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
     parts = []
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
