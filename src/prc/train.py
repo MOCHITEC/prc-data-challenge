@@ -67,11 +67,11 @@ class TrainConfig:
     linear_lambda: float = 1.0
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
-    # The rows with no NM record are 1.2% of the data and 58.6% of the squared error (measured 2026-09-14 on
-    # the v2 out-of-fold predictions). Model B sees ~8k rows where model A sees 2.1M, so the obvious guess was
-    # that it needed *less* capacity - and that guess was measured and is wrong: shrinking it to 31 leaves cost
-    # +7.91 s overall (v5), widening it to 255 gained -34.82 s (v6), and 511 adds nothing (v7). Those rows
-    # carry real structure, so model B gets its own, larger, size. See docs/README.
+    # The rows with no NM record are 1.2% of the data and roughly half the squared error. Model B sees ~22k
+    # rows where model A sees 2.06M, so the obvious guess was that it needed *less* capacity, and measurement
+    # says otherwise: 31 leaves is worse than 127, 255 is better than 127, 511 adds nothing. The effect is
+    # small once the largest errors are excluded (-0.26 s at 2,000 dropped), so this is a weak result, not a
+    # strong one - it is the current setting because nothing contradicts it, not because it was worth 34 s.
     unmatched_num_leaves: int = 255
     unmatched_min_data_in_leaf: int = 20
     unmatched_num_rounds: int = 3000
