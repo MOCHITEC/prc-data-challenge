@@ -3,9 +3,9 @@
     python -m prc.compare v6_unmatched_wider-fffd3895cb v8_seed_avg-6b88e350f8
 
 Why this module exists: RMSE squares the error, and in this dataset 10 labelled rows out of 672,428 carry 24%
-of the total squared error (docs/08 section 2). A plain paired bootstrap over rows therefore answers "did B beat
+of the total squared error (docs/README). A plain paired bootstrap over rows therefore answers "did B beat
 A on those few rows", which is a lottery the ranking set will not repeat. v6 looked like a 34.8 s improvement
-and is 0.06 s once 200 rows are removed (docs/07). So a comparison here reports three things, and the verdict
+and is 0.06 s once 200 rows are removed (docs/README). So a comparison here reports three things, and the verdict
 needs all of them to agree:
 
   1. the honest full-data difference, because that is the metric being scored;
@@ -94,7 +94,7 @@ def verdict(curve: list[dict], sign_check_level: int = SIGN_CHECK_LEVEL) -> tupl
     Requiring the second one is deliberately conservative, and it does reject changes that genuinely help only
     the tail - which the metric does score. That trade is taken on purpose: the tail of a CV fold is not the
     tail of the ranking set (10 rows carry 24% of the metric here, and they are different 10 rows), and both
-    the 2024 and 2025 editions scored the final standings on a set nobody had seen (docs/01 U2). A change that
+    the 2024 and 2025 editions scored the final standings on a set nobody had seen (docs/README). A change that
     is real only on the rows that will not recur is a change that does not transfer. Anything rejected for that
     reason is reported as tail-only rather than as no effect, because it is a judgement call, not a null."""
     full = next((r for r in curve if r["dropped"] == 0), None)

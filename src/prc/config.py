@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Official submission template contract (docs/01 §2.1, §3)
+# Official submission template contract (docs/README)
 SUBMISSION_ID_COL = "MVT_ID_mvt"
 SUBMISSION_TARGET_COL = "TAXITIME_SEC_mvt"
 EXPECTED_SUBMISSION_ROWS = 344_841  # usedPairs on the leaderboard API (2026-09-09)
@@ -55,7 +55,7 @@ class OsnConfig:
             endpoint=os.getenv("OSN_S3_ENDPOINT", "s3.opensky-network.org").replace("https://", "").rstrip("/"),
             access_key=access,
             secret_key=secret,
-            # All three are discoverable from the buckets themselves - see prc.doctor. There is deliberately
+            # All three come from the approval e-mail and the MinIO console. There is deliberately
             # no default for the competition bucket: the one literally named "competition-data" holds the
             # 2024 edition, so guessing it would download 306 GB of the wrong dataset.
             competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "").strip(),

@@ -61,8 +61,9 @@ def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnCo
     bucket = bucket or cfg.competition_bucket
     if not bucket:
         raise RuntimeError(
-            "OSN_COMPETITION_BUCKET is not set. Run `make doctor`: it lists the buckets the credentials can "
-            "see and flags the 2024 dataset, so you can set the variable to the 2026 bucket (docs/05 §1)."
+            "OSN_COMPETITION_BUCKET is not set. It names the bucket holding training_*.parquet, "
+            "ranking.parquet and submitting.parquet; the 2024 edition still occupies 'competition-data', "
+            "so the 2026 files are somewhere else (docs/README)."
         )
     dest = dest or data_dir() / "raw"
     dest.mkdir(parents=True, exist_ok=True)

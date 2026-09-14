@@ -1,4 +1,4 @@
-"""Synthetic movement data following the official schema (docs/01 §2.2).
+"""Synthetic movement data following the official schema (docs/README).
 
 Purpose: run the whole pipeline (features -> CV -> submission gate) before the real files arrive.
 The generator imitates the documented structure (ARR+DEP rows, NM left join with unmatched rows,

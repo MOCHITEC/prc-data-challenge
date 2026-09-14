@@ -1,4 +1,4 @@
-"""Submission gate: a file must pass every check here before it is uploaded (docs/01 §8, U10).
+"""Submission gate: a file must pass every check here before it is uploaded (docs/README, U10).
 
 Checks: exact schema match with the official template, identical MVT_ID set and order, expected row
 count, no null/NaN/inf, non-negative values, plausible range."""
@@ -18,7 +18,7 @@ from .config import EXPECTED_SUBMISSION_ROWS, SUBMISSION_ID_COL, SUBMISSION_TARG
 
 MAX_PLAUSIBLE_SECONDS = 3 * 3600  # sanity bound, not a clipping rule
 # A submission trained on the wrong data passes every structural check: the ids, dtypes and null count are all
-# fine, only the numbers are wrong. That nearly shipped once (docs/decisions.md 2026-09-10, the feature cache
+# fine, only the numbers are wrong. That nearly shipped once (docs/README, the feature cache
 # serving synthetic features to a real run) and a dtype accident was the only thing that caught it. So compare
 # the shape of the predictions against the labels the model was trained on.
 MEDIAN_TOLERANCE = 0.30

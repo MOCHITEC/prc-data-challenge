@@ -1,9 +1,9 @@
-"""Training / cross-validation for the two-clock model (docs/04 sections 4-5).
+"""Training / cross-validation for the two-clock model (docs/README sections 4-5).
 
 Model A (rows with an NM off-block time): learn g(x) = TAXITIME - (MVT_TIME - AOBT_3) and predict proxy + g(x).
     A tree cannot represent the identity part of y = proxy - f(x), so the reparameterisation is the point.
 Model B (rows without one): learn TAXITIME directly from schedule-based features.
-Both use L2 on raw seconds and keep every labelled row (no outlier filtering) - docs/04 section 4-3.
+Both use L2 on raw seconds and keep every labelled row (no outlier filtering) - docs/README.
 
 Invariants enforced here (each one was a real bug caught in review):
 * Every label-derived table (stand x runway reference, airport-runway-hour median, airport median) is fitted on
@@ -58,7 +58,7 @@ class TrainConfig:
     num_rounds: int = 2000
     early_stopping: int = 100
     use_categoricals: bool = True
-    use_linear_tree: bool = False  # docs/03 section 8: reported worth about -10 s CLEAN RMSE; compare explicitly
+    use_linear_tree: bool = False  # docs/README: reported worth about -10 s CLEAN RMSE; compare explicitly
     linear_lambda: float = 1.0
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
@@ -66,22 +66,12 @@ class TrainConfig:
     # the v2 out-of-fold predictions). Model B sees ~8k rows where model A sees 2.1M, so the obvious guess was
     # that it needed *less* capacity - and that guess was measured and is wrong: shrinking it to 31 leaves cost
     # +7.91 s overall (v5), widening it to 255 gained -34.82 s (v6), and 511 adds nothing (v7). Those rows
-    # carry real structure, so model B gets its own, larger, size. See docs/07.
+    # carry real structure, so model B gets its own, larger, size. See docs/README.
     unmatched_num_leaves: int = 255
     unmatched_min_data_in_leaf: int = 20
     unmatched_num_rounds: int = 3000
-    # How the two regimes (NM record present / absent) are fitted. This was fixed at "separate" from the first
-    # commit and never measured, which is how model B ended up learning from 22,470 rows while discarding
-    # 2,062,577 (docs/08 section 5). The taxi-out structure of an airport, hour and aircraft type does not
-    # depend on whether an NM record happened to match, so that data should transfer.
-    #   separate: model B sees only the rows with no NM record (the original design)
-    #   shared_b: model B is fitted on every labelled row with the same schedule-only feature set, and still
-    #             predicts only the rows with no NM record
-    #   single:   one model, target LABEL - coalesce(proxy, 0), prediction adds the same term back. The
-    #             reparameterisation still applies where the proxy exists and the model branches on nm_matched.
-    split_mode: str = "separate"
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
-    # 20 seeds (docs/03 section 5). Cost is linear in n_seeds, so keep it small until the effect is measured.
+    # 20 seeds (docs/README). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
 
     def hash(self) -> str:
@@ -267,22 +257,6 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     num_cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
     parts = []
-    if cfg.split_mode not in ("separate", "shared_b", "single"):
-        raise ValueError(f"unknown split_mode {cfg.split_mode!r}")
-    info["split_mode"] = cfg.split_mode
-
-    if cfg.split_mode == "single":
-        cols = [c for c in num_cols if c != PROXY] + [PROXY]
-        if tr.height >= 200:
-            (g,), rounds = _fit(tr, _offset_label, cfg, cols, cat_cols, [tg])
-            info["rounds_matched"] = rounds
-        else:
-            info["rounds_matched"] = 0
-            g = np.zeros(tg.height)
-        info["rounds_unmatched"] = 0
-        parts.append(pl.DataFrame({"MVT_ID_mvt": tg["MVT_ID_mvt"], "pred": _proxy_offset(tg) + g}))
-        return _assemble(parts, tr, tg, target_f, info)
-
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
         if m_tr.height >= 200:
@@ -302,11 +276,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             g = np.zeros(m_tg.height)
         parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": m_tg[PROXY].to_numpy().astype(float) + g}))
 
-    # shared_b keeps the same predictions but fits model B on every labelled row, not just the 1% with no NM
-    # record. The feature set is identical either way (cols_b below drops every NM-derived clock), so the extra
-    # rows add airport/hour/aircraft structure without leaking a clock the unmatched rows will not have.
-    u_tg = tg.filter(pl.col(PROXY).is_null())
-    u_tr = tr if cfg.split_mode == "shared_b" else tr.filter(pl.col(PROXY).is_null())
+    u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
         cols_b = [
             c
@@ -316,10 +286,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             )
         ]
         if u_tr.height >= 200:
-            # Capacity follows the training set, not the regime: under shared_b model B is fitted on the same
-            # 2.08M rows as model A, so the size tuned for 22k rows (cfg.for_unmatched) no longer applies.
-            b_cfg = cfg if cfg.split_mode == "shared_b" else cfg.for_unmatched()
-            (g,), rounds = _fit(u_tr, lambda f: f[LABEL].to_numpy().astype(float), b_cfg, cols_b, cat_cols, [u_tg])
+            (g,), rounds = _fit(
+                u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg.for_unmatched(), cols_b, cat_cols, [u_tg]
+            )
             info["rounds_unmatched"] = rounds
         else:
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))
@@ -328,15 +297,6 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
     return _assemble(parts, tr, tg, target_f, info)
-
-
-def _proxy_offset(f: pl.DataFrame) -> np.ndarray:
-    """The two-clock offset, zero where there is no NM record so the same expression covers both regimes."""
-    return f[PROXY].fill_null(0.0).fill_nan(0.0).to_numpy().astype(float)
-
-
-def _offset_label(f: pl.DataFrame) -> np.ndarray:
-    return f[LABEL].to_numpy().astype(float) - _proxy_offset(f)
 
 
 def _assemble(parts: list[pl.DataFrame], tr: pl.DataFrame, tg: pl.DataFrame, target_f: pl.DataFrame, info: dict):
@@ -356,7 +316,7 @@ def feature_parity_report(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tr
     """Null-rate of every model feature on the training side vs the target side.
 
     A feature that is dense in training and empty at prediction time (or vice versa) sends every row down one
-    branch of the tree; docs/03 section 8 records a team losing a submission to exactly that."""
+    branch of the tree; docs/README records a team losing a submission to exactly that."""
     enc = fit_encodings(train_f.filter(pl.col(LABEL).is_not_null()), cfg)
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]

@@ -1,4 +1,4 @@
-"""Fit on all labelled 2025 departures and produce a ranking prediction + submission parquet (docs/04 §8)."""
+"""Fit on all labelled 2025 departures and produce a ranking prediction + submission parquet (docs/README)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ PARITY_GAP_LIMIT = 0.20
 def predict_ranking(
     train_feats: pl.DataFrame, rank_feats: pl.DataFrame, cfg: TrainConfig, parity_gap_limit: float = PARITY_GAP_LIMIT
 ) -> tuple[pl.DataFrame, dict]:
-    """Predict the ranking frame after checking feature availability parity (docs/04 section 3)."""
+    """Predict the ranking frame after checking feature availability parity (docs/README)."""
     parity = feature_parity_report(train_feats, rank_feats, cfg)
     bad = parity.filter(pl.col("gap") > parity_gap_limit)
     if bad.height:
@@ -83,7 +83,7 @@ def write_submission(
     note: str | None = None
     schema = template.schema
     if pa.types.is_integer(target_type):
-        # docs/01 U13: the official dtype is unconfirmed. A safe cast of 600.4 to int64 raises, so round first.
+        # docs/README: the official dtype is unconfirmed. A safe cast of 600.4 to int64 raises, so round first.
         rounded = np.rint(vals)
         note = f"rounded to {target_type} for the template dtype (max shift {np.abs(rounded - vals).max():.3f}s)"
         values = pa.array(rounded, type=pa.float64()).cast(target_type)

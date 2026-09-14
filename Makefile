@@ -1,13 +1,12 @@
 PY=.venv/bin/python
-.PHONY: bootstrap test lint synth smoke download board profile doctor v1 v2
+.PHONY: bootstrap test lint synth smoke download run compare
 
-bootstrap:            ## create venv, install, verify env, fetch data if keys are present, run tests (idempotent)
+bootstrap:            ## create venv, install, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
 	uv pip install -q --python $(PY) -e ".[dev]"
 	$(PY) -c "import prc, lightgbm, polars; print('env ok')"
-	@if [ -n "$$OSN_ACCESS_KEY" ] || [ -n "$$OSN_ID" ]; then \
-	  $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')" \
-	  || echo "download failed: run 'make doctor' for the diagnosis (bootstrap continues)"; \
+	@if [ -n "$$OSN_ACCESS_KEY" ]; then \
+	  $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')" || echo "download failed"; \
 	else echo "OSN_ACCESS_KEY not set: skipping download"; fi
 	$(PY) -m pytest -q
 
@@ -17,26 +16,17 @@ test:
 lint:
 	.venv/bin/ruff check src tests && .venv/bin/ruff format --check src tests
 
-synth:                ## small synthetic dataset for pipeline development
-	$(PY) -c "from pathlib import Path; from prc.synth import write_synthetic_dataset as w; print(w(Path('data/synth')))"
-
-smoke:                ## end-to-end run on the synthetic data (logs to experiments/synthetic_smoke.jsonl)
-	$(PY) -m prc.pipeline --config configs/v1_baseline.yaml --synthetic --raw-dir data/synth --out-dir outputs/synth
-
-download:
+download:             ## fetch the competition parquet files
 	$(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"
 
-board:                ## snapshot the official leaderboard and show movement vs the previous snapshot
-	$(PY) -m prc.leaderboard
+synth:                ## small synthetic dataset, used by the tests
+	$(PY) -c "from pathlib import Path; from prc.synth import write_synthetic_dataset as w; print(w(Path('data/synth')))"
 
-profile:              ## answer the docs/01 open questions from the real files
-	$(PY) -m prc.profile
+smoke:                ## end-to-end run on synthetic data (logs to experiments/synthetic_smoke.jsonl)
+	$(PY) -m prc.pipeline --config configs/v8_seed_avg.yaml --synthetic --raw-dir data/synth --out-dir outputs/synth
 
-v1:                   ## baseline submission (gate only, no upload)
-	$(PY) -m prc.pipeline --config configs/v1_baseline.yaml
+run:                  ## CV + ranking prediction + gate, no upload: make run CONFIG=configs/v8_seed_avg.yaml
+	$(PY) -m prc.pipeline --config $(CONFIG)
 
-v2:                   ## two-clock model submission (gate only, no upload)
-	$(PY) -m prc.pipeline --config configs/v2_two_clock.yaml
-
-doctor:               ## verify the OpenSky credentials and discover the buckets (read-only)
-	$(PY) -m prc.doctor
+compare:              ## adopt/reject two experiments: make compare A=<exp_id> B=<exp_id>
+	$(PY) -m prc.compare $(A) $(B)

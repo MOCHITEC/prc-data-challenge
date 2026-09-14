@@ -1,11 +1,11 @@
-"""Open weather data for the 10 competition airports (docs/04 section 4-6, docs/03 section 9).
+"""Open weather data for the 10 competition airports (docs/README).
 
 Primary source: Iowa Environmental Mesonet (IEM) ASOS/METAR archive - public domain, hourly METAR with
 visibility and present-weather codes, which the reanalysis products do not offer. The service asks for at most
 one request per second per IP, so fetches are chunked by station and year and cached on disk.
 
 Secondary source (gap filling / snowfall): Open-Meteo historical API, CC BY 4.0. Attribution and licence notes
-belong in docs/external_data.md.
+belong in docs/README.
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
     """One row per station-hour with the fields the model uses, including a de-icing gate.
 
     De-icing gate: precipitation or a frozen-precipitation code while the temperature is at or below 3 C -
-    the January mechanism reported in docs/03 section 8 (dry vs wet at sub-zero changes taxi-out by 400-1000 s)."""
+    the January mechanism reported in docs/README (dry vs wet at sub-zero changes taxi-out by 400-1000 s)."""
     frozen = pl.fold(pl.lit(False), lambda a, b: a | b, [pl.col("wx").str.contains(c) for c in SNOW_CODES])
     return (
         metar.with_columns(

@@ -1,4 +1,4 @@
-"""Validation utilities: month-blocked folds, metrics, paired bootstrap (docs/04 §5)."""
+"""Validation utilities: month-blocked folds, metrics, paired bootstrap (docs/README)."""
 
 from __future__ import annotations
 

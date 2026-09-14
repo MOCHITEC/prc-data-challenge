@@ -1,6 +1,6 @@
-"""One command from raw parquet to a validated submission file (docs/05 section 2).
+"""One command from raw parquet to a validated submission file (docs/README).
 
-    python -m prc.pipeline --config configs/v2_two_clock.yaml [--submit]
+    python -m prc.pipeline --config configs/v8_seed_avg.yaml [--submit]
 
 Steps: load raw -> build departure features (parity-masked context) -> optional weather join -> month-blocked CV
 -> fit on all labelled months and predict the ranking set -> write and validate the submission -> optionally
@@ -81,7 +81,7 @@ def build_features(
 
     The cache is keyed by what produced it, not by path alone. A synthetic run and a real run share the default
     work directory, and reusing one for the other trains on the wrong data while printing plausible numbers -
-    that happened once (docs/decisions.md 2026-09-10) and the dtype error that caught it was luck."""
+    that happened once (docs/README) and the dtype error that caught it was luck."""
     work.mkdir(parents=True, exist_ok=True)
     f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
     meta_path = work / "feat_meta.json"

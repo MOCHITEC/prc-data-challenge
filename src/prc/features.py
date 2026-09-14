@@ -1,6 +1,6 @@
 """Local (polars/numpy) feature builder, v1.
 
-Design rules (docs/04 §3-§5, §7):
+Design rules (docs/README-§5, §7):
 * Feature-availability parity: context features are computed from a *masked* view in which every departure's
   BLOCK_TIME_UTC_mvt and TAXITIME_SEC_mvt are null, for training and ranking alike. Only columns that survive
   in ranking.parquet are used for context (take-off times, arrivals, NM times, schedule).
@@ -86,7 +86,7 @@ def clock_and_static_features(dep: pl.DataFrame) -> pl.DataFrame:
             ),
         ]
     )
-    # airport-local hour via IANA zones (docs/02 §5: never rely on session time zone)
+    # airport-local hour via IANA zones (docs/README: never rely on session time zone)
     parts = []
     for apt, tz in AIRPORT_TZ.items():
         p = out.filter(pl.col("ADEP_mvt") == apt)
@@ -190,7 +190,7 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
         cols["rwy_headway_prev_s"], cols["rwy_headway_next_s"] = rwy_prev, rwy_next
         cols["anchor_ok"] = anchor_ok.astype(np.int8)
         # how much of the widest look-back window is actually inside the frame: counts near a frame edge are
-        # structurally lower, and a hidden final set may cover only part of a month (docs/03 section 8)
+        # structurally lower, and a hidden final set may cover only part of a month (docs/README)
         span_lo = np.nanmin(dep_times) if len(dep_times) else np.nan
         cols["window_coverage_60m"] = np.clip((t - span_lo) / 3600.0, 0.0, 1.0)
         cols["rwy_tko_prev_15m"], cols["rwy_tko_prev_60m"] = rwy_cnt15, rwy_cnt60

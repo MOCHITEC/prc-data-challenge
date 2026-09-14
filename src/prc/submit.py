@@ -1,5 +1,5 @@
 """Upload a validated submission with guard rails: daily counter, version uniqueness, mandatory log entry.
-Never uploads probes: the caller must pass the experiment id and local CV numbers (docs/04 §8)."""
+Never uploads probes: the caller must pass the experiment id and local CV numbers (docs/README)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ BRUSSELS = ZoneInfo("Europe/Brussels")  # the organisers state the deadline in C
 def _today_count(log: Path, now: dt.datetime | None = None) -> tuple[int, set[int]]:
     """Real uploads counted today, plus the versions already used.
 
-    The daily quota's time zone is undocumented (docs/01 U9), so count on the UTC day and on the Brussels day
+    The daily quota's time zone is undocumented (docs/README), so count on the UTC day and on the Brussels day
     and take the larger - the safe side. Dry runs consume neither the quota nor a version number."""
     now = now or dt.datetime.now(dt.UTC)
     versions: set[int] = set()
@@ -82,7 +82,7 @@ def submit(
         _append(log, entry)
         return entry
     # write-ahead: an attempted upload must leave a trace even if the transfer dies, because whether a failed
-    # upload consumes the daily quota is undocumented (docs/01 U10) and we count it on the safe side.
+    # upload consumes the daily quota is undocumented (docs/README) and we count it on the safe side.
     _append(log, {**entry, "status": "attempted"})
     try:
         entry["object_name"] = upload_submission(file_path, version, cfg)
