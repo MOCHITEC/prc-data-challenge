@@ -77,3 +77,21 @@ def test_integer_and_null_typed_templates(tmp_path):
         pq.write_table(t, tp)
         sub = write_submission(pred, tp, tmp_path / f"out_{target.type}.parquet")
         assert sub[SUBMISSION_TARGET_COL].to_pylist() == expect
+
+
+def test_float_template_accepts_integer_typed_predictions(tmp_path):
+    """The official files type the id as float64; a frame that has been through an int round trip is int64.
+
+    The older dtype test used int64 on both sides, so the alignment it was meant to cover never ran."""
+    t = pa.table(
+        {
+            SUBMISSION_ID_COL: pa.array([10.0, 20.0, 30.0], type=pa.float64()),
+            SUBMISSION_TARGET_COL: pa.nulls(3, type=pa.float64()),
+        }
+    )
+    tp = tmp_path / "float_tmpl.parquet"
+    pq.write_table(t, tp)
+    pred = pl.DataFrame({"MVT_ID_mvt": [30, 10, 20], "pred": [3.0, 1.0, 2.0]})  # int64 ids, deliberately unsorted
+    assert pred["MVT_ID_mvt"].dtype != pl.Float64
+    sub = write_submission(pred, tp, tmp_path / "float_out.parquet")
+    assert sub[SUBMISSION_TARGET_COL].to_pylist() == [1.0, 2.0, 3.0], "values must follow their id, not their row"

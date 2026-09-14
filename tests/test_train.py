@@ -7,6 +7,7 @@ from prc.features import build_departure_features
 from prc.synth import generate_month
 from prc.train import (
     ENCODING_COLS,
+    PROXY,
     TrainConfig,
     attach_encodings,
     feature_parity_report,
@@ -102,3 +103,40 @@ def test_parity_report_flags_a_column_that_vanishes_at_prediction_time():
     broken = rk.with_columns(pl.lit(None, dtype=pl.Float64).alias("mvt_minus_sched"))
     rep2 = feature_parity_report(tr, broken, TrainConfig())
     assert rep2.filter(pl.col("feature") == "mvt_minus_sched")["gap"].item() > 0.9
+
+
+def test_early_stopping_never_reads_the_evaluation_fold():
+    """The stopping round must not move when the target frame's labels are blanked.
+
+    The older version of this check ran 30 rounds with a patience of 10, so early stopping never fired and a
+    model that stopped on the evaluation fold passed it unchanged. Enough rounds for the callback to actually
+    bite is the whole point."""
+    df = pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=10) for m in (1, 5, 7)])
+    feats = build_departure_features(df)
+    tr = feats.filter(pl.col("MVT_TIME_UTC_mvt").dt.month() != 1)
+    va = feats.filter(pl.col("MVT_TIME_UTC_mvt").dt.month() == 1)
+    cfg = TrainConfig(num_rounds=400, early_stopping=10)
+    _, info_labelled = predict_fold(tr, va, cfg)
+    blank = va.with_columns(pl.lit(None, dtype=pl.Float64).alias("TAXITIME_SEC_mvt"))
+    _, info_blank = predict_fold(tr, blank, cfg)
+    assert info_labelled["rounds_matched"] < cfg.num_rounds, "early stopping never fired; the test proves nothing"
+    assert info_labelled["rounds_matched"] == info_blank["rounds_matched"]
+
+
+def test_predictions_follow_their_id_not_their_position():
+    """Model A and model B fill different rows, so the two blocks must be re-keyed, never re-stacked."""
+    tr = build_departure_features(generate_month(2025, 7, seed=11, deps_per_airport_day=10))
+    tg = build_departure_features(generate_month(2025, 7, seed=12, deps_per_airport_day=6))
+    # force both regimes and interleave them, so a positional assignment cannot accidentally be right
+    half = tg.height // 2
+    tg = tg.with_columns(
+        pl.when(pl.int_range(pl.len()) % 2 == 0).then(None).otherwise(pl.col(PROXY)).alias(PROXY)
+    ).head(2 * half)
+    assert tg[PROXY].is_null().any() and tg[PROXY].is_not_null().any(), "fixture needs both regimes interleaved"
+    cfg = TrainConfig(num_rounds=40, early_stopping=10, unmatched_num_rounds=40)
+    straight, _ = predict_fold(tr, tg, cfg)
+    shuffled_tg = tg.sample(fraction=1.0, shuffle=True, seed=5)
+    shuffled, _ = predict_fold(tr, shuffled_tg, cfg)
+    both = straight.rename({"pred": "a"}).join(shuffled.rename({"pred": "b"}), on="MVT_ID_mvt")
+    assert both.height == tg.height
+    assert np.allclose(both["a"].to_numpy(), both["b"].to_numpy()), "a row's prediction changed with its position"
