@@ -120,7 +120,12 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     spec = yaml.safe_load(a.config.read_text())
-    cfg = TrainConfig(**{k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__})
+    fields = {k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__}
+    # A config that sets `params` overrides only the keys it names: replacing the whole dict would silently
+    # drop objective/verbose/num_threads and make one experiment differ from the others in ways nobody chose.
+    if "params" in fields:
+        fields["params"] = {**TrainConfig().params, **fields["params"]}
+    cfg = TrainConfig(**fields)
     use_weather = bool(spec.get("use_weather", False))
     t0 = time.time()
 

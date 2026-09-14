@@ -63,11 +63,13 @@ class TrainConfig:
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
     # The rows with no NM record are 1.2% of the data and 58.6% of the squared error (measured 2026-09-14 on
-    # the v2 out-of-fold predictions). Model B sees ~8k rows where model A sees 2.1M, so it cannot use the same
-    # capacity: 127 leaves over 8k rows is one leaf per 65 rows. These override the shared params for model B.
-    unmatched_num_leaves: int = 31
-    unmatched_min_data_in_leaf: int = 40
-    unmatched_num_rounds: int = 600
+    # the v2 out-of-fold predictions). Model B sees ~8k rows where model A sees 2.1M, so the obvious guess was
+    # that it needed *less* capacity - and that guess was measured and is wrong: shrinking it to 31 leaves cost
+    # +7.91 s overall (v5), widening it to 255 gained -34.82 s (v6), and 511 adds nothing (v7). Those rows
+    # carry real structure, so model B gets its own, larger, size. See docs/07.
+    unmatched_num_leaves: int = 255
+    unmatched_min_data_in_leaf: int = 20
+    unmatched_num_rounds: int = 3000
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/03 section 5). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
