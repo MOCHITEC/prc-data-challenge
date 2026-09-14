@@ -17,6 +17,11 @@ import pyarrow.parquet as pq
 from .config import EXPECTED_SUBMISSION_ROWS, SUBMISSION_ID_COL, SUBMISSION_TARGET_COL
 
 MAX_PLAUSIBLE_SECONDS = 3 * 3600  # sanity bound, not a clipping rule
+# A submission trained on the wrong data passes every structural check: the ids, dtypes and null count are all
+# fine, only the numbers are wrong. That nearly shipped once (docs/decisions.md 2026-09-10, the feature cache
+# serving synthetic features to a real run) and a dtype accident was the only thing that caught it. So compare
+# the shape of the predictions against the labels the model was trained on.
+MEDIAN_TOLERANCE = 0.30
 
 
 @dataclass
@@ -32,7 +37,11 @@ class GateResult:
 
 
 def validate(
-    submission: pa.Table, template: pa.Table, expected_rows: int | None = EXPECTED_SUBMISSION_ROWS
+    submission: pa.Table,
+    template: pa.Table,
+    expected_rows: int | None = EXPECTED_SUBMISSION_ROWS,
+    reference_median: float | None = None,
+    median_tolerance: float = MEDIAN_TOLERANCE,
 ) -> GateResult:
     res = GateResult(ok=True, n_rows=submission.num_rows)
 
@@ -80,6 +89,21 @@ def validate(
                 res.errors.append(f"negative prediction found (min={mn})")
             if mx is not None and (isinstance(mx, float) and math.isnan(mx) or mx > MAX_PLAUSIBLE_SECONDS):
                 res.warnings.append(f"max prediction {mx} exceeds {MAX_PLAUSIBLE_SECONDS}s; check outliers")
+
+        # 5) the predictions must look like the thing being predicted
+        if len(vals) > 1 and pc.count_distinct(vals).as_py() == 1:
+            res.errors.append(f"every prediction is the same value ({pc.min(vals).as_py()}); the model is broken")
+        if reference_median is not None and len(vals):
+            med = pc.approximate_median(pc.cast(vals, pa.float64())).as_py()
+            if med is None or reference_median <= 0:
+                res.warnings.append("median check skipped: no usable median")
+            else:
+                drift = abs(med - reference_median) / reference_median
+                if drift > median_tolerance:
+                    res.errors.append(
+                        f"median {med:.0f}s is {drift:.0%} away from the training median {reference_median:.0f}s "
+                        f"(limit {median_tolerance:.0%}); the model may have been trained on the wrong data"
+                    )
 
     res.ok = not res.errors
     return res

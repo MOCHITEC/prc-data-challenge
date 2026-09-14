@@ -53,8 +53,13 @@ def _align_id_dtype(tmpl: pl.DataFrame, pred: pl.DataFrame) -> tuple[pl.DataFram
     return tmpl.with_columns(cast), pred.with_columns(cast)
 
 
-def write_submission(pred: pl.DataFrame, template_path: Path, out_path: Path) -> pa.Table:
+def write_submission(
+    pred: pl.DataFrame, template_path: Path, out_path: Path, reference_median: float | None = None
+) -> pa.Table:
     """Fill the official template in its own row order and dtype; run the gate; write parquet.
+
+    reference_median is the median of the labels the model was trained on; the gate refuses a submission whose
+    own median has drifted far from it, which is the only check that notices a model trained on the wrong data.
 
     Ids and values are taken from the SAME frame. Reading ids from the template and values from the join result
     is position-dependent, and polars does not guarantee join order, so that pairing could silently ship
@@ -98,7 +103,7 @@ def write_submission(pred: pl.DataFrame, template_path: Path, out_path: Path) ->
             {SUBMISSION_ID_COL: ids, SUBMISSION_TARGET_COL: pa.nulls(template.num_rows, type=pa.float64())},
             schema=schema,
         )
-    res = validate(sub, gate_template, expected_rows=None)
+    res = validate(sub, gate_template, expected_rows=None, reference_median=reference_median)
     if note:
         res.warnings.append(note)
     res.raise_if_failed()

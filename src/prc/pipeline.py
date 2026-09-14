@@ -23,7 +23,7 @@ import yaml
 from .config import data_dir
 from .features import build_departure_features
 from .predict import log_submission, predict_ranking, write_submission
-from .train import TrainConfig, run_cv
+from .train import LABEL, TrainConfig, run_cv
 
 
 def load_raw(raw_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, Path]:
@@ -146,7 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     a.out_dir.mkdir(parents=True, exist_ok=True)
     name = spec.get("name", cfg.name)
     out_file = a.out_dir / f"{name}.parquet"
-    write_submission(pred, sub_path, out_file)
+    ref_median = f_tr.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())[LABEL].median()
+    write_submission(pred, sub_path, out_file, reference_median=ref_median)
     print(f"submission written: {out_file} ({info})")
 
     log_submission(
