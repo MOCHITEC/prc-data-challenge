@@ -100,8 +100,13 @@ def verdict(curve: list[dict], sign_check_level: int = SIGN_CHECK_LEVEL) -> tupl
     full = next((r for r in curve if r["dropped"] == 0), None)
     if full is None:
         return False, "no full-data comparison"
+    if full["ci95"][0] > 0:
+        return False, f"B is worse on all rows: {full['diff']:+.2f} s [{full['ci95'][0]:+.2f}, {full['ci95'][1]:+.2f}]"
     if full["ci95"][1] >= 0:
-        return False, f"full-data CI includes zero [{full['ci95'][0]:+.2f}, {full['ci95'][1]:+.2f}]"
+        return (
+            False,
+            f"no difference on all rows: {full['diff']:+.2f} s [{full['ci95'][0]:+.2f}, {full['ci95'][1]:+.2f}]",
+        )
     robust = next((r for r in curve if r["dropped"] == sign_check_level), None)
     if robust is None:
         return True, "adopt (too few rows to run the robustness check)"

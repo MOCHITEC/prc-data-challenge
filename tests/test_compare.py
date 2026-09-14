@@ -48,4 +48,13 @@ def test_no_difference_is_rejected():
     y = rng.normal(900, 200, 5_000)
     p = y + rng.normal(0, 200, 5_000)
     ok, why = verdict(robustness_curve(y, p, p.copy(), n_boot=200))
-    assert not ok and "includes zero" in why, why
+    assert not ok and "no difference" in why, why
+
+
+def test_a_worse_candidate_is_named_as_worse_not_as_a_null():
+    """[+18, +53] is not 'includes zero'. The wording decides whether anyone re-runs the experiment."""
+    y = rng.normal(900, 200, 5_000)
+    p_a = y + rng.normal(0, 200, 5_000)
+    p_b = y + rng.normal(0, 400, 5_000)
+    ok, why = verdict(robustness_curve(y, p_a, p_b, n_boot=200))
+    assert not ok and "worse" in why, why
