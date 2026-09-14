@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 
 from .config import TARGET_AIRPORTS
-from .schema import ALL_COLS, BLANKED_DEP_COLS
+from .schema import ALL_COLS
 
 AIRPORT_BASE_SEC = {  # rough medians, seconds (CODA summer 2025 order of magnitude)
     "EDDF": 780,
@@ -279,7 +279,3 @@ def write_synthetic_dataset(
     sub.write_parquet(out_dir / "submitting.parquet")
     paths["submitting.parquet"] = out_dir / "submitting.parquet"
     return paths
-
-
-def blanked_columns() -> list[str]:
-    return list(BLANKED_DEP_COLS)

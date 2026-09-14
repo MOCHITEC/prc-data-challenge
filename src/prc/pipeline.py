@@ -1,6 +1,6 @@
 """One command from raw parquet to a validated submission file (docs/README).
 
-    python -m prc.pipeline --config configs/v8_seed_avg.yaml [--submit]
+    python -m prc.pipeline --config configs/main.yaml [--submit]
 
 Steps: load raw -> build departure features (parity-masked context) -> optional weather join -> month-blocked CV
 -> fit on all labelled months and predict the ranking set -> write and validate the submission -> optionally

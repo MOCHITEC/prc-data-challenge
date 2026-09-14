@@ -1,14 +1,13 @@
-# A/B split ablation: is one model enough? single_model=true, everything else identical.
-name: ab_single
-scheme: fast
+# The model. Two regimes, two models - measured, not assumed: one model over everything is worse by 74.10 s
+# and still worse by 6.04 s with the 2,000 largest errors removed (docs/README).
+name: main
 num_rounds: 2000
 early_stopping: 100
 use_categoricals: true
 use_weather: false
 reference_min_count: 30
 inner_holdout_months: 1
-single_model: true
 unmatched_num_leaves: 255
 unmatched_min_data_in_leaf: 20
 unmatched_num_rounds: 3000
-n_seeds: 1
+n_seeds: 3

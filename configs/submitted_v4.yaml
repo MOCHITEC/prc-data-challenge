@@ -1,7 +1,6 @@
 # v4: v2 with LightGBM linear_tree, reported at about -10 s CLEAN RMSE elsewhere (docs/03 section 8).
 # Compare against v2 with a paired bootstrap, never by leaderboard position.
 name: v4_linear_tree
-scheme: fast
 num_rounds: 1500
 early_stopping: 100
 use_categoricals: true

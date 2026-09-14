@@ -23,16 +23,14 @@ def year_month_key(df: pl.DataFrame, col: str = "MVT_TIME_UTC_mvt") -> pl.Series
     return (df[col].dt.year() * 100 + df[col].dt.month()).alias("ym")
 
 
-def month_block_folds(months_present: list[int], scheme: str = "fast") -> list[Fold]:
+def month_block_folds(months_present: list[int]) -> list[Fold]:
     """Folds over year*100+month keys.
 
-    'fast' holds out January, July and the trailing months (>= November) separately - January and July match the
-    test months' season, the trailing fold measures forward generalisation. 'full' is leave-one-month-out."""
+    January and July are held out separately because they match the test months' season; the trailing months
+    (>= November) form a third fold that measures forward generalisation."""
     ms = sorted(set(months_present))
     if len(ms) < 2:
         raise ValueError(f"need at least two distinct months to cross-validate, got {ms}")
-    if scheme == "full":
-        return [Fold(f"lomo_{m}", (m,), tuple(x for x in ms if x != m)) for m in ms]
     folds = []
     for month, name in ((1, "jan"), (7, "jul")):
         sel = tuple(x for x in ms if x % 100 == month)
@@ -118,7 +116,3 @@ def per_airport(y: np.ndarray, p: np.ndarray, airport: np.ndarray) -> dict[str, 
         m = airport == a
         out[str(a)] = rmse(y[m], p[m])
     return out
-
-
-def months_of(df: pl.DataFrame, col: str = "MVT_TIME_UTC_mvt") -> pl.Series:
-    return year_month_key(df, col)

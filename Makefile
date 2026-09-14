@@ -23,9 +23,9 @@ synth:                ## small synthetic dataset, used by the tests
 	$(PY) -c "from pathlib import Path; from prc.synth import write_synthetic_dataset as w; print(w(Path('data/synth')))"
 
 smoke:                ## end-to-end run on synthetic data (logs to experiments/synthetic_smoke.jsonl)
-	$(PY) -m prc.pipeline --config configs/v8_seed_avg.yaml --synthetic --raw-dir data/synth --out-dir outputs/synth
+	$(PY) -m prc.pipeline --config configs/main.yaml --synthetic --raw-dir data/synth --out-dir outputs/synth
 
-run:                  ## CV + ranking prediction + gate, no upload: make run CONFIG=configs/v8_seed_avg.yaml
+run:                  ## CV + ranking prediction + gate, no upload: make run CONFIG=configs/main.yaml
 	$(PY) -m prc.pipeline --config $(CONFIG)
 
 compare:              ## adopt/reject two experiments: make compare A=<exp_id> B=<exp_id>

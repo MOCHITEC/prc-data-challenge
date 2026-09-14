@@ -18,16 +18,15 @@ from prc.train import (
 
 
 def test_folds_use_year_month_keys():
-    f = month_block_folds([202501, 202502, 202507, 202511, 202512], "fast")
+    f = month_block_folds([202501, 202502, 202507, 202511, 202512])
     assert [x.name for x in f] == ["jan", "jul", "forward"]
     assert f[0].valid_months == (202501,) and 202501 not in f[0].train_months
     # the same calendar month in two years must not be mixed into one fold
-    f2 = month_block_folds([202501, 202507, 202601], "fast")
+    f2 = month_block_folds([202501, 202507, 202601])
     jan = next(x for x in f2 if x.name == "jan")
     assert jan.valid_months == (202501, 202601)
-    assert month_block_folds([202501, 202502, 202503], "full")[0].valid_months == (202501,)
     with pytest.raises(ValueError):
-        month_block_folds([202501], "fast")
+        month_block_folds([202501])
 
 
 def test_paired_bootstrap_direction():
@@ -41,7 +40,7 @@ def test_paired_bootstrap_direction():
 def test_cv_runs_and_beats_median_baseline(tmp_path):
     df = pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=12) for m in (1, 6, 7)])
     feats = build_departure_features(df)
-    cfg = TrainConfig(scheme="fast", num_rounds=200, early_stopping=20)
+    cfg = TrainConfig(num_rounds=200, early_stopping=20)
     rec = run_cv(feats, cfg, out_dir=tmp_path)
     assert set(rec["folds"]) == {"jan", "jul"}
     y = feats["TAXITIME_SEC_mvt"].to_numpy()

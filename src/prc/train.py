@@ -3,6 +3,12 @@
 Model A (rows with an NM off-block time): learn g(x) = TAXITIME - (MVT_TIME - AOBT_3) and predict proxy + g(x).
     A tree cannot represent the identity part of y = proxy - f(x), so the reparameterisation is the point.
 Model B (rows without one): learn TAXITIME directly from schedule-based features.
+
+Splitting the two regimes is measured, not assumed. One model over everything - same reparameterisation, target
+LABEL - coalesce(proxy, 0), free to branch on nm_matched - is worse by 74.10 s overall and still worse by 6.04 s
+once the 2,000 largest errors are removed, so it is not a tail artefact. It loses on both groups at once
+(matched 218.5 -> 226.2, unmatched 1,875.3 -> 2,697.2): one model has to spend its capacity telling the regimes
+apart before it can fit either. Do not merge them back.
 Both use L2 on raw seconds and keep every labelled row (no outlier filtering) - docs/README.
 
 Invariants enforced here (each one was a real bug caught in review):
@@ -38,7 +44,6 @@ ENCODING_COLS = ["ref_p10", "ref_p20", "ref_med", "ref_n", "arh_med", "arh_n", "
 @dataclass
 class TrainConfig:
     name: str = "v1_two_clock"
-    scheme: str = "fast"  # or "full"
     seed: int = 42
     params: dict = field(
         default_factory=lambda: {
@@ -70,13 +75,6 @@ class TrainConfig:
     unmatched_num_leaves: int = 255
     unmatched_min_data_in_leaf: int = 20
     unmatched_num_rounds: int = 3000
-    # Whether the two regimes (NM record present / absent) get their own model. Splitting was assumed from the
-    # first commit and never measured: it costs model B every one of the 2,062,577 rows that do have an NM
-    # record, and taxi-out structure (airport, hour, aircraft) does not depend on whether that record matched.
-    # single_model fits one model on everything with target LABEL - coalesce(proxy, 0) and adds the same term
-    # back, so the two-clock reparameterisation still applies where the proxy exists and the model branches on
-    # nm_matched itself. Whichever wins, the loser gets deleted - this flag is here to settle the question.
-    single_model: bool = False
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/README). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
@@ -264,16 +262,6 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     num_cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
     parts = []
-    if cfg.single_model:
-        cols = [c for c in num_cols if c != PROXY] + [PROXY]
-        off = tg[PROXY].fill_null(0.0).fill_nan(0.0).to_numpy().astype(float)
-        if tr.height >= 200:
-            (g,), rounds = _fit(tr, _offset_label, cfg, cols, cat_cols, [tg])
-        else:
-            g, rounds = np.zeros(tg.height), 0
-        info["rounds_matched"], info["rounds_unmatched"] = rounds, 0
-        return _assemble([pl.DataFrame({"MVT_ID_mvt": tg["MVT_ID_mvt"], "pred": off + g})], tr, tg, target_f, info)
-
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
         if m_tr.height >= 200:
@@ -314,11 +302,6 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
     return _assemble(parts, tr, tg, target_f, info)
-
-
-def _offset_label(f: pl.DataFrame) -> np.ndarray:
-    """Target for the single-model path: the taxi time minus the NM offset, which is zero when there is none."""
-    return f[LABEL].to_numpy().astype(float) - f[PROXY].fill_null(0.0).fill_nan(0.0).to_numpy().astype(float)
 
 
 def _assemble(parts: list[pl.DataFrame], tr: pl.DataFrame, tg: pl.DataFrame, target_f: pl.DataFrame, info: dict):
@@ -369,7 +352,7 @@ def run_cv(
     artefact of the generator, and mixing the two would corrupt the CV-to-LB correspondence we track."""
     t0 = time.time()
     months = year_month_key(feats)
-    folds: list[Fold] = month_block_folds(months.unique().to_list(), cfg.scheme)
+    folds: list[Fold] = month_block_folds(months.unique().to_list())
     oof = pl.DataFrame({"MVT_ID_mvt": feats["MVT_ID_mvt"]}).with_columns(pl.lit(None, dtype=pl.Float64).alias("oof"))
     fold_metrics: dict[str, dict] = {}
     for f in folds:
