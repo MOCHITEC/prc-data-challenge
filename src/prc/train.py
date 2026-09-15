@@ -90,6 +90,11 @@ class TrainConfig:
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/README). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
+    # Which folds to run. All three is the honest answer for a final number, but a screening run does not need
+    # them: the matched rows of the forward fold alone are 324k, giving that statistic a resolution of about
+    # 1.1 s - the same as the full three-fold set - at a third of the wall clock. forward is also the only fold
+    # shaped like the real task, since jan and jul train on months that come after the month they predict.
+    folds: tuple[str, ...] | None = None
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -367,6 +372,11 @@ def run_cv(
     t0 = time.time()
     months = year_month_key(feats)
     folds: list[Fold] = month_block_folds(months.unique().to_list())
+    if cfg.folds:
+        wanted = set(cfg.folds)
+        folds = [f for f in folds if f.name in wanted]
+        if not folds:
+            raise ValueError(f"cfg.folds={cfg.folds} matched none of the available folds")
     oof = pl.DataFrame({"MVT_ID_mvt": feats["MVT_ID_mvt"]}).with_columns(pl.lit(None, dtype=pl.Float64).alias("oof"))
     fold_metrics: dict[str, dict] = {}
     for f in folds:

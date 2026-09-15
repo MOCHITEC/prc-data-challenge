@@ -1,3 +1,7 @@
+import tempfile
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 import pytest
@@ -139,3 +143,14 @@ def test_predictions_follow_their_id_not_their_position():
     both = straight.rename({"pred": "a"}).join(shuffled.rename({"pred": "b"}), on="MVT_ID_mvt")
     assert both.height == tg.height
     assert np.allclose(both["a"].to_numpy(), both["b"].to_numpy()), "a row's prediction changed with its position"
+
+
+def test_a_screening_run_can_use_one_fold():
+    """Three folds is the honest number; one is what a screening run needs, so the选択 must be explicit."""
+    df = pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=6) for m in (1, 7, 11)])
+    feats = build_departure_features(df)
+    cfg = TrainConfig(num_rounds=20, early_stopping=10, unmatched_num_rounds=20, folds=("jul",))
+    rec = run_cv(feats, cfg, out_dir=Path(tempfile.mkdtemp()), log_name="t.jsonl")
+    assert list(rec["folds"]) == ["jul"]
+    with pytest.raises(ValueError, match="matched none"):
+        run_cv(feats, replace(cfg, folds=("nope",)), out_dir=Path(tempfile.mkdtemp()), log_name="t.jsonl")

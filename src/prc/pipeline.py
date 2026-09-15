@@ -115,6 +115,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="log to experiments/synthetic_smoke.jsonl instead of the real-data logs (see experiments/README)",
     )
+    ap.add_argument(
+        "--skip-predict",
+        action="store_true",
+        help="stop after cross-validation: no full-data refit, no submission file. About a quarter of the "
+        "wall clock of a run, and pure waste for an experiment whose only output is a CV number.",
+    )
     ap.add_argument("--submit", action="store_true", help="upload after the gate passes (uses the daily counter)")
     ap.add_argument("--version", type=int, help="submission version number, required with --submit")
     a = ap.parse_args(argv)
@@ -125,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     # drop objective/verbose/num_threads and make one experiment differ from the others in ways nobody chose.
     if "params" in fields:
         fields["params"] = {**TrainConfig().params, **fields["params"]}
+    if isinstance(fields.get("folds"), list):
+        fields["folds"] = tuple(fields["folds"])
     cfg = TrainConfig(**fields)
     use_weather = bool(spec.get("use_weather", False))
     t0 = time.time()
@@ -146,6 +154,10 @@ def main(argv: list[str] | None = None) -> int:
                 f"  {name}: full={m['rmse_full']:.2f} clean={m['rmse_clean']:.2f} n={m['n']:,} "
                 f"tail20={m['top20_share_of_sse']:.2f}"
             )
+
+    if a.skip_predict:
+        print("--skip-predict: stopping after CV")
+        return 0
 
     pred, info = predict_ranking(f_tr, f_rk, cfg)
     a.out_dir.mkdir(parents=True, exist_ok=True)
