@@ -202,6 +202,21 @@ def attach_encodings(df: pl.DataFrame, enc: dict[str, pl.DataFrame]) -> pl.DataF
     )
 
 
+def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
+    """The numeric columns the model is actually given, by the one rule everything must agree on.
+
+    This used to be decided inside predict_fold while feature_parity_report reimplemented part of it, and the
+    two drifted: the parity gate reported on columns the model never sees. The same duplication is what let v6
+    ship nine screening columns."""
+    cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month")]
+    hidden = set(CANDIDATE_COLS) - set(cfg.include_candidates) | set(cfg.exclude_features)
+    if not cfg.use_encodings:
+        hidden |= set(ENCODING_COLS)
+    if not cfg.use_offset_encoding:
+        hidden |= set(OFFSET_COLS)
+    return [c for c in cols if c not in hidden]
+
+
 # ---------- fitting ----------
 
 
@@ -304,19 +319,12 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
 
-    num_cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]
-    if not cfg.use_encodings:
-        num_cols = [c for c in num_cols if c not in ENCODING_COLS]
-    cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
-    if not cfg.use_offset_encoding:
-        num_cols = [c for c in num_cols if c not in OFFSET_COLS]
-    hidden_candidates = set(CANDIDATE_COLS) - set(cfg.include_candidates)
-    if hidden_candidates:
-        num_cols = [c for c in num_cols if c not in hidden_candidates]
-    if cfg.exclude_features:
-        hidden = set(cfg.exclude_features)
-        num_cols = [c for c in num_cols if c not in hidden]
-        cat_cols = [c for c in cat_cols if c not in hidden]
+    num_cols = visible_numeric_columns(tr, cfg)
+    cat_cols = (
+        [c for c in CATEGORICALS if c in tr.columns and c not in set(cfg.exclude_features)]
+        if cfg.use_categoricals
+        else []
+    )
     parts = []
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
@@ -380,7 +388,7 @@ def feature_parity_report(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tr
     branch of the tree; docs/README records a team losing a submission to exactly that."""
     enc = fit_encodings(train_f.filter(pl.col(LABEL).is_not_null()), cfg)
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
-    cols = [c for c in numeric_feature_columns(tr) if c not in (LABEL, "month")]
+    cols = visible_numeric_columns(tr, cfg)
     rows = [
         {
             "feature": c,
