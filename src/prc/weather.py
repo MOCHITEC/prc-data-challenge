@@ -162,12 +162,42 @@ def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+# The join key is named for what it is and never reuses a feature name. An earlier version called it
+# "hour_utc", which is also the integer hour-of-day feature: turning weather on overwrote that column with a
+# timestamp and then dropped it, so every weather run silently trained without hour_utc. v3 and v4 were built
+# that way.
+WX_KEY = "_wx_hour"
+
+
+def _utc_hour(expr: pl.Expr, like: pl.DataFrame, col: str) -> pl.Expr:
+    """Truncate to the hour, matching the time zone of `like[col]`.
+
+    The official parquet files type their timestamps as UTC-aware while the METAR archive parses naive, and
+    polars refuses to join across the two rather than guessing."""
+    tz = like.schema[col].time_zone if col in like.schema else None
+    e = expr.dt.truncate("1h")
+    return e.dt.replace_time_zone(tz) if tz is None else e.dt.convert_time_zone(tz)
+
+
 def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
     """Attach the weather hour of the take-off time (and the previous hour) to departure features."""
-    w = hourly.rename({"station": "ADEP_mvt"})
-    prev = w.with_columns((pl.col("hour_utc") + pl.duration(hours=1)).alias("hour_utc")).rename(
-        {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", "hour_utc")}
+    w = hourly.rename({"station": "ADEP_mvt", "hour_utc": WX_KEY})
+    prev = w.with_columns((pl.col(WX_KEY) + pl.duration(hours=1)).alias(WX_KEY)).rename(
+        {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", WX_KEY)}
     )
-    out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias("hour_utc"))
-    out = out.join(w, on=["ADEP_mvt", "hour_utc"], how="left").join(prev, on=["ADEP_mvt", "hour_utc"], how="left")
-    return out.drop("hour_utc")
+    dep_tz = dep_feats.schema["MVT_TIME_UTC_mvt"].time_zone
+    w_tz = w.schema[WX_KEY].time_zone
+    if dep_tz != w_tz:  # bring the weather side onto the departures' time zone, never the other way round
+        w = w.with_columns(
+            pl.col(WX_KEY).dt.replace_time_zone(w_tz or "UTC").dt.convert_time_zone(dep_tz)
+            if dep_tz
+            else pl.col(WX_KEY).dt.replace_time_zone(None)
+        )
+        prev = prev.with_columns(
+            pl.col(WX_KEY).dt.replace_time_zone(w_tz or "UTC").dt.convert_time_zone(dep_tz)
+            if dep_tz
+            else pl.col(WX_KEY).dt.replace_time_zone(None)
+        )
+    out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias(WX_KEY))
+    out = out.join(w, on=["ADEP_mvt", WX_KEY], how="left").join(prev, on=["ADEP_mvt", WX_KEY], how="left")
+    return out.drop(WX_KEY)

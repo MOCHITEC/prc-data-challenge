@@ -42,3 +42,32 @@ def test_deicing_gate_and_join():
     r = j.filter(pl.col("MVT_ID_mvt") == 1).row(0, named=True)
     assert r["deicing_gate"] == 0  # 06:25 obs is above 3 C
     assert r["deicing_gate_prev1h"] == 1  # the 05:xx hour was freezing with snow
+
+
+def test_the_join_keeps_the_hour_of_day_feature_and_survives_a_tz_aware_frame():
+    """Two bugs in one: the join key used to be called hour_utc, which is also a feature, so weather runs
+    silently trained without it - and the official files are UTC-aware while METAR parses naive, which polars
+    refuses to join."""
+    import datetime as dt
+
+    from prc.weather import join_weather
+
+    hourly = pl.DataFrame(
+        {
+            "station": ["EDDF", "EDDF"],
+            "hour_utc": [dt.datetime(2025, 1, 1, 10), dt.datetime(2025, 1, 1, 11)],
+            "tmpc": [1.0, 2.0],
+        }
+    )
+    deps = pl.DataFrame(
+        {
+            "ADEP_mvt": ["EDDF", "EDDF"],
+            "MVT_TIME_UTC_mvt": [dt.datetime(2025, 1, 1, 11, 5), dt.datetime(2025, 1, 1, 10, 30)],
+            "hour_utc": [11, 10],  # the integer feature that must survive
+        }
+    ).with_columns(pl.col("MVT_TIME_UTC_mvt").dt.replace_time_zone("UTC"))
+
+    out = join_weather(deps, hourly)
+    assert out["hour_utc"].to_list() == [11, 10], "the hour-of-day feature was overwritten by the join key"
+    assert out["tmpc"].to_list() == [2.0, 1.0], "weather did not land on the right hour"
+    assert out["tmpc_prev1h"].to_list() == [1.0, None]
