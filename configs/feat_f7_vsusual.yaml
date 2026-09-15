@@ -1,0 +1,19 @@
+# Screening at feature_fraction 1.0: at 0.8 a change in column count reshuffles every tree and a pure-noise
+# column costs +0.53 s, more than a single feature is usually worth. At 1.0 that cost is -0.02 [-0.25, +0.20].
+# The comparison is always candidate-in-the-slot against noise-in-the-slot, so the column count never moves.
+name: feat_f7_vsusual
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+folds: [forward]
+params:
+  feature_fraction: 1.0
+exclude_features: [queue_ahead, bank_position, stand_rwy_share, noise_control, active_runways_60m, dep_arr_ratio_30m]

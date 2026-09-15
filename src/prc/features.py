@@ -272,7 +272,15 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
 # Candidate columns under test. They are computed always and hidden from the model with
 # TrainConfig.exclude_features, so one feature can be measured at a time without rebuilding the feature cache
 # (a rebuild costs about four minutes; a CV run costs five).
-CANDIDATE_COLS = ("queue_ahead", "bank_position", "stand_rwy_share", "noise_control")
+CANDIDATE_COLS = (
+    "queue_ahead",
+    "bank_position",
+    "stand_rwy_share",
+    "noise_control",
+    "active_runways_60m",
+    "dep_arr_ratio_30m",
+    "congestion_vs_usual_30m",
+)
 
 
 def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFrame) -> pl.DataFrame:
@@ -316,14 +324,75 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
         .with_columns((pl.col("len") / pl.col("_stand_n")).alias("stand_rwy_share"))
         .select(["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "stand_rwy_share"])
     )
+    # Batch 2. The first three asked about the queue; these ask about the airport's mode of operation.
+    #   active_runways_60m      how many distinct runways the airport departed from in the hour around this
+    #                           take-off. A configuration change rewrites every taxi route, and nothing in the
+    #                           feature set says which configuration is running - only which runway this flight
+    #                           used.
+    #   dep_arr_ratio_30m       departures over departures+arrivals in the half hour. Mixed-mode operation puts
+    #                           departures and arrivals on the same surface; the counts are there separately but
+    #                           their balance is not.
+    #   congestion_vs_usual_30m this flight's 30-minute departure count divided by the median count for its
+    #                           airport and local hour. "Busier than normal for a Tuesday 08:00" rather than
+    #                           "busy", which is what a queue actually responds to.
+    rwy_act = []
+    for apt in tgt["ADEP_mvt"].unique().to_list():
+        pred = pl.col("ADEP_mvt").is_null() if apt is None else (pl.col("ADEP_mvt") == apt)
+        t = tgt.filter(pred)
+        ev = ctx_src.filter((pl.col("PHASE_mvt") == "DEP") & pred).select(
+            [pl.col("MVT_TIME_UTC_mvt").dt.epoch("s").cast(pl.Float64).alias("_t"), "RUNWAY_mvt"]
+        )
+        ev = ev.drop_nulls("_t").sort("_t")
+        et, er = ev["_t"].to_numpy(), ev["RUNWAY_mvt"].to_list()
+        tk = t["_tko"].to_numpy()
+        n = np.full(len(tk), np.nan)
+        if et.size:
+            lo = np.searchsorted(et, tk - 1800.0, "left")
+            hi = np.searchsorted(et, tk + 1800.0, "right")
+            for i, (a, b) in enumerate(zip(lo, hi, strict=True)):
+                if np.isfinite(tk[i]):
+                    n[i] = len({r for r in er[a:b] if r is not None})
+        rwy_act.append(pl.DataFrame({"MVT_ID_mvt": t["MVT_ID_mvt"], "active_runways_60m": n}))
+    rw = (
+        pl.concat(rwy_act)
+        if rwy_act
+        else pl.DataFrame({"MVT_ID_mvt": row["MVT_ID_mvt"].head(0), "active_runways_60m": []})
+    )
+
     prev60, next60 = pl.col("dep_tko_prev_60m"), pl.col("dep_tko_next_60m")
     return (
         row.select(["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"])
         .join(q, on="MVT_ID_mvt", how="left", maintain_order="left")
         .join(share, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left", maintain_order="left")
-        .join(ctx.select(["MVT_ID_mvt", "dep_tko_prev_60m", "dep_tko_next_60m"]), on="MVT_ID_mvt", how="left")
+        .join(rw, on="MVT_ID_mvt", how="left", maintain_order="left")
+        .join(
+            ctx.select(
+                [
+                    "MVT_ID_mvt",
+                    "dep_tko_prev_60m",
+                    "dep_tko_next_60m",
+                    "dep_tko_prev_30m",
+                    "arr_land_prev_30m",
+                ]
+            ),
+            on="MVT_ID_mvt",
+            how="left",
+        )
+        .join(row.select(["MVT_ID_mvt", "hour_local"]), on="MVT_ID_mvt", how="left", maintain_order="left")
         .with_columns(
             pl.when((prev60 + next60) > 0).then(prev60 / (prev60 + next60)).otherwise(None).alias("bank_position")
+        )
+        .with_columns(
+            pl.when((pl.col("dep_tko_prev_30m") + pl.col("arr_land_prev_30m")) > 0)
+            .then(pl.col("dep_tko_prev_30m") / (pl.col("dep_tko_prev_30m") + pl.col("arr_land_prev_30m")))
+            .otherwise(None)
+            .alias("dep_arr_ratio_30m")
+        )
+        .with_columns(
+            (
+                pl.col("dep_tko_prev_30m")
+                / pl.col("dep_tko_prev_30m").median().over(["ADEP_mvt", "hour_local"]).replace(0, None)
+            ).alias("congestion_vs_usual_30m")
         )
         .with_columns(
             # A column that cannot carry signal, to price what adding *any* column costs. feature_fraction is
