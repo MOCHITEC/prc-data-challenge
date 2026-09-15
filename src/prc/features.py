@@ -285,6 +285,18 @@ CANDIDATE_COLS = (
 )
 
 
+def _destination_distance(row: pl.DataFrame) -> pl.DataFrame:
+    """Great-circle km from ADEP to ADES. Exogenous: the files say where the flight goes, not how far, and the
+    distance stands in for the fuel load that decides how heavy the aircraft is on the ground. A missing
+    coordinate cache degrades to a null column rather than taking the whole feature build down."""
+    try:
+        return add_destination_distance(row.select(["MVT_ID_mvt", "ADEP_mvt", "ADES_mvt"])).select(
+            ["MVT_ID_mvt", "dest_distance_km"]
+        )
+    except Exception:  # noqa: BLE001 - see the docstring
+        return row.select("MVT_ID_mvt").with_columns(pl.lit(None, dtype=pl.Float64).alias("dest_distance_km"))
+
+
 def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFrame) -> pl.DataFrame:
     """Hypothesis-driven columns, each computable from what the ranking set actually carries.
 
@@ -402,6 +414,7 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
             # as much as a real candidate, the comparison is measuring the reshuffle and not the feature.
             (pl.col("MVT_ID_mvt").hash(seed=20260915) % 1_000_000).cast(pl.Float64).alias("noise_control")
         )
+        .join(_destination_distance(row), on="MVT_ID_mvt", how="left", maintain_order="left")
         .select(["MVT_ID_mvt", *CANDIDATE_COLS])
     )
 
@@ -420,16 +433,6 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
     cand = candidate_features(row, ctx, ctx_src)
-    # Exogenous: the files say where the flight is going but not how far, and distance stands in for the fuel
-    # load that decides how heavy the aircraft is on the ground. Correlates with the label at +0.17, where the
-    # columns built out of existing ones managed +0.045 and -0.035. See prc.airports for the source and licence.
-    try:
-        dist = add_destination_distance(row.select(["MVT_ID_mvt", "ADEP_mvt", "ADES_mvt"])).select(
-            ["MVT_ID_mvt", "dest_distance_km"]
-        )
-    except Exception:  # noqa: BLE001 - a missing coordinate table must not take the whole feature build down
-        dist = row.select("MVT_ID_mvt").with_columns(pl.lit(None, dtype=pl.Float64).alias("dest_distance_km"))
-    cand = cand.join(dist, on="MVT_ID_mvt", how="left", maintain_order="left")
     feats = add_signed_log(
         row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left").join(
             cand, on="MVT_ID_mvt", how="left", maintain_order="left"
