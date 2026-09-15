@@ -95,3 +95,26 @@ def test_float_template_accepts_integer_typed_predictions(tmp_path):
     assert pred["MVT_ID_mvt"].dtype != pl.Float64
     sub = write_submission(pred, tp, tmp_path / "float_out.parquet")
     assert sub[SUBMISSION_TARGET_COL].to_pylist() == [1.0, 2.0, 3.0], "values must follow their id, not their row"
+
+
+def test_the_daily_counter_counts_versions_not_log_lines(tmp_path):
+    """Every real upload writes a write-ahead 'attempted' entry and then the final one, so counting lines
+    doubled the day's total: three uploads read as six and the fourth was refused."""
+    import datetime as dt
+    import json
+
+    from prc.submit import _today_count
+
+    log = tmp_path / "submissions.jsonl"
+    now = dt.datetime(2026, 9, 15, 18, 0, tzinfo=dt.UTC)
+    lines = []
+    for v in (6, 7, 8):
+        e = {"version": v, "uploaded_at": now.isoformat(), "dry_run": False}
+        lines.append({**e, "status": "attempted"})
+        lines.append({**e, "status": "uploaded"})
+    lines.append({"version": 5, "uploaded_at": "2026-09-14T10:00:00+00:00", "dry_run": False})
+    log.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+
+    n, versions = _today_count(log, now=now)
+    assert n == 3, f"three uploads today, not {n}"
+    assert versions == {5, 6, 7, 8}

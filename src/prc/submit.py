@@ -28,22 +28,27 @@ def _today_count(log: Path, now: dt.datetime | None = None) -> tuple[int, set[in
     versions: set[int] = set()
     if not log.exists():
         return 0, versions
-    n_utc = n_cet = 0
+    # Count versions, not lines. Every real upload writes twice - a write-ahead "attempted" entry and the
+    # final one - so counting lines doubled the day's total and refused the fourth submission of the day as
+    # the seventh. The write-ahead entry is the point of the design, so the counter is what had to change.
+    utc_versions: set[int] = set()
+    cet_versions: set[int] = set()
     for line in log.read_text().splitlines():
         if not line.strip():
             continue
         rec = json.loads(line)
         if rec.get("dry_run"):
             continue
-        versions.add(int(rec["version"]))
+        v = int(rec["version"])
+        versions.add(v)
         ts = dt.datetime.fromisoformat(rec["uploaded_at"])
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=dt.UTC)
         if ts.astimezone(dt.UTC).date() == now.astimezone(dt.UTC).date():
-            n_utc += 1
+            utc_versions.add(v)
         if ts.astimezone(BRUSSELS).date() == now.astimezone(BRUSSELS).date():
-            n_cet += 1
-    return max(n_utc, n_cet), versions
+            cet_versions.add(v)
+    return max(len(utc_versions), len(cet_versions)), versions
 
 
 def submit(
