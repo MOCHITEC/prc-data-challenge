@@ -23,7 +23,7 @@ from prc.train import (
 
 def test_folds_use_year_month_keys():
     f = month_block_folds([202501, 202502, 202507, 202511, 202512])
-    assert [x.name for x in f] == ["jan", "jul", "forward"]
+    assert [x.name for x in f] == ["jan", "jul", "jul_fwd", "forward"]
     assert f[0].valid_months == (202501,) and 202501 not in f[0].train_months
     # the same calendar month in two years must not be mixed into one fold
     f2 = month_block_folds([202501, 202507, 202601])
@@ -46,7 +46,7 @@ def test_cv_runs_and_beats_median_baseline(tmp_path):
     feats = build_departure_features(df)
     cfg = TrainConfig(num_rounds=200, early_stopping=20)
     rec = run_cv(feats, cfg, out_dir=tmp_path)
-    assert set(rec["folds"]) == {"jan", "jul"}
+    assert set(rec["folds"]) == {"jan", "jul", "jul_fwd"}
     y = feats["TAXITIME_SEC_mvt"].to_numpy()
     base = float(np.sqrt(np.mean((y - np.median(y)) ** 2)))
     assert rec["overall"]["rmse_full"] < base
@@ -154,3 +154,14 @@ def test_a_screening_run_can_use_one_fold():
     assert list(rec["folds"]) == ["jul"]
     with pytest.raises(ValueError, match="matched none"):
         run_cv(feats, replace(cfg, folds=("nope",)), out_dir=Path(tempfile.mkdtemp()), log_name="t.jsonl")
+
+
+def test_a_forward_twin_exists_for_july_and_cannot_for_january():
+    """The leak in the jan/jul folds is measurable only against the same month trained forward-only."""
+    ms = [202501, 202503, 202507, 202511, 202512]
+    by_name = {f.name: f for f in month_block_folds(ms)}
+    assert "jul_fwd" in by_name
+    jf = by_name["jul_fwd"]
+    assert jf.valid_months == (202507,)
+    assert all(m < 202507 for m in jf.train_months), "a forward fold may not train on later months"
+    assert "jan_fwd" not in by_name, "January is the first month; there is nothing before it"

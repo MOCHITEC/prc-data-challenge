@@ -36,6 +36,13 @@ def month_block_folds(months_present: list[int]) -> list[Fold]:
         sel = tuple(x for x in ms if x % 100 == month)
         if sel and len(sel) < len(ms):
             folds.append(Fold(name, sel, tuple(x for x in ms if x not in sel)))
+            # The same month validated the honest way: trained only on what came before it. jan has nothing
+            # before it in a single year, so only jul gets a forward twin. Keeping both lets the cost of the
+            # leak be measured rather than assumed - the seasonal difference between months is larger than the
+            # leak, so comparing jan against forward says nothing about either.
+            before = tuple(x for x in ms if x < min(sel))
+            if before:
+                folds.append(Fold(f"{name}_fwd", sel, before))
     fwd = tuple(x for x in ms if x % 100 >= 11)
     if fwd and len(fwd) < len(ms):
         folds.append(Fold("forward", fwd, tuple(x for x in ms if x not in fwd)))
