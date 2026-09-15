@@ -57,7 +57,15 @@ class TrainConfig:
             "lambda_l2": 1.0,
             "verbose": -1,
             "num_threads": 4,
+            # deterministic alone does not bind: LightGBM still picks row-wise or column-wise histogram
+            # construction by timing the first iterations, and on a loaded machine that choice flips, changing
+            # the floating-point summation order and therefore the splits. Two runs whose only difference was
+            # in model B's settings - which model A is fitted before and cannot see - gave model A 1273 and 959
+            # rounds on the same fold. The documentation asks for one of force_row_wise / force_col_wise
+            # alongside deterministic; row-wise is the one for many rows and few bins, which is this data
+            # (2.08M rows, 72 features, 255 bins).
             "deterministic": True,
+            "force_row_wise": True,
         }
     )
     num_rounds: int = 2000
