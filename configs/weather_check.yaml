@@ -14,3 +14,4 @@ unmatched_num_leaves: 127
 unmatched_min_data_in_leaf: 50
 unmatched_num_rounds: 2000
 n_seeds: 1
+folds: [forward]
