@@ -1,0 +1,20 @@
+# Screening with no column subsampling. feature_fraction 0.8 makes every split draw from a random 80% of the
+# columns, so changing the column count reshuffles every tree: a pure-noise column costs +0.53 s that way,
+# which is more than a single real feature is usually worth. At 1.0 the draw is fixed and a feature can be
+# measured against the noise control on equal terms.
+name: ff1_noise
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+folds: [forward]
+params:
+  feature_fraction: 1.0
+exclude_features: [queue_ahead, bank_position, stand_rwy_share]
