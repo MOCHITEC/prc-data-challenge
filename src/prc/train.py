@@ -34,7 +34,7 @@ import numpy as np
 import polars as pl
 
 from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
-from .features import CATEGORICALS, numeric_feature_columns
+from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
 
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
@@ -104,6 +104,11 @@ class TrainConfig:
     # Columns hidden from the model. Candidate features are always computed, so measuring one at a time is a
     # config change rather than a four-minute rebuild of the feature cache.
     exclude_features: tuple[str, ...] = ()
+    # Candidate columns are hidden unless a config names them. They used to be opt-out, and configs/main.yaml
+    # did not opt out, so v6 shipped with all nine of them - noise_control, a hashed id built to carry no
+    # signal, included - and scored 350.62 against v4's 305.03. Screening columns must never reach production
+    # by default.
+    include_candidates: tuple[str, ...] = ()
     use_offset_encoding: bool = False  # under test; see OFFSET_COLS
 
     def hash(self) -> str:
@@ -305,6 +310,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
     if not cfg.use_offset_encoding:
         num_cols = [c for c in num_cols if c not in OFFSET_COLS]
+    hidden_candidates = set(CANDIDATE_COLS) - set(cfg.include_candidates)
+    if hidden_candidates:
+        num_cols = [c for c in num_cols if c not in hidden_candidates]
     if cfg.exclude_features:
         hidden = set(cfg.exclude_features)
         num_cols = [c for c in num_cols if c not in hidden]

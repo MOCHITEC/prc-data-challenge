@@ -16,4 +16,4 @@ n_seeds: 1
 folds: [forward]
 params:
   feature_fraction: 1.0
-exclude_features: [queue_ahead, bank_position, stand_rwy_share, noise_control, active_runways_60m, congestion_vs_usual_30m]
+include_candidates: [dep_arr_ratio_30m, dest_distance_km, planned_flight_s]

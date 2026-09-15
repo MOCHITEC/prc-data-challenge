@@ -165,3 +165,20 @@ def test_a_forward_twin_exists_for_july_and_cannot_for_january():
     assert jf.valid_months == (202507,)
     assert all(m < 202507 for m in jf.train_months), "a forward fold may not train on later months"
     assert "jan_fwd" not in by_name, "January is the first month; there is nothing before it"
+
+
+def test_candidate_columns_never_reach_the_model_unless_named():
+    """v6 shipped with all nine screening columns because main.yaml did not opt out, and scored 350.62 against
+    v4's 305.03. Hiding them is now the default and opting in is explicit."""
+    from prc.features import CANDIDATE_COLS
+    from prc.train import CATEGORICALS  # noqa: F401  - imported for the symbol check below
+
+    tr = build_departure_features(generate_month(2025, 7, seed=21, deps_per_airport_day=6))
+    tg = build_departure_features(generate_month(2025, 7, seed=22, deps_per_airport_day=4, blank_dep=True))
+    assert all(c in tr.columns for c in CANDIDATE_COLS), "the columns must exist, just not be visible"
+
+    base = TrainConfig(num_rounds=5, early_stopping=3, unmatched_num_rounds=5)
+    assert base.include_candidates == (), "the default must hide every candidate"
+    p_hidden, _ = predict_fold(tr, tg, base)
+    p_shown, _ = predict_fold(tr, tg, replace(base, include_candidates=("noise_control",)))
+    assert p_hidden.height == p_shown.height == tg.height
