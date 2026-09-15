@@ -269,6 +269,66 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
     )
 
 
+# Candidate columns under test. They are computed always and hidden from the model with
+# TrainConfig.exclude_features, so one feature can be measured at a time without rebuilding the feature cache
+# (a rebuild costs about four minutes; a CV run costs five).
+CANDIDATE_COLS = ("queue_ahead", "bank_position", "stand_rwy_share")
+
+
+def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFrame) -> pl.DataFrame:
+    """Hypothesis-driven columns, each computable from what the ranking set actually carries.
+
+    queue_ahead     how many departures left the same airport between this flight's scheduled off-block and its
+                    take-off. The literal queue it waited through, where dep_tko_prev_Nm is only a fixed window.
+    bank_position   where in a departure bank the flight sits: 0 at the front, 1 at the back. Congestion counts
+                    say how busy it is, not whether the queue is building or draining.
+    stand_rwy_share how usual this stand -> runway pairing is at this airport. A rare pairing is a long or
+                    unusual taxi route. Counts only, no labels, so nothing to leak."""
+    dep_ctx = ctx_src.filter(pl.col("PHASE_mvt") == "DEP").select(
+        ["ADEP_mvt", pl.col("MVT_TIME_UTC_mvt").dt.epoch("s").cast(pl.Float64).alias("_t")]
+    )
+    tgt = row.select(
+        [
+            "MVT_ID_mvt",
+            "ADEP_mvt",
+            pl.col("MVT_TIME_UTC_mvt").dt.epoch("s").cast(pl.Float64).alias("_tko"),
+            pl.col("SCHED_TIME_UTC_mvt").dt.epoch("s").cast(pl.Float64).alias("_sched"),
+        ]
+    )
+    out = []
+    for apt in tgt["ADEP_mvt"].unique().to_list():
+        pred = pl.col("ADEP_mvt").is_null() if apt is None else (pl.col("ADEP_mvt") == apt)
+        t = tgt.filter(pred)
+        ev = np.sort(dep_ctx.filter(pred)["_t"].drop_nulls().to_numpy())
+        lo = t["_sched"].to_numpy()
+        hi = t["_tko"].to_numpy()
+        n = np.full(len(lo), np.nan)
+        ok = np.isfinite(lo) & np.isfinite(hi) & (hi >= lo)
+        if ev.size and ok.any():
+            n[ok] = np.searchsorted(ev, hi[ok], "right") - np.searchsorted(ev, lo[ok], "left")
+        out.append(pl.DataFrame({"MVT_ID_mvt": t["MVT_ID_mvt"], "queue_ahead": n}))
+    q = pl.concat(out) if out else pl.DataFrame({"MVT_ID_mvt": row["MVT_ID_mvt"].head(0), "queue_ahead": []})
+
+    share = (
+        row.group_by(["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"])
+        .len()
+        .join(row.group_by(["ADEP_mvt", "STAND_mvt"]).len().rename({"len": "_stand_n"}), on=["ADEP_mvt", "STAND_mvt"])
+        .with_columns((pl.col("len") / pl.col("_stand_n")).alias("stand_rwy_share"))
+        .select(["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "stand_rwy_share"])
+    )
+    prev60, next60 = pl.col("dep_tko_prev_60m"), pl.col("dep_tko_next_60m")
+    return (
+        row.select(["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"])
+        .join(q, on="MVT_ID_mvt", how="left", maintain_order="left")
+        .join(share, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left", maintain_order="left")
+        .join(ctx.select(["MVT_ID_mvt", "dep_tko_prev_60m", "dep_tko_next_60m"]), on="MVT_ID_mvt", how="left")
+        .with_columns(
+            pl.when((prev60 + next60) > 0).then(prev60 / (prev60 + next60)).otherwise(None).alias("bank_position")
+        )
+        .select(["MVT_ID_mvt", *CANDIDATE_COLS])
+    )
+
+
 def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFrame | None = None) -> pl.DataFrame:
     """Full v1 feature table for the departures in `movements`.
 
@@ -282,7 +342,12 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     keep = [c for c in KEEP_RAW_COLS if c in row.columns]
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
-    feats = add_signed_log(row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left"))
+    cand = candidate_features(row, ctx, ctx_src)
+    feats = add_signed_log(
+        row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left").join(
+            cand, on="MVT_ID_mvt", how="left", maintain_order="left"
+        )
+    )
     if feats.height != dep.height:
         raise AssertionError(f"feature rows {feats.height} != departure rows {dep.height}")
     if feats["MVT_ID_mvt"].n_unique() != feats.height:

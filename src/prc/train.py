@@ -95,6 +95,9 @@ class TrainConfig:
     # 1.1 s - the same as the full three-fold set - at a third of the wall clock. forward is also the only fold
     # shaped like the real task, since jan and jul train on months that come after the month they predict.
     folds: tuple[str, ...] | None = None
+    # Columns hidden from the model. Candidate features are always computed, so measuring one at a time is a
+    # config change rather than a four-minute rebuild of the feature cache.
+    exclude_features: tuple[str, ...] = ()
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -280,6 +283,10 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if not cfg.use_encodings:
         num_cols = [c for c in num_cols if c not in ENCODING_COLS]
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
+    if cfg.exclude_features:
+        hidden = set(cfg.exclude_features)
+        num_cols = [c for c in num_cols if c not in hidden]
+        cat_cols = [c for c in cat_cols if c not in hidden]
     parts = []
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:

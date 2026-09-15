@@ -131,8 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     # drop objective/verbose/num_threads and make one experiment differ from the others in ways nobody chose.
     if "params" in fields:
         fields["params"] = {**TrainConfig().params, **fields["params"]}
-    if isinstance(fields.get("folds"), list):
-        fields["folds"] = tuple(fields["folds"])
+    for k in ("folds", "exclude_features"):
+        if isinstance(fields.get(k), list):
+            fields[k] = tuple(fields[k])
     cfg = TrainConfig(**fields)
     use_weather = bool(spec.get("use_weather", False))
     t0 = time.time()
