@@ -1,0 +1,19 @@
+# Higher-power screening: all three folds instead of forward alone, so 672k rows instead of 328k and the
+# interval narrows by about sqrt(2). Two candidates have accumulated that both improve things consistently and
+# both sit under the 0.25 s the forward fold can resolve; this is the run that can see them or rule them out.
+name: pw_both
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_offset_encoding: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+params:
+  feature_fraction: 1.0
+exclude_features: [queue_ahead, bank_position, stand_rwy_share, active_runways_60m, dep_arr_ratio_30m, congestion_vs_usual_30m]
