@@ -39,6 +39,12 @@ from .features import CATEGORICALS, numeric_feature_columns
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
 ENCODING_COLS = ["ref_p10", "ref_p20", "ref_med", "ref_n", "arh_med", "arh_n", "apt_med", "ref_p10_fb", "ref_missing"]
+# Encodes what model A actually predicts - the offset between the two off-block clocks, AOBT_3 minus
+# BLOCK_TIME - rather than the taxi time. Measured on one month: the median offset runs from -301 s to +56 s
+# across operators and its spread from 237 s to 473 s, so the reporting habit is the operator's, not the
+# airport's. Operator and airport are both categoricals already, but a tree cannot aggregate across rows, and
+# learning 676 x 10 combinations by splitting alone is not the same as being handed the number.
+OFFSET_COLS = ["op_offset_med", "op_offset_n"]
 
 
 @dataclass
@@ -98,6 +104,7 @@ class TrainConfig:
     # Columns hidden from the model. Candidate features are always computed, so measuring one at a time is a
     # config change rather than a four-minute rebuild of the feature cache.
     exclude_features: tuple[str, ...] = ()
+    use_offset_encoding: bool = False  # under test; see OFFSET_COLS
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -151,6 +158,17 @@ def airport_runway_hour_table(train_dep: pl.DataFrame, min_count: int = 10) -> p
     )
 
 
+def operator_offset_table(train_dep: pl.DataFrame, min_count: int = 20) -> pl.DataFrame:
+    """Median clock offset per operator x departure airport, fitted on the training side of the fold only."""
+    lab = train_dep.filter(pl.col(LABEL).is_not_null() & pl.col(PROXY).is_not_null())
+    return (
+        lab.with_columns((pl.col(LABEL) - pl.col(PROXY)).alias("_off"))
+        .group_by(["AIRCRAFT_OPERATOR_flt", "ADEP_mvt"])
+        .agg([pl.col("_off").median().alias("op_offset_med"), pl.len().alias("op_offset_n")])
+        .filter(pl.col("op_offset_n") >= min_count)
+    )
+
+
 def airport_median_table(train_dep: pl.DataFrame) -> pl.DataFrame:
     lab = train_dep.filter(pl.col(LABEL).is_not_null())
     return lab.group_by("ADEP_mvt").agg(pl.col(LABEL).median().alias("apt_med"))
@@ -161,6 +179,7 @@ def fit_encodings(train_dep: pl.DataFrame, cfg: TrainConfig) -> dict[str, pl.Dat
         "ref": reference_table(train_dep, cfg.reference_min_count),
         "arh": airport_runway_hour_table(train_dep),
         "apt": airport_median_table(train_dep),
+        "op": operator_offset_table(train_dep),
     }
 
 
@@ -169,6 +188,7 @@ def attach_encodings(df: pl.DataFrame, enc: dict[str, pl.DataFrame]) -> pl.DataF
     out = df.join(enc["ref"], on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left", maintain_order="left")
     out = out.join(enc["arh"], on=["ADEP_mvt", "RUNWAY_mvt", "hour_local"], how="left", maintain_order="left")
     out = out.join(enc["apt"], on="ADEP_mvt", how="left", maintain_order="left")
+    out = out.join(enc["op"], on=["AIRCRAFT_OPERATOR_flt", "ADEP_mvt"], how="left", maintain_order="left")
     return out.with_columns(
         [
             pl.coalesce([pl.col("ref_p10"), pl.col("arh_med"), pl.col("apt_med")]).alias("ref_p10_fb"),
@@ -283,6 +303,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if not cfg.use_encodings:
         num_cols = [c for c in num_cols if c not in ENCODING_COLS]
     cat_cols = [c for c in CATEGORICALS if c in tr.columns] if cfg.use_categoricals else []
+    if not cfg.use_offset_encoding:
+        num_cols = [c for c in num_cols if c not in OFFSET_COLS]
     if cfg.exclude_features:
         hidden = set(cfg.exclude_features)
         num_cols = [c for c in num_cols if c not in hidden]
