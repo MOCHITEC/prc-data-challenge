@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
+from .airports import add_destination_distance
 from .schema import BLANKED_DEP_COLS
 
 AIRPORT_TZ = {
@@ -280,6 +281,7 @@ CANDIDATE_COLS = (
     "active_runways_60m",
     "dep_arr_ratio_30m",
     "congestion_vs_usual_30m",
+    "dest_distance_km",
 )
 
 
@@ -418,6 +420,16 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
     cand = candidate_features(row, ctx, ctx_src)
+    # Exogenous: the files say where the flight is going but not how far, and distance stands in for the fuel
+    # load that decides how heavy the aircraft is on the ground. Correlates with the label at +0.17, where the
+    # columns built out of existing ones managed +0.045 and -0.035. See prc.airports for the source and licence.
+    try:
+        dist = add_destination_distance(row.select(["MVT_ID_mvt", "ADEP_mvt", "ADES_mvt"])).select(
+            ["MVT_ID_mvt", "dest_distance_km"]
+        )
+    except Exception:  # noqa: BLE001 - a missing coordinate table must not take the whole feature build down
+        dist = row.select("MVT_ID_mvt").with_columns(pl.lit(None, dtype=pl.Float64).alias("dest_distance_km"))
+    cand = cand.join(dist, on="MVT_ID_mvt", how="left", maintain_order="left")
     feats = add_signed_log(
         row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left").join(
             cand, on="MVT_ID_mvt", how="left", maintain_order="left"
