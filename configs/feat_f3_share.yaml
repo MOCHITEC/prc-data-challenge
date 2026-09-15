@@ -11,4 +11,4 @@ unmatched_min_data_in_leaf: 50
 unmatched_num_rounds: 2000
 n_seeds: 1
 folds: [forward]
-exclude_features: [queue_ahead, bank_position]
+exclude_features: [queue_ahead, bank_position, noise_control]

@@ -272,7 +272,7 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
 # Candidate columns under test. They are computed always and hidden from the model with
 # TrainConfig.exclude_features, so one feature can be measured at a time without rebuilding the feature cache
 # (a rebuild costs about four minutes; a CV run costs five).
-CANDIDATE_COLS = ("queue_ahead", "bank_position", "stand_rwy_share")
+CANDIDATE_COLS = ("queue_ahead", "bank_position", "stand_rwy_share", "noise_control")
 
 
 def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFrame) -> pl.DataFrame:
@@ -324,6 +324,12 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
         .join(ctx.select(["MVT_ID_mvt", "dep_tko_prev_60m", "dep_tko_next_60m"]), on="MVT_ID_mvt", how="left")
         .with_columns(
             pl.when((prev60 + next60) > 0).then(prev60 / (prev60 + next60)).otherwise(None).alias("bank_position")
+        )
+        .with_columns(
+            # A column that cannot carry signal, to price what adding *any* column costs. feature_fraction is
+            # 0.8, so a new column changes which columns every split samples from; if a pure-noise column costs
+            # as much as a real candidate, the comparison is measuring the reshuffle and not the feature.
+            (pl.col("MVT_ID_mvt").hash(seed=20260915) % 1_000_000).cast(pl.Float64).alias("noise_control")
         )
         .select(["MVT_ID_mvt", *CANDIDATE_COLS])
     )
