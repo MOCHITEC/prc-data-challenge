@@ -12,7 +12,7 @@ num_rounds: 2000
 early_stopping: 100
 use_categoricals: true
 use_encodings: true
-use_weather: false
+use_weather: true    # §6 の判定規則で採用（200行除外後 −1.06 [−1.40,−0.73]）。hour_utc を消すバグは修正済み
 reference_min_count: 30
 inner_holdout_months: 1
 unmatched_num_leaves: 127
