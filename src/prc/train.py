@@ -449,7 +449,10 @@ def run_cv(
         "folds": fold_metrics,
         "overall": overall,
         "train_seconds": round(time.time() - t0, 1),
-        "n_features": len(numeric_feature_columns(feats)),
+        # What the model was given, not how wide the frame is. Logging the frame width is what let v6 ship
+        # nine screening columns without the record showing it: 99 either way.
+        "n_features": len(visible_numeric_columns(feats, cfg)),
+        "n_frame_columns": len(numeric_feature_columns(feats)),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / log_name, "a") as fh:
