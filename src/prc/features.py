@@ -282,6 +282,7 @@ CANDIDATE_COLS = (
     "dep_arr_ratio_30m",
     "congestion_vs_usual_30m",
     "dest_distance_km",
+    "planned_flight_s",
 )
 
 
@@ -415,6 +416,23 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
             (pl.col("MVT_ID_mvt").hash(seed=20260915) % 1_000_000).cast(pl.Float64).alias("noise_control")
         )
         .join(_destination_distance(row), on="MVT_ID_mvt", how="left", maintain_order="left")
+        .join(
+            # ARVT_1_flt is the filed arrival time and has never been used. ARVT_1 - EOBT_1 is the planned
+            # flight duration: the same idea as the great-circle distance but taken from the files, and better
+            # for it, since a filed duration already accounts for the route, the winds and the aircraft's
+            # speed. Correlates with the label at +0.2575, against +0.174 for the distance and +0.045 for the
+            # best column built out of what the model already had. Present in the ranking set at the same
+            # 1.53% null rate as every other NM field.
+            row.select(
+                [
+                    "MVT_ID_mvt",
+                    (pl.col("ARVT_1_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("planned_flight_s"),
+                ]
+            ),
+            on="MVT_ID_mvt",
+            how="left",
+            maintain_order="left",
+        )
         .select(["MVT_ID_mvt", *CANDIDATE_COLS])
     )
 
