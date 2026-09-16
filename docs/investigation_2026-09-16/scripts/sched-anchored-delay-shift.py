@@ -194,10 +194,6 @@ def main() -> None:
         # OOF-scored rows (matched) share
         s_oof = (j.filter(pl.col("matched")).group_by(f"bin_{col}").agg(pl.len().alias("n"))
                  .with_columns((pl.col("n") / pl.col("n").sum() * 100).alias("pct"), pl.lit("oof").alias("grp")).collect())
-        d = pl.concat([s_tr, s_rk, s_oof.select(s_tr.columns)])
-        wide = d.pivot(on="grp", index=f"bin_{col}", values="pct").fill_null(0.0)
-        cols_want = [c for c in ["all", "oof", "202501", "202601", "202507", "202607", "all_rk"] if c in wide.columns]
-        # rename ranking "all" (it collides with training "all") by recomputing separately
         wide_tr = s_tr.pivot(on="grp", index=f"bin_{col}", values="pct").rename({"all": "train_all"})
         wide_rk = s_rk.pivot(on="grp", index=f"bin_{col}", values="pct").rename({"all": "rank_all"})
         wide_o = s_oof.pivot(on="grp", index=f"bin_{col}", values="pct")
@@ -209,7 +205,6 @@ def main() -> None:
         )
         print(f"\n-- D1. matched-row share (%) per bin of {col} --")
         print(order_bins(w, f"bin_{col}").select([f"bin_{col}", "train_all", "oof", "rank_all", "d_all", "202501", "202601", "d_jan", "202507", "202607", "d_jul"]))
-        del cols_want, wide
 
     print("\n-- D2. all rows (matched + unmatched) share (%) per bin of mvt_minus_sched --")
     s_tr = shares(TRAIN, "mvt_minus_sched", matched_only=False).pivot(on="grp", index="bin_mvt_minus_sched", values="pct")
