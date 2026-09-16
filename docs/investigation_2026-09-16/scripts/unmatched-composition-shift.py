@@ -209,6 +209,41 @@ for d in DEFS:
     print(tu.group_by("ADEP_mvt").agg((pl.col("seen").mean() * 100).round(2).alias("train_all")).join(
         frames["train_JanJul25"].group_by("ADEP_mvt").agg((pl.col("seen").mean() * 100).round(2).alias("train_JanJul25")), on="ADEP_mvt").join(
         ru.group_by("ADEP_mvt").agg((pl.col("seen").mean() * 100).round(2).alias("rank_all")), on="ADEP_mvt").sort("ADEP_mvt"))
+    # seen rate by airport x month: train Jan25 / Jul25 vs rank Jan26 / Jul26; plus 'seen among matched RANKING flights'
+    print("\n--- 'seen' rate by airport x month (unmatched rows): seen among matched TRAINING flights; last two cols = seen among matched RANKING flights ---")
+    rk_seen_s = pl.Series(sorted(rk_seen))
+    a = frames["train_JanJul25"].group_by(["ADEP_mvt", "mo"]).agg((pl.col("seen").mean() * 100).round(1).alias("s")).pivot(on="mo", index="ADEP_mvt", values="s").rename({"1": "train_Jan25", "7": "train_Jul25"})
+    b = ru.group_by(["ADEP_mvt", "mo"]).agg((pl.col("seen").mean() * 100).round(1).alias("s")).pivot(on="mo", index="ADEP_mvt", values="s").rename({"1": "rank_Jan26", "7": "rank_Jul26"})
+    c = ru.with_columns(pl.col("FLIGHT_mvt").is_in(rk_seen_s).alias("seen_rk")).group_by(["ADEP_mvt", "mo"]).agg((pl.col("seen_rk").mean() * 100).round(1).alias("s")).pivot(on="mo", index="ADEP_mvt", values="s").rename({"1": "rank_Jan26_seenRK", "7": "rank_Jul26_seenRK"})
+    print(a.join(b, on="ADEP_mvt", how="full", coalesce=True).join(c, on="ADEP_mvt", how="full", coalesce=True).sort("ADEP_mvt"))
+    # is the 'seen' drop a flight-number turnover? share of matched RANKING flight numbers that appear among matched TRAINING flights (all rows, weighted)
+    rk_m = rk.filter(~DEFS[d])
+    print("matched RANKING rows whose FLIGHT_mvt appears among matched TRAINING flights: %.2f %% (Jan26 %.2f, Jul26 %.2f)" % (
+        rk_m["FLIGHT_mvt"].is_in(pl.Series(sorted(seen_sets[d]))).mean() * 100,
+        rk_m.filter(pl.col("mo") == 1)["FLIGHT_mvt"].is_in(pl.Series(sorted(seen_sets[d]))).mean() * 100,
+        rk_m.filter(pl.col("mo") == 7)["FLIGHT_mvt"].is_in(pl.Series(sorted(seen_sets[d]))).mean() * 100))
+    tr_m = tr.filter(~DEFS[d])
+    print("matched TRAINING rows whose FLIGHT_mvt appears among matched RANKING flights: %.2f %% (Jan25 %.2f, Jul25 %.2f)" % (
+        tr_m["FLIGHT_mvt"].is_in(rk_seen_s).mean() * 100,
+        tr_m.filter(pl.col("mo") == 1)["FLIGHT_mvt"].is_in(rk_seen_s).mean() * 100,
+        tr_m.filter(pl.col("mo") == 7)["FLIGHT_mvt"].is_in(rk_seen_s).mean() * 100))
+    # KL prefix: which airport x month
+    print("\n--- rows with FLIGHT prefix 'KL' among unmatched rows, by airport x set ---")
+    kl = []
+    for name, df in frames.items():
+        kl.append(df.filter(pl.col("pre2") == "KL").group_by("ADEP_mvt").agg(pl.len().alias(name)))
+    o = kl[0]
+    for t in kl[1:]:
+        o = o.join(t, on="ADEP_mvt", how="full", coalesce=True)
+    print(o.fill_null(0).sort("ADEP_mvt"))
+    print("EHAM unmatched Jan 2026: KL share %.1f %% (n=%d); EHAM unmatched Jan 2025: KL share %.1f %% (n=%d); EHAM unmatched all-train: %.1f %%" % (
+        (frames["rank_Jan26"].filter(pl.col("ADEP_mvt") == "EHAM")["pre2"] == "KL").mean() * 100, frames["rank_Jan26"].filter(pl.col("ADEP_mvt") == "EHAM").height,
+        (frames["train_JanJul25"].filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1))["pre2"] == "KL").mean() * 100, frames["train_JanJul25"].filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1)).height,
+        (tu.filter(pl.col("ADEP_mvt") == "EHAM")["pre2"] == "KL").mean() * 100))
+    print("KL share among EHAM MATCHED departures: train %.1f %%, rank Jan26 %.1f %%, rank Jul26 %.1f %%" % (
+        (tr_m.filter(pl.col("ADEP_mvt") == "EHAM")["pre2"] == "KL").mean() * 100,
+        (rk_m.filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1))["pre2"] == "KL").mean() * 100,
+        (rk_m.filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 7))["pre2"] == "KL").mean() * 100))
 
 # ----------------------------------------------------------------------------------------------------------------
 # C. training label by subgroup (unmatched rows)
