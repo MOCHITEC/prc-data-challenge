@@ -117,7 +117,7 @@ def main() -> None:
             (pl.col("mvt_minus_sched") > 3600).mean().round(4).alias("share_gt60min"),
             (pl.col("mvt_minus_sched") > 7200).mean().round(4).alias("share_gt120min"),
         ).sort("ym")
-    print(pl.concat([q(tr), q(rk)]))
+    print(pl.concat([q(tr), q(rk)]).collect())
 
     print("\n=== B. congestion counts / headways / taxi-in on the same matched rows: medians (and means) ===")
     trc = matched_janjul(TRAIN, CONG)
@@ -126,7 +126,10 @@ def main() -> None:
     def agg_cong(lf: pl.LazyFrame, by: list[str]) -> pl.DataFrame:
         aggs = [pl.len().alias("n")]
         for c in CONG:
-            aggs += [pl.col(c).cast(pl.Float64).median().alias(f"{c}_med"), pl.col(c).cast(pl.Float64).mean().alias(f"{c}_mean")]
+            v = pl.col(c).cast(pl.Float64).fill_nan(None)  # Float32 features carry NaN, which would poison mean()
+            aggs += [v.median().alias(f"{c}_med"), v.mean().alias(f"{c}_mean")]
+            if c.startswith("rwy_headway"):
+                aggs += [v.quantile(0.95).alias(f"{c}_p95"), v.is_null().mean().alias(f"{c}_nullrate")]
         return lf.group_by(by).agg(aggs).sort(by).collect()
 
     b_tr, b_rk = agg_cong(trc, ["ADEP_mvt", "ym"]), agg_cong(rkc, ["ADEP_mvt", "ym"])
@@ -134,10 +137,13 @@ def main() -> None:
     print(side_by_side(b_tr, b_rk, [f"{c}_med" for c in CONG], ["ADEP_mvt"]))
     print("-- means --")
     print(side_by_side(b_tr, b_rk, [f"{c}_mean" for c in CONG], ["ADEP_mvt"]))
+    hw = [f"{c}_{s}" for c in CONG if c.startswith("rwy_headway") for s in ("p95", "nullrate")]
+    print("-- headway p95 / null rate --")
+    print(side_by_side(b_tr, b_rk, hw, ["ADEP_mvt"]))
     print("-- pooled over airports --")
     pb_tr = agg_cong(trc, ["ym"]).with_columns(pl.lit("all").alias("ADEP_mvt"))
     pb_rk = agg_cong(rkc, ["ym"]).with_columns(pl.lit("all").alias("ADEP_mvt"))
-    print(side_by_side(pb_tr, pb_rk, [f"{c}_med" for c in CONG] + [f"{c}_mean" for c in CONG], ["ADEP_mvt"]))
+    print(side_by_side(pb_tr, pb_rk, [f"{c}_med" for c in CONG] + [f"{c}_mean" for c in CONG] + hw, ["ADEP_mvt"]))
 
     # ---------------------------------------------------------------- C: OOF residuals by bin
     print("\n=== C. OOF residuals by bin (oof_main-48c19bc830 joined to feat_train on MVT_ID_mvt, non-null oof) ===")
