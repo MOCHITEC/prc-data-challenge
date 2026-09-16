@@ -271,6 +271,68 @@ print(sd_ratio(resid_table(j, ["ADEP_mvt", "blk_s0"]), "blk_s0"))
 print("\n--- C5. per-month OOF residual SD by (ADEP, MVT s0), matched only, months scored ---")
 print(resid_table(jm, ["ADEP_mvt", "ym", "mvt_s0"]).select("ADEP_mvt", "ym", "mvt_s0", "n", "rmse", "resid_sd", "y_sd"))
 
+# ------------------------------------------------------------------ C6. are the extreme unmatched-cell ratios single rows?
+print("\n--- C6. OOF rows with y >= 72,000 (day-rollover band): seconds-of-minute and cell membership ---")
+big = j.filter(pl.col("y") >= 72000).select("ADEP_mvt", "unm", "ym", "mvt_sec", "blk_sec", "aobt_sec", "y", "oof", "resid").sort("ADEP_mvt", "y")
+print(big)
+print("   per (ADEP, unm, mvt_s0): n rows y >= 72,000 and RMSE with / without them")
+print(
+    j.filter(pl.col("ADEP_mvt").is_in(["LFPG", "LIRF", "EGLL"]))
+    .group_by("ADEP_mvt", "unm", "mvt_s0")
+    .agg(
+        pl.len().alias("n"),
+        (pl.col("y") >= 72000).sum().alias("n_y_ge_72000"),
+        (pl.col("resid") ** 2).mean().sqrt().round(1).alias("rmse"),
+        (pl.col("resid").filter(pl.col("y") < 72000) ** 2).mean().sqrt().round(1).alias("rmse_excl_ge_72000"),
+        pl.col("resid").filter(pl.col("y") < 72000).std().round(1).alias("sd_excl_ge_72000"),
+    )
+    .sort("ADEP_mvt", "unm", "mvt_s0")
+)
+print("   same for (ADEP, blk_s0) at LFPG / LIRF / LEBL")
+print(
+    j.filter(pl.col("ADEP_mvt").is_in(["LFPG", "LIRF", "LEBL"]))
+    .group_by("ADEP_mvt", "blk_s0")
+    .agg(
+        pl.len().alias("n"),
+        (pl.col("y") >= 72000).sum().alias("n_y_ge_72000"),
+        (pl.col("resid") ** 2).mean().sqrt().round(1).alias("rmse"),
+        (pl.col("resid").filter(pl.col("y") < 72000) ** 2).mean().sqrt().round(1).alias("rmse_excl_ge_72000"),
+    )
+    .sort("ADEP_mvt", "blk_s0")
+)
+
+# ------------------------------------------------------------------ F. is the label itself minute-quantised?
+print("\n=== F. label y = MVT - BLOCK: y mod 60 per ADEP (share == 0, distinct values, share within 6 of a multiple of 60) ===")
+ymod = (pl.col("y") % 60).alias("ymod")
+print(
+    tr.with_columns(ymod)
+    .group_by("ADEP_mvt")
+    .agg(
+        pl.len().alias("n"),
+        (pl.col("ymod") == 0).mean().round(4).alias("y_mod60_eq0"),
+        pl.col("ymod").n_unique().alias("y_mod60_distinct"),
+        (pl.min_horizontal(pl.col("ymod"), 60 - pl.col("ymod")) <= 6).mean().round(4).alias("y_within6_of_60k"),
+        (pl.min_horizontal(pl.col("ymod"), 60 - pl.col("ymod")) <= 12).mean().round(4).alias("y_within12_of_60k"),
+        ((pl.col("mvt_sec") - pl.col("blk_sec")) % 60).n_unique().alias("mvt_minus_blk_sec_distinct"),
+    )
+    .sort("ADEP_mvt")
+)
+print("-- cluster: histogram of y mod 60 (share per value, values with share > 0.001)")
+h = (
+    tr.filter(pl.col("cluster")).with_columns(ymod).group_by("ymod").agg(pl.len().alias("n"))
+    .with_columns((pl.col("n") / pl.col("n").sum()).round(4).alias("share")).filter(pl.col("share") > 0.001).sort("ymod")
+)
+print({int(r["ymod"]): r["share"] for r in h.to_dicts()})
+print("-- proxy = MVT - AOBT_3 mod 60 per ADEP (matched rows): share == 0, distinct values")
+print(
+    tr.filter(~pl.col("unm"))
+    .with_columns((pl.col("mvt_minus_aobt3") % 60).alias("pmod"))
+    .group_by("ADEP_mvt")
+    .agg(pl.len().alias("n"), (pl.col("pmod") == 0).mean().round(4).alias("proxy_mod60_eq0"), pl.col("pmod").n_unique().alias("proxy_mod60_distinct"),
+         (pl.min_horizontal(pl.col("pmod"), 60 - pl.col("pmod")) <= 6).mean().round(4).alias("proxy_within6_of_60k"))
+    .sort("ADEP_mvt")
+)
+
 # ------------------------------------------------------------------ D. is the indicator a feature?
 print("\n=== D. indicator vs existing features (data-side check; code grep reported in the .md) ===")
 print(

@@ -8,7 +8,8 @@ Checks
   A. matched rows (routing definition: mvt_minus_aobt3 not null), per airport x month, Jan/Jul 2025 (feat_train)
      vs Jan/Jul 2026 (feat_rank): n, median of mvt_minus_sched / aobt3_minus_sched / aobt3_minus_eobt1 /
      mvt_minus_aobt3 (proxy), proxy sd; the same pooled over airports.
-  B. congestion counts / headways / taxi-in means on the same rows (medians and means) -> is there a shift there?
+  B. congestion counts / headways / taxi-in means on the same rows (medians, NaN-safe means, headway p95 and
+     null rate) -> is there a shift there?
   C. OOF residuals (experiments/oof_main-48c19bc830.parquet joined to feat_train on MVT_ID_mvt, non-null oof only):
      n, RMSE, mean residual (y - oof) by mvt_minus_sched bin and by aobt3_minus_sched bin
      (bins in minutes: <-15, -15..0, 0..15, 15..30, 30..60, 60..120, >120), all rows and matched rows,
