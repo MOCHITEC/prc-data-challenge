@@ -280,3 +280,59 @@ bound("(b) matched twins of same-take-off mixed pairs, error = OOF RMSE on that 
 bound("(c) same as (b), error = median(y_m) - median(y_u) in training", n_mixed_same, float(same_to["y_m"].median() - same_to["y_u"].median()))
 bound("(d) pessimistic: all twin rows, error = training matched-twin median label", n_twin_rank, float(mixed["y_m"].median()))
 print("done")
+
+# ---------------------------------------------------------------- H. follow-ups
+print("\n=== H. follow-ups ===")
+# H1. FLIGHT_ID overlap as D computed it (all phases, DEP+ARR)
+tr_all = pl.scan_parquet(sorted(glob.glob(R + "training_*.parquet")))
+rk_all = pl.scan_parquet(R + "ranking.parquet")
+tf_all = tr_all.select("FLIGHT_ID_mvt").drop_nulls().collect()["FLIGHT_ID_mvt"]
+rf_all = rk_all.select(["FLIGHT_ID_mvt", "PHASE_mvt"]).drop_nulls().collect()
+hit = rf_all.filter(pl.col("FLIGHT_ID_mvt").is_in(tf_all.implode()))
+print("H1 FLIGHT_ID overlap, all phases (D's method):", hit.height, "| by ranking PHASE:", hit.group_by("PHASE_mvt").len().to_dicts())
+if hit.height:
+    print(tr_all.filter(pl.col("FLIGHT_ID_mvt").is_in(hit["FLIGHT_ID_mvt"].implode()))
+          .select(["FLIGHT_ID_mvt", "PHASE_mvt", "ADEP_mvt", "ADES_mvt", "MVT_TIME_UTC_mvt", "FLIGHT_mvt"]).collect())
+    print(rk_all.filter(pl.col("FLIGHT_ID_mvt").is_in(hit["FLIGHT_ID_mvt"].implode()))
+          .select(["FLIGHT_ID_mvt", "PHASE_mvt", "ADEP_mvt", "ADES_mvt", "MVT_TIME_UTC_mvt", "FLIGHT_mvt"]).collect())
+# H2. training pair kinds by ADEP, with same-take-off counts
+print("H2 training pairs: kind x ADEP")
+print(pairs.group_by(["ADEP_mvt", "kind"]).agg([pl.len(), (pl.col("dt_mvt") <= 120).sum().alias("n_dt<=120"),
+                                                 pl.col("dt_mvt").median().alias("dt_mvt_med")]).sort(["ADEP_mvt", "kind"]))
+print("H2 the k=4 group:")
+print(tw.filter(pl.col("k") == 4).select(KEY + ["MVT_TIME_UTC_mvt", "BLOCK_TIME_UTC_mvt", "y", "unm_fid", "STAND_mvt", "RUNWAY_mvt"]))
+# H3. ranking pairs: kind x ADEP x same take-off
+print("H3 ranking pairs: kind x ADEP")
+print(rp.group_by(["ADEP_mvt", "kind"]).agg([pl.len(), (pl.col("dt_mvt") <= 120).sum().alias("n_dt<=120"),
+                                              pl.col("dt_mvt").median().alias("dt_mvt_med")]).sort(["ADEP_mvt", "kind"]))
+# H4. matched twin of same-take-off mixed training pairs: what model A sees (proxy = MVT - AOBT_3) vs label
+st = same_to.with_columns([(pl.col("mvt_m") - pl.col("aobt_m")).dt.total_seconds().alias("proxy_m"),
+                           (pl.col("mvt_u") - pl.col("blk_u")).dt.total_seconds().alias("y_u_check")])
+print("H4 same-take-off mixed pairs (n=%d): proxy_m = MVT_m - AOBT_3_m quantiles .1/.5/.9:" % st.height,
+      [st["proxy_m"].quantile(q) for q in (.1, .5, .9)],
+      "| y_m - proxy_m quantiles .1/.5/.9:", [(st["y_m"] - st["proxy_m"]).quantile(q) for q in (.1, .5, .9)],
+      "| y_m - y_u quantiles .1/.5/.9:", [(st["y_m"] - st["y_u"]).quantile(q) for q in (.1, .5, .9)],
+      "| y_m >= 2h:", (st["y_m"] >= 7200).sum())
+print("H4 label of matched twin equals (BLOCK_u - BLOCK_m) + y_u within 120 s:",
+      ((st["y_m"] - (st["blk_u_minus_blk_m"] + st["y_u"] + st["mvt_u_minus_mvt_m"]*0)).abs() <= 120).sum(), "of", st.height,
+      " (identity check: y_m - y_u == (blk_u - blk_m) - (mvt_u - mvt_m)):",
+      ((st["y_m"] - st["y_u"]) - (st["blk_u_minus_blk_m"] - st["mvt_u_minus_mvt_m"])).abs().max())
+# H5. OOF on the matched twins of same-take-off pairs: distribution of pred and residual
+mt2 = mt.select(["ADEP_mvt", "FLIGHT_mvt", "SCHED_TIME_UTC_mvt", "y", "oof"]).with_columns((pl.col("oof") - pl.col("y")).alias("resid"))
+print("H5 OOF on matched same-take-off twins (n=%d): oof quantiles .1/.5/.9:" % mt2.height,
+      [mt2["oof"].quantile(q) for q in (.1, .5, .9)], "| y quantiles:", [mt2["y"].quantile(q) for q in (.1, .5, .9)],
+      "| oof >= 2600:", (mt2["oof"] >= 2600).sum(), "| resid quantiles .1/.5/.9:", [mt2["resid"].quantile(q) for q in (.1, .5, .9)])
+# unmatched twins in the same pairs
+mu_ids = same_to.select(pl.when(pl.col("unm1")).then(pl.col("id1")).otherwise(pl.col("id2")).alias("MVT_ID_mvt"))
+mu = tw_oof.filter(pl.col("MVT_ID_mvt").is_in(mu_ids["MVT_ID_mvt"].implode()))
+print("H5 OOF on UNMATCHED same-take-off twins (n=%d): RMSE %.1f | resid median %.1f | SSE share %.3f %%" %
+      (mu.height, mu["se"].mean() ** 0.5 if mu.height else float('nan'), mu.select((pl.col("oof") - pl.col("y")).median()).item() if mu.height else float('nan'),
+       mu["se"].sum() / sse_oof * 100 if mu.height else float('nan')))
+# H6. main.parquet on the 16 ranking matched twins of same-take-off mixed pairs
+r16 = rmp.filter(pl.col("dt_mvt") <= 120)
+print("H6 ranking same-take-off mixed pairs (n=%d): pred_m sorted:" % r16.height, sorted(r16["pred_m"].to_list()),
+      "| pred_u sorted:", sorted(r16["pred_u"].to_list()),
+      "| pred_m >= 2600:", (r16["pred_m"] >= 2600).sum(), "| pred_m > pred_u:", (r16["pred_m"] > r16["pred_u"]).sum(),
+      "| sum pred_m:", r16["pred_m"].sum(), "| sum pred_u:", r16["pred_u"].sum())
+bound("(e) 16 ranking matched twins, error = OOF resid median on that class (|-1544|)", r16.height, 1544.4)
+print("done H")

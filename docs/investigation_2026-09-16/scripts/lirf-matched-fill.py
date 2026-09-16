@@ -112,6 +112,25 @@ print(
     .collect()
 )
 
+hdr("B2. matched rows, all airports: fill rate by |AOBT_3-SCHED| band (pivot ADEP x band)")
+bands_all = (
+    pl.when(pl.col("as_").abs() <= 60).then(pl.lit("0: <=60"))
+    .when(pl.col("as_").abs() <= 300).then(pl.lit("1: 60-300"))
+    .when(pl.col("as_").abs() <= 600).then(pl.lit("2: 300-600"))
+    .when(pl.col("as_").abs() <= 1800).then(pl.lit("3: 600-1800"))
+    .when(pl.col("as_").abs() <= 3600).then(pl.lit("4: 1800-3600"))
+    .when(pl.col("as_").abs() <= 7200).then(pl.lit("5: 3600-7200"))
+    .otherwise(pl.lit("6: >7200"))
+    .alias("as_band")
+)
+b2 = (
+    tr.filter(pl.col("matched")).with_columns(bands_all)
+    .group_by(["ADEP_mvt", "as_band"]).agg([pl.len().alias("n"), pl.col("fill").mean().round(3).alias("fill")])
+    .collect()
+)
+print(b2.pivot(on="as_band", index="ADEP_mvt", values="fill").sort("ADEP_mvt"))
+print(b2.pivot(on="as_band", index="ADEP_mvt", values="n").sort("ADEP_mvt"))
+
 # ---------------------------------------------------------------- C. LIRF matched: fill by month
 hdr("C. LIRF matched: fill rate by month")
 print(lm.group_by("month").agg([pl.len().alias("n"), pl.col("fill").mean().round(4).alias("fill")]).sort("month"))
