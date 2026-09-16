@@ -300,3 +300,85 @@ for rmse_hyp in (1000, 2000, 3000, 5000):
     print(f"  if RMSE on these {n_ed} rows were {rmse_hyp}: contribution to overall MSE = {n_ed * rmse_hyp**2 / n_all:.0f} s^2 "
           f"(= {math.sqrt(n_ed * rmse_hyp**2 / n_all):.1f} s RMSE-equivalent if the rest were perfect; on top of 305^2 -> {math.sqrt(305**2 + n_ed * rmse_hyp**2 / n_all):.1f})")
 print("done")
+
+# ----------------------------------------------------------------------------------------------
+# S7. supplementary checks
+# ----------------------------------------------------------------------------------------------
+hdr("S7a. Strict variant: disruption day = ratio > 3 AND n_unm >= 30 (guards the low-median airport-months)")
+strict = pd_all.filter(pl.col("disrupt") & (pl.col("n_unm") >= 30)).sort(["yr", "mo", "ADEP_mvt", "day"])
+print(strict.select(["ADEP_mvt", "yr", "mo", "day", "n_dep", "n_unm", "med_unm", "ratio", "proxy_sd", "proxy_med"]))
+sk = strict.select(["ADEP_mvt", "day"]).with_columns(pl.lit(True).alias("strict_day"))
+rs = rk.join(sk, on=["ADEP_mvt", "day"], how="left").with_columns(pl.col("strict_day").fill_null(False))
+print("ranking rows on strict disruption days:")
+print(rs.filter(pl.col("strict_day")).group_by(["ADEP_mvt", "mo", "unm"]).agg(pl.len().alias("n"), pl.col("day").n_unique().alias("n_days")).sort(["mo", "ADEP_mvt", "unm"]))
+print(rs.group_by(["strict_day", "unm"]).agg(pl.len()).sort(["strict_day", "unm"]))
+ts = t.join(sk, on=["ADEP_mvt", "day"], how="left").with_columns(pl.col("strict_day").fill_null(False))
+print("training Jan+Jul 2025 rows on strict disruption days: labels and OOF")
+print(lab_stats(ts.filter(pl.col("mo").is_in(MONTHS)), ["strict_day", "unm"]))
+
+hdr("S7b. Training days (all 2025, all airports) with matched proxy sd >= 1,400 or proxy median >= 1,500 (EHAM Jan 3-6 2026: sd 1,502-1,963, median 1,142-2,352)")
+pdx = (tr.group_by(["ADEP_mvt", "day"]).agg([pl.len().alias("n_dep"), pl.col("unm").sum().alias("n_unm"),
+                                             pl.col("proxy").std().round(0).alias("proxy_sd"), pl.col("proxy").median().alias("proxy_med"),
+                                             pl.col("proxy").quantile(0.99).round(0).alias("proxy_p99"),
+                                             pl.col("y").filter(~pl.col("unm")).median().alias("y_med_matched"),
+                                             pl.col("y").filter(pl.col("unm")).median().alias("y_med_unm")]))
+print(pdx.filter((pl.col("proxy_sd") >= 1400) | (pl.col("proxy_med") >= 1500)).sort("proxy_med", descending=True))
+print("count of training airport-days with proxy_med >= 1,500:", pdx.filter(pl.col("proxy_med") >= 1500).height, "of", pdx.height)
+print("EHAM training days ranked by proxy_med (top 8):")
+print(pdx.filter(pl.col("ADEP_mvt") == "EHAM").sort("proxy_med", descending=True).head(8))
+pdr = (rk.group_by(["ADEP_mvt", "day"]).agg([pl.len().alias("n_dep"), pl.col("unm").sum().alias("n_unm"),
+                                             pl.col("proxy").std().round(0).alias("proxy_sd"), pl.col("proxy").median().alias("proxy_med")]))
+print("ranking airport-days with proxy_med >= 1,500:")
+print(pdr.filter(pl.col("proxy_med") >= 1500).sort("proxy_med", descending=True))
+
+hdr("S7c. EHAM Jan 2026 daily departures vs same-weekday median of the month (cancellation signal)")
+ed = (rk.filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1)).group_by("day").agg(pl.len().alias("n_dep"), pl.col("unm").sum().alias("n_unm"))
+      .with_columns(pl.col("day").dt.weekday().alias("wd")).with_columns(pl.col("n_dep").median().over("wd").alias("wd_med"))
+      .with_columns((pl.col("n_dep") / pl.col("wd_med")).round(2).alias("dep_ratio")).sort("day"))
+print(ed.filter(pl.col("n_unm") >= 18))
+ed25 = (tr.filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1)).group_by("day").agg(pl.len().alias("n_dep"), pl.col("unm").sum().alias("n_unm"))
+        .with_columns(pl.col("day").dt.weekday().alias("wd")).with_columns(pl.col("n_dep").median().over("wd").alias("wd_med"))
+        .with_columns((pl.col("n_dep") / pl.col("wd_med")).round(2).alias("dep_ratio")).sort("day"))
+print("Jan 2025 disruption days for comparison:"); print(ed25.filter(pl.col("n_unm") >= 30))
+
+hdr("S7d. EHAM Jan matched rows: prediction minus proxy (2026) and label minus proxy (2025), disruption vs normal days")
+em26 = ej26.filter(~pl.col("unm"))
+print(em26.group_by("dis_day").agg([pl.len().alias("n"), pl.col("proxy").median().alias("proxy_med"), pl.col("proxy").std().round(0).alias("proxy_sd"),
+                                    (pl.col("p_main") - pl.col("proxy")).median().round(0).alias("med(main-proxy)"),
+                                    (pl.col("p_main") - pl.col("proxy")).quantile(0.1).round(0).alias("p10(main-proxy)"),
+                                    (pl.col("p_main") - pl.col("proxy")).quantile(0.9).round(0).alias("p90(main-proxy)"),
+                                    (pl.col("proxy") >= H2).sum().alias("n_proxy>=2h"), (pl.col("p_main") >= H2).sum().alias("n_main>=2h")]).sort("dis_day"))
+em25 = t.filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1) & ~pl.col("unm"))
+print(em25.group_by("dis_day").agg([pl.len().alias("n"), pl.col("proxy").median().alias("proxy_med"), pl.col("proxy").std().round(0).alias("proxy_sd"),
+                                    (pl.col("y") - pl.col("proxy")).median().round(0).alias("med(y-proxy)"),
+                                    (pl.col("y") - pl.col("proxy")).quantile(0.1).round(0).alias("p10(y-proxy)"),
+                                    (pl.col("y") - pl.col("proxy")).quantile(0.9).round(0).alias("p90(y-proxy)"),
+                                    (pl.col("oof") - pl.col("y")).abs().median().round(0).alias("med|oof-y|"),
+                                    (pl.col("se").sum() / pl.len()).sqrt().round(1).alias("oof_rmse")]).sort("dis_day"))
+
+hdr("S7e. METAR precip_mm content (whole table) and the effective de-icing gate")
+print(pl.scan_parquet(B + "data/ref/metar_hourly.parquet").select([pl.len().alias("hrs"), (pl.col("precip_mm") > 0).sum().alias("hrs_precip>0"),
+      pl.col("precip_mm").sum().round(1).alias("precip_sum"), pl.col("deicing_gate").sum().alias("deice_hrs"), pl.col("frozen_wx").sum().alias("frozen_hrs"),
+      (pl.col("frozen_wx") & (pl.col("temp_c") <= 3)).sum().alias("frozen&temp<=3"),
+      (pl.col("deicing_gate").cast(pl.Boolean) != (pl.col("frozen_wx") & (pl.col("temp_c") <= 3))).sum().alias("gate != frozen&cold")]).collect())
+
+hdr("S7f. Training unmatched rows with ms >= 2 h at EHAM and at all non-LIRF airports: labels and OOF (ranking EHAM disruption-day unmatched rows have ms median 10,218; 467/595 >= 2 h)")
+u = t.filter(pl.col("unm")).with_columns(
+    pl.when(pl.col("ms") < H2).then(pl.lit("a <2h")).when(pl.col("ms") < 10000).then(pl.lit("b 2h-10000")).when(pl.col("ms") < H4).then(pl.lit("c 10000-4h")).otherwise(pl.lit("d >=4h")).alias("ms_band"))
+print("EHAM:"); print(lab_stats(u.filter(pl.col("ADEP_mvt") == "EHAM"), ["ms_band"]))
+print("all non-LIRF:"); print(lab_stats(u.filter(pl.col("ADEP_mvt") != "LIRF"), ["ms_band"]))
+print("EHAM Jan 2025 unmatched, ms band x disruption day:"); print(lab_stats(u.filter((pl.col("ADEP_mvt") == "EHAM") & (pl.col("mo") == 1)), ["dis_day", "ms_band"]))
+print("ranking EHAM Jan 2026 unmatched by ms band x disruption day: predictions")
+print(pred_stats(ej26.filter(pl.col("unm")).with_columns(
+    pl.when(pl.col("ms") < H2).then(pl.lit("a <2h")).when(pl.col("ms") < 10000).then(pl.lit("b 2h-10000")).when(pl.col("ms") < H4).then(pl.lit("c 10000-4h")).otherwise(pl.lit("d >=4h")).alias("ms_band")), ["dis_day", "ms_band"]))
+
+hdr("S7g. FLIGHT prefix (first 2 chars of FLIGHT_mvt) of EHAM unmatched rows: ranking Jan 2026 disruption days vs training EHAM unmatched")
+fl_tr = pl.scan_parquet(B + "data/work/feat_train.parquet").select(["MVT_ID_mvt", "FLIGHT_mvt"]).collect()
+fl_rk = pl.scan_parquet(B + "data/work/feat_rank.parquet").select(["MVT_ID_mvt", "FLIGHT_mvt"]).collect()
+a = (ej26.filter(pl.col("unm") & pl.col("dis_day")).join(fl_rk, on="MVT_ID_mvt").with_columns(pl.col("FLIGHT_mvt").str.slice(0, 2).alias("pfx"))
+     .group_by("pfx").agg(pl.len().alias("n_rank_dis")).with_columns((pl.col("n_rank_dis") / pl.col("n_rank_dis").sum()).round(3).alias("share_rank_dis")))
+b_ = (t.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "EHAM")).join(fl_tr, on="MVT_ID_mvt").with_columns(pl.col("FLIGHT_mvt").str.slice(0, 2).alias("pfx"))
+      .group_by("pfx").agg(pl.len().alias("n_train"), pl.col("y").median().alias("y_med_train"), (pl.col("y") >= 3600).mean().round(3).alias("share_y>=1h"))
+      .with_columns((pl.col("n_train") / pl.col("n_train").sum()).round(3).alias("share_train")))
+print(a.join(b_, on="pfx", how="left").sort("n_rank_dis", descending=True).head(10))
+print("done S7")
