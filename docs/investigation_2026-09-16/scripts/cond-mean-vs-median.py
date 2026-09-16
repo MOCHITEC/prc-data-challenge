@@ -370,6 +370,26 @@ for pi_s in [0.0, 0.25, 0.5, 0.621, 0.75, 0.9, 1.0]:
         line += f"{k} {math.sqrt(expected_sse(ms_vals, p, pi_s, comp12)/n):7.0f} | "
     print(line)
 
+hdr("S6b. v8 - v4 on the 11 rows under the two-valued label assumption, against the LB unmatched-side gap (v9 identity)")
+LB_V4, LB_V8, LB_V9 = 305.027, 343.7964, 306.4555   # experiments/submissions.jsonl
+gap_total = (LB_V8 ** 2 - LB_V4 ** 2) * N_RANK
+gap_unm = (LB_V8 ** 2 - LB_V9 ** 2) * N_RANK        # v9 = v8 on matched rows, v4 on unmatched rows (sibling item 3 verified)
+print(f"LB SSE(v8)-SSE(v4) = {gap_total:.4e}; unmatched-side part SSE(v8)-SSE(v9) = {gap_unm:.4e}; matched-side part {gap_total-gap_unm:.4e}")
+if "v4(uploaded)" in subs:
+    v4p = [float(v) for v in r12["v4(uploaded)"].to_list()]; v8p = [float(v) for v in r12["v8(det_a)"].to_list()]; msv = r12["ms"].to_list()
+    R_lo, R_hi = min(roll), max(roll)
+    tot_min = tot_max = tot_fill = tot_roll = 0.0
+    print(f"  per row: gap if y = ms; gap if y = R (R in [{R_lo}, {R_hi}], shown at R_mean {R_mean:.0f}); gap = (v8-y)^2 - (v4-y)^2")
+    for m, a, b in zip(msv, v4p, v8p):
+        g_fill = (b - m) ** 2 - (a - m) ** 2
+        g_roll = [(b - R) ** 2 - (a - R) ** 2 for R in (R_lo, R_mean, R_hi)]
+        tot_fill += g_fill; tot_roll += g_roll[1]
+        tot_min += min(g_fill, min(g_roll)); tot_max += max(g_fill, max(g_roll))
+        print(f"    ms {m:7d}: v4 {a:7.0f} v8 {b:7.0f}  gap|y=ms {g_fill:+.3e}  gap|y=R {g_roll[1]:+.3e} (range {min(g_roll):+.3e} .. {max(g_roll):+.3e})")
+    print(f"  sum if all 11 filled: {tot_fill:.4e} ({tot_fill/gap_unm*100:.0f} % of the LB unmatched gap); all 11 rollover: {tot_roll:.4e} ({tot_roll/gap_unm*100:.0f} %)")
+    print(f"  expectation at training pi={pi:.4f}: {pi*tot_fill+(1-pi)*tot_roll:.4e} ({(pi*tot_fill+(1-pi)*tot_roll)/gap_unm*100:.0f} %)")
+    print(f"  minimum over all 2^11 assignments (each row at its most v8-favourable outcome and R): {tot_min:.4e} ({tot_min/gap_unm*100:.0f} %); maximum {tot_max:.4e} ({tot_max/gap_unm*100:.0f} %)")
+
 # extension: the same arithmetic for the ranking rows in the 4-12 h bin (training proportions of that bin)
 b412 = lu.filter(pl.col("bin") == "4-12h")
 r412 = rk.filter((pl.col("ms") >= H4) & (pl.col("ms") < H12)).sort("ms")
