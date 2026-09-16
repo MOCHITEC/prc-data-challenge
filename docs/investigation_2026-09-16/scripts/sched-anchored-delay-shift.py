@@ -30,7 +30,7 @@ import polars as pl  # noqa: E402
 pl.Config.set_tbl_rows(-1)
 pl.Config.set_tbl_cols(-1)
 pl.Config.set_tbl_width_chars(260)
-pl.Config.set_float_precision(1)
+pl.Config.set_float_precision(3)
 
 ROOT = Path(__file__).resolve().parents[3]
 TRAIN = ROOT / "data/work/feat_train.parquet"
@@ -83,14 +83,15 @@ def agg_medians(lf: pl.LazyFrame, cols: list[str], by: list[str], sd_cols: tuple
 
 
 def side_by_side(tr: pl.DataFrame, rk: pl.DataFrame, metric_cols: list[str], key: list[str]) -> pl.DataFrame:
-    """One row per (key, calendar month): 2025 value, 2026 value, delta for each metric."""
+    """Long format: one row per (metric, key, calendar month): n_25, n_26, value 2025, value 2026, delta."""
     tr = tr.with_columns((pl.col("ym") % 100).alias("mo")).drop("ym")
     rk = rk.with_columns((pl.col("ym") % 100).alias("mo")).drop("ym")
     j = tr.join(rk, on=key + ["mo"], how="full", coalesce=True, suffix="_26")
-    out = j.select(key + ["mo", "n", "n_26"])
+    parts = []
     for c in metric_cols:
-        out = out.with_columns(j[c].alias(f"{c}|25"), j[f"{c}_26"].alias(f"{c}|26"), (j[f"{c}_26"] - j[c]).alias(f"{c}|d"))
-    return out.sort(key + ["mo"])
+        parts.append(j.select(key + ["mo", "n", "n_26"]).with_columns(
+            pl.lit(c).alias("metric"), j[c].alias("v25"), j[f"{c}_26"].alias("v26"), (j[f"{c}_26"] - j[c]).alias("delta")))
+    return pl.concat(parts).select(["metric"] + key + ["mo", "n", "n_26", "v25", "v26", "delta"]).sort(["metric"] + key + ["mo"], maintain_order=True)
 
 
 def main() -> None:

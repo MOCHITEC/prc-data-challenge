@@ -102,8 +102,28 @@ for cl in (True, False):
     print(f"-- cluster={cl}: share at :00 = {p0:.5f}; other seconds min/median/max = {others.min():.5f}/{others.median():.5f}/{others.max():.5f}; "
           f"excess mass at :00 over the mean of the other 59 seconds = {p0 - others.mean():.5f} "
           f"(== implied fraction of rows minute-rounded, if the rounded rows sit exactly at :00)")
-    print("   seconds 0..9 shares:", h.filter(pl.col("mvt_sec") < 10)["share"].to_list())
-    print("   seconds 55..59 shares:", h.filter(pl.col("mvt_sec") >= 55)["share"].to_list())
+    print("   full histogram (second: share), only seconds with n > 0:",
+          {int(r["mvt_sec"]): r["share"] for r in h.select("mvt_sec", "share").to_dicts()})
+    print("   seconds with zero rows:", sorted(set(range(60)) - set(h["mvt_sec"].to_list())))
+print("-- per ADEP: MVT second-of-minute values present, count of distinct values, mass on {54..59, 0..6}")
+print(
+    tr.group_by("ADEP_mvt")
+    .agg(
+        pl.col("mvt_sec").n_unique().alias("n_distinct_sec"),
+        pl.col("mvt_sec").is_in([54, 55, 56, 57, 58, 59, 0, 1, 2, 3, 4, 5, 6]).mean().round(5).alias("mvt_in_54_6"),
+        pl.col("blk_sec").n_unique().alias("blk_n_distinct_sec"),
+        pl.col("blk_sec").is_in([54, 55, 56, 57, 58, 59, 0, 1, 2, 3, 4, 5, 6]).mean().round(5).alias("blk_in_54_6"),
+        pl.col("aobt_sec").drop_nulls().n_unique().alias("aobt_n_distinct_sec"),
+    )
+    .sort("ADEP_mvt")
+)
+print("-- MVT seconds 54 and 6 (partial edge cells) and 55/5 per cluster airport")
+print(
+    tr.filter(pl.col("cluster"))
+    .group_by("ADEP_mvt")
+    .agg(*[(pl.col("mvt_sec") == s).mean().round(5).alias(f"s{s}") for s in (53, 54, 55, 0, 5, 6, 7)])
+    .sort("ADEP_mvt")
+)
 print("-- per ADEP: MVT share at :00, mean share of the other 59 seconds, excess, and share within 6 s of a minute boundary")
 print(
     tr.group_by("ADEP_mvt")
