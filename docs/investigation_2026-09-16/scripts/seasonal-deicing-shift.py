@@ -330,4 +330,53 @@ f2 = lab_agg(lab2.filter(~pl.col("unmatched")), ["ADEP_mvt", "deicing_gate"])
 print(f2.pivot(on="deicing_gate", index="ADEP_mvt", values=["n", "mean", "median", "sd"]).sort("ADEP_mvt"))
 print("\nF3. by ADEP × gate, Jan 2025 only, matched")
 print(lab_agg(lab2.filter(~pl.col("unmatched") & (pl.col("MVT_TIME_UTC_mvt").dt.month() == 1)), ["ADEP_mvt", "deicing_gate"]).pivot(on="deicing_gate", index="ADEP_mvt", values=["n", "mean", "median"]).sort("ADEP_mvt"))
+
+# --------------------------------------------------------------------------------------------------------------
+sec("G. Gate components in METAR; weather on/off with the fixed join (oof_det_a vs oof_weather_check, forward fold)")
+print("G1. precip_mm in metar_hourly (A3 showed precip_any = 0 in every listed month)")
+print(
+    wx.select(
+        (pl.col("precip_mm") > 0).sum().alias("hours_precip_gt0"),
+        pl.col("precip_mm").max().alias("max_precip"),
+        pl.col("precip_mm").is_null().sum().alias("precip_null"),
+        pl.col("frozen_wx").sum().alias("frozen_hours"),
+        pl.col("deicing_gate").sum().alias("gate_hours"),
+        ((pl.col("deicing_gate") == 1) & ~pl.col("frozen_wx")).sum().alias("gate_without_frozen"),
+    ).collect()
+)
+print("\nG2. det_a (sha 70ef994, no weather) vs weather_check (sha 34808da, weather with WX_KEY fix), rows scored by both")
+a = pl.scan_parquet(f"{ROOT}/experiments/oof_det_a-cfc9417c52.parquet").rename({"oof": "oof_a"})
+w = pl.scan_parquet(f"{ROOT}/experiments/oof_weather_check-1776e5e01c.parquet").rename({"oof": "oof_w"})
+g = (
+    a.join(w, on="MVT_ID_mvt")
+    .join(pl.scan_parquet(TRAIN).select("MVT_ID_mvt", "TAXITIME_SEC_mvt", "ADEP_mvt", "MVT_TIME_UTC_mvt", "mvt_minus_aobt3", "deicing_gate"), on="MVT_ID_mvt")
+    .filter(pl.col("oof_a").is_not_null() & pl.col("oof_w").is_not_null())
+    .with_columns(y=pl.col("TAXITIME_SEC_mvt").cast(pl.Float64), ym=pl.col("MVT_TIME_UTC_mvt").dt.strftime("%Y-%m"), unmatched=pl.col("mvt_minus_aobt3").is_null())
+    .with_columns(ra=pl.col("oof_a") - pl.col("y"), rw=pl.col("oof_w") - pl.col("y"))
+    .collect()
+)
+print("rows", g.height, "months", g["ym"].unique().sort().to_list())
+
+
+def pair_agg(df: pl.DataFrame, keys: list[str]) -> pl.DataFrame:
+    return (
+        df.group_by(keys)
+        .agg(
+            pl.len().alias("n"),
+            (pl.col("ra") ** 2).mean().sqrt().round(2).alias("rmse_nowx"),
+            (pl.col("rw") ** 2).mean().sqrt().round(2).alias("rmse_wx"),
+            pl.col("ra").mean().round(1).alias("mres_nowx"),
+            pl.col("rw").mean().round(1).alias("mres_wx"),
+        )
+        .with_columns((pl.col("rmse_wx") - pl.col("rmse_nowx")).round(2).alias("delta"))
+        .sort(keys)
+    )
+
+
+print(pair_agg(g, ["unmatched"]))
+print(pair_agg(g, ["unmatched", "deicing_gate"]))
+gm = g.filter(~pl.col("unmatched"))
+print("matched by month"); print(pair_agg(gm, ["ym"]))
+print("matched gate == 1 by ADEP"); print(pair_agg(gm.filter(pl.col("deicing_gate") == 1), ["ADEP_mvt"]))
+print("matched gate == 0 by ADEP"); print(pair_agg(gm.filter(pl.col("deicing_gate") == 0), ["ADEP_mvt"]))
 print("\ndone")
