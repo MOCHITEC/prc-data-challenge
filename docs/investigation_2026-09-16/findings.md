@@ -1,6 +1,6 @@
 # Findings — investigation of 2026-09-16 (written 2026-09-17)
 
-Synthesis of `plan.md` (§0 definitions, §2 verified negatives, §4 discrepancies) and all 29 files in
+Synthesis of `plan.md` (§0 definitions, §2 verified negatives, §4 discrepancies) and all 30 files in
 `results/`, read against `docs/handoff.md` and `docs/README.md` §2, §4, §6, §8, §10.
 
 **Rules this file follows.** Every number is copied exactly as its result file states it. Every claim names the
@@ -168,6 +168,7 @@ Grouped by what each mechanism explains. The order inside each group is not a ra
 | R45 | The code comment at train.py:299 ("One seed is the default, and then this is the single fit it was before") | **False as written**: with `n_seeds` = 1, 0 of 5,290 predictions are equal between the two forms | `refit-seed-semantics-changed.md` §4 (B) |
 | R46 | Item 14: "the tail is predictable signal" as a blanket statement | Confirmed for the sched-filled component (L2 reaches RMSE 5,694 with pred/ms 0.821 on the 129 f10 rows; variant A gets it to 2,158) but **refuted for the rollover component**: even L2 has RMSE **54,883** on the 9 rollover rows and they still carry 59.8 % of its SSE — L2's advantage there is that it over-predicts them less badly, not that it predicts them | `robust-loss-harmful.md` §4 (d′) |
 | R47 | Item 14: "the early-stopping metric explains the huber result" | huber α = 5,000 with `metric: l2` gives 2,458.1 vs 2,481.9 with huber's own metric — **24 s of 155**, on different round counts | `robust-loss-harmful.md` §4 |
+| R48 | Item 30 / E H7 / `docs/handoff.md` §8 (A4): training model B on all ~2.08 M rows **improves unmatched predictions** | Unmatched RMSE **2,109.32 → 2,144.73** (89 columns) / **2,154.29** (93 columns, the literal removed `shared_b`); whole fold **284.7038 → 287.1174 / 287.7726**. The full-data difference is **+35.41 [−409.48, +275.50]** / **+44.98 [−397.22, +284.72]**, i.e. a non-significant *worsening*, and `prc.compare.verdict` returns **REJECT** for both. (Its stated mechanism does hold off the tail — see §4 item 2.) | `shared-b-all-rows.md` §3.1, §3.3, §4 (A4) |
 
 ### 2.3 Numeric claims in the docs the investigation did not decide, flagged for correction
 
@@ -250,7 +251,11 @@ the 2,000-round cap in all three folds).
 
 ### 3.2 Protocol B — forward-fold runs (baseline unmatched 2,109.32, total 284.7038)
 
-These items ran `make compare` on all 328,009 rows, so the repository's own decision rule produced a verdict.
+These items ran the repository's own decision rule on all 328,009 rows and produced a verdict. Item 30 is a
+special case: model A is **not refitted** under `shared_b`, so its whole-fold figures combine each variant's
+unmatched predictions with the logged matched OOF column (325,004 rows, RMSE 201.6633), and the report gives
+both a whole-fold and an unmatched-only curve. Its baseline `S-full` reproduces the logged record **bit-exactly**
+(unmatched **2,109.3167**, matched 201.6633, total **284.703845**, rounds 45, row-by-row max \|diff\| **0.0000**).
 
 | variant | unmatched OOF RMSE | delta | `prc.compare` (full CI, K = 200) → VERDICT | survives dropping 20 / 200? |
 |---|---|---|---|---|
@@ -258,6 +263,9 @@ These items ran `make compare` on all 328,009 rows, so the repository's own deci
 | **item 11 — `use_linear_tree: true` (both models)** | **1,181.29** | **−928.03** (total 284.70 → 231.13, −53.58) | full −53.58 [−96.86, −17.04]; K=200 **+1.22 [+0.75, +1.62]** → **REJECT — tail-only** | no (K=20 **+1.37 [+0.22, +2.60]**) / no (K=2000 **+1.11 [+0.88, +1.33]** — the only Batch C run whose drop-2000 CI excludes zero on the worse side) |
 | item 23 (a) — `unmatched_num_rounds: 600` | 2,109.32 | **0.00** (bit-identical run) | `+0.00 [+0.00, +0.00]` at all four drop levels → **REJECT — no difference** | n/a |
 | item 23 (b) — `inner_holdout_months: 2` | 1,838.94 | −270.38 (total 284.70 → 266.92, −17.79) | full **−17.79 [−37.07, +2.03]** (spans 0); K=200 **+0.66 [+0.31, +0.99]** → **REJECT — no difference on all rows** | no (K=20 **+2.75 [+1.14, +4.32]**) / no (K=2000 +0.27 [+0.17, +0.35]) |
+| **item 30 — `P-restr`: model B pooled on all 1,757,038 labelled rows, 89 columns** (the item's mandated variant) | **2,144.73** | **+35.41** (total 284.7038 → **287.1174**) | whole fold: full **+2.41 [−20.40, +20.49]**; K=200 **−0.83 [−1.17, −0.50]**; K=2000 **−0.15 [−0.24, −0.06]**; month +2.41 [−5.35, +9.77] → **REJECT — no difference on all rows** | unmatched-only curve: better at every K ≥ 20, and **at K = 200 and K = 2000 the CIs exclude zero** — K=20 −28.09 [−69.73, +11.58] (spans 0), **K=200 −25.37 [−36.36, −13.11]**, **K=2000 −11.61 [−15.19, −8.40]** (full CI **+35.41 [−409.48, +275.50]**, P(B) = 0.426) |
+| **item 30 — `P-full`: the literal removed `shared_b`, 93 columns** | **2,154.29** | **+44.98** (total 284.7038 → **287.7726**) | whole fold: full **+3.07 [−19.68, +21.36]**; K=200 **−0.93 [−1.24, −0.64]**; K=2000 **−0.17 [−0.26, −0.08]**; month +3.07 [−4.36, +10.13] → **REJECT — no difference on all rows** | unmatched-only curve: same shape — K=20 −13.90 [−59.31, +34.26] (spans 0), **K=200 −27.83 [−38.24, −18.05]**, **K=2000 −12.01 [−15.52, −8.32]** (full CI **+44.98 [−397.22, +284.72]**, P(B) = 0.404) |
+| item 30 — `S-restr`: split fit, 89 columns | 2,109.3167 | **0.00** (bit-identical to `S-full`, max \|diff\| 0.0) | `+0.00 [+0.00, +0.00]` at all four drop levels → **REJECT — no difference** | n/a — LightGBM discards the four single-bin categoricals at Dataset construction in an unmatched-only fit |
 
 Side effects measured in the same runs: item 10 leaves model A **identical to four decimals** (201.6633 both
 sides, `rounds_matched` 939 → 939) and improves non-LIRF unmatched ms ≥ 2 h from 2,132.29 to **943.72**; item 11
@@ -270,6 +278,20 @@ moves 0.7893 → **0.7473** (item 10), → **0.8440** (item 11), → **0.8649** 
 1.1413). One item-11 row is predicted 37,731.3 against ms 37,738 (pred/ms 0.99987).
 (`tree-identity-saturation.md` §3.2, §3.3; `linear-tree-model-b.md` §4.1, §4.2;
 `holdout-month-decides-rounds.md` §4.2, §4.3.)
+
+Item 30's split is the mirror image of the other three: pooling **halves the non-LIRF unmatched error**
+(1,034.74 → **486.57** for `P-restr`, 487.98 for `P-full`) and improves **nine of ten airports** (EDDF
+1,683.29 → 503.04, EHAM 1,184.00 → 286.24, LEBL 1,150.42 → 275.02, LFPG 1,217.00 → 684.30), while **LIRF
+gets worse** (8,578.38 → **9,689.57** / 9,733.56). Inside LIRF: ms < 2 h (82 rows) 1,974.3 → 1,914.2; ms ≥ 2 h
+(58 rows) 13,119.3 → **14,881.0**; sched-filled \|y − ms\| ≤ 60 (99 rows) 3,597.4 → 3,400.8; not sched-filled
+(41 rows) 14,833.4 → **17,107.5**. The LIRF share of unmatched SSE rises 0.771 → **0.951** and the four worst
+rows' share 0.677 → 0.878. All four LIRF ms ≥ 12 h rows move **down**, away from labels that are all ≥ 47,767
+(32,351.7 / 34,539.7 / 34,093.3 / 32,399.5 → 28,161.2 / 22,541.8 / 25,733.1 / 24,287.4; RMSE on those four
+47,312.7 → **55,069.2**), even though 72 % of LIRF unmatched predictions move up. Trees per seed 45 → **152**
+(`P-restr`) / **145** (`P-full`), because early stopping now reads a **185,674**-row October holdout instead of a
+1,913-row one. Dropping the four all-null-on-unmatched categoricals is worth **−9.56 s** of unmatched RMSE
+inside a pooled fit (2,154.29 → 2,144.73) and **nothing** outside one.
+(`shared-b-all-rows.md` §2.5, §3.1, §3.2, §3.3, §3.5.)
 
 ### 3.3 Protocol C — post-processing the logged OOF (baseline unmatched 2,296.1, total 334.58)
 
@@ -294,7 +316,13 @@ moves 0.7893 → **0.7473** (item 10), → **0.8440** (item 11), → **0.8649** 
 - **2,326.5** is the three-fold reproduction in the item-9 / item-14 script (num_threads 2); **2,296.1** is
   `oof_main-48c19bc830` (num_threads 4). Every Protocol-A delta is against 2,326.5.
 - **2,109.32** is the unmatched RMSE of the forward fold **alone** (3,005 rows), the baseline of Protocol B.
-  The same fold reads 2,109.3 in the OOF file and **2,177.4** in the item-9 script's reproduction.
+  The same fold reads 2,109.3 in the OOF file, **2,177.4** in the item-9 script's reproduction, and
+  **2,109.3167** in item 30's, which is bit-exact against the logged record (row-by-row max \|diff\| 0.0000).
+  `shared-b-all-rows.md` §6 I4 records the code difference behind the gap — the item-9 script adds its own `ym`
+  fold key with `with_columns` and does not remove it from `visible_numeric_columns`, so model B there was given
+  one extra feature and a differently ordered matrix (which `feature_fraction: 0.8` samples by index), whereas
+  item 30's script drops `ym` and preserves the parquet's column order. The code difference is a fact; that it
+  **causes** the +68.1 s gap is that report's own inference.
 - Protocol A's tail-trimmed CIs are `robustness_curve` on the **unmatched rows only**. Protocol B's are
   `make compare` on **all 328,009 rows**, where the unmatched rows are 0.9 % of the population — the two K = 200
   columns are not the same statistic.
@@ -314,13 +342,35 @@ moves 0.7893 → **0.7473** (item 10), → **0.8440** (item 11), → **0.8649** 
    because it acts on all rows at once.
    — `robust-loss-harmful.md` §4 ("Item 14 vs item 13 … RECONCILED"); `tail-postprocessing-cap-shrink.md` §4 (d)
 
-2. **The two `shared_b` sides (item 30 side A vs item 31 side B).** **Partly settled by the pre-check; the
-   decisive part is still open.** Settled: B1–B4 all CONFIRMED (matched f120 0.114–0.257; matched y ≥ 2 h = 103
-   of 2,062,577; 119 of 122 y ≥ 4 h rows unmatched; 0 actype-null matched rows) and A2 REFUTED (33 → 34, not
-   ≈ 2,000). A1 splits: confirmed for airport / hour / runway / stand / traffic / weather columns, refuted for
-   aircraft and operator columns. B5 is qualified (32 matched LIRF rows do carry the fill mechanism).
-   **A4 and B6 — whether pooling actually helps — remain UNDETERMINED**; the plan states the item-30 full run
-   settles both, and that run was not done. — `shared-b-no-transfer.md` §4, §5
+2. **The two `shared_b` sides (item 30 side A vs item 31 side B).** **Now settled by measurement — the two sides
+   are each right about a different part of the data.** The pre-check had already settled the data facts: B1–B4
+   CONFIRMED (matched f120 0.114–0.257; matched y ≥ 2 h = 103 of 2,062,577; 119 of 122 y ≥ 4 h rows unmatched;
+   0 actype-null matched rows), A2 REFUTED (33 → 34, not ≈ 2,000), A1 split (confirmed for airport / hour /
+   runway / stand / traffic / weather columns, refuted for aircraft and operator columns), B5 qualified (32
+   matched LIRF rows do carry the fill mechanism) — and left **A4** and **B6** UNDETERMINED pending the run
+   (`shared-b-no-transfer.md` §4, §5). The forward-fold run has now been done:
+
+   - **A4 ("pooling improves unmatched predictions") — REFUTED as stated.** Unmatched RMSE **2,109.32 → 2,144.73**
+     (restricted columns) / **2,154.29** (the literal `shared_b`); whole fold **284.7038 → 287.1174 / 287.7726**.
+     The full-data difference is **+35.41 [−409.48, +275.50]** / **+44.98 [−397.22, +284.72]** — a non-significant
+     *worsening*, not an improvement — and `prc.compare.verdict` returns **REJECT** ("no difference on all rows")
+     for both.
+   - **B6 ("pooling will not help the tail") — CONFIRMED.** LIRF unmatched **8,578.38 → 9,689.57 / 9,733.56**;
+     LIRF ms ≥ 2 h 13,119.3 → **14,881.0**; LIRF not-sched-filled (41 rows) 14,833.4 → **17,107.5**; all four LIRF
+     ms ≥ 12 h predictions move down and away from their labels (RMSE 47,312.7 → **55,069.2**).
+   - **A4b (side A's mechanism, off the tail) — CONFIRMED.** Non-LIRF unmatched **1,034.74 → 486.57**, better at
+     nine of ten airports, and the gain survives the robustness checks: **K = 200 −25.37 [−36.36, −13.11]** and
+     **K = 2000 −11.61 [−15.19, −8.40]** on the unmatched-only curve, both CIs excluding zero — recorded by the
+     report as the only such result among its variants.
+   - **B5′ (side B's named mechanism) — CONFIRMED, consistent with the pre-check.** No tree of either pooled
+     model splits on `nm_matched` / `eobt1_null` / `lobt_null` at the **root** (earliest at depth 2; 171 / 113
+     splits in 78 of 152 / 61 of 145 trees; 1.72 % / 1.57 % of total split gain), so the unmatched rows share
+     leaves with matched rows above depth 2 in most trees.
+
+   The report's own summary: "the measurement supports side B on the question that decides the score, and side A
+   only on the part of the data that does not decide it." Its I1 marks the shared-leaf reading as **inference**:
+   the run measures the two outcomes and the absence of a root-level regime split, not the causal path.
+   — `shared-b-all-rows.md` §3.1–§3.5, §4, §6; `shared-b-no-transfer.md` §4, §5
 
 3. **"top-20 rows carry 73.2 %, all 20 LIRF" (P, `plan.md` §1 #3) vs "80.4 %, 18 LIRF + 2 EGLL".**
    **Settled by re-derivation.** `lirf-regime-tail-count.md` §3.4 joins the submission files to
@@ -458,8 +508,16 @@ moves 0.7893 → **0.7473** (item 10), → **0.8440** (item 11), → **0.8649** 
 
 ### 5.2 What needs a run nobody has done
 
-- **Item 30 `shared-b-all-rows`** — the full run (~20 min) that the plan says settles items 30 **and** 31.
-  Only the pre-check was executed. — `shared-b-no-transfer.md` §5
+- **Item 30 `shared-b-all-rows` — now run** (forward fold only, four fits, 476.7 s wall), so items 30 and 31 are
+  settled as far as a local fold can settle them (§4 item 2). What that run explicitly leaves open:
+  the **other two folds** (`jan` / `jul` — only `forward` was run, and its month-level bootstrap has 2 months,
+  giving [−79.80, +143.45]); **pooling combined with item 9's variant A**, which moves the tail while pooling
+  moves the body — "whether they compose is untested"; **hyper-parameters chosen for a 1.76 M-row model B**
+  (127 leaves / min_data 50 / early stopping on a 185,674-row holdout are the current config's numbers, and
+  `train.py::_fit` passes no sample weights, so a regime-stratified inner holdout or an unmatched-row weight is a
+  different experiment); and **whether `AIRCRAFT_TYPE_mvt` learned on matched rows helps or hurts the LIRF rows**,
+  where it is null on 1,487 of 1,488 training rows although it is the most frequent root split of both pooled
+  models. — `shared-b-all-rows.md` §5
 - **Items 32, 33, 34, 35** (`arrival-turnaround-features`, `peer-following-context-features`,
   `airport-specialists-blend`, `explicit-clock-difference-features`) — all four are Batch C full runs
   (~20 min each) and **none was run**; no result file exists for them, and their no-training pre-checks are
@@ -508,6 +566,10 @@ moves 0.7893 → **0.7473** (item 10), → **0.8440** (item 11), → **0.8649** 
 - **Item 11 step (c)** — a probe of v4-matched + candidate-unmatched, the only way to test the sentence
   "v4's 37 s LB advantage is mostly `linear_tree` on ~2 ranking rows", which `linear-tree-model-b.md` §5 records
   as **UNDETERMINED**.
+- **Item 30's LB effect** — `shared-b-all-rows.md` §5 names "a probe submission (v4-matched + pooled-unmatched)"
+  as "the only local measurement of it", and records that it **was not run**. The ranking set has 383 LIRF
+  unmatched rows (181 with mms ≥ 2 h, 11 with mms ≥ 12 h) whose true labels decide whether moving the LIRF tail
+  predictions down costs or earns seconds.
 
 **A probe submission requires the user's explicit authorisation, and none has been given.** `plan.md` §3 marks
 Batch D "NOT scheduled — needs the user's explicit authorization"; `docs/README.md` line 253 states
@@ -540,7 +602,15 @@ These are facts about the repository, not findings about the data.
    There is no `unmatched_use_linear_tree` field and `pipeline.py` copies only dataclass fields, so **no YAML
    key can separate the two models**. — `linear-tree-model-b.md` §2
 
-2. **Model B's round count cannot be fixed from a config, and its early stopping cannot be switched off.**
+2. **Under today's config `for_unmatched()` returns the same parameters as `cfg`.** `configs/main.yaml` sets
+   `unmatched_num_leaves: 127`, `unmatched_min_data_in_leaf: 50`, `unmatched_num_rounds: 2000`, which are the main
+   model's values, so `for_unmatched()` resolves to (127, 50, 2000) — identical to `cfg` on the three fields it
+   overrides. The one design decision of the removed `shared_b` mode (5b90919: "capacity follows the training
+   set", i.e. `b_cfg = cfg` rather than `cfg.for_unmatched()`) is therefore **not a difference** as the repository
+   stands; it would have been one under the deleted `configs/p1_shared_b.yaml`, which set 255 / 20 / 3000 for the
+   unmatched model. — `shared-b-all-rows.md` §2.1, §2.2, §4 (A-cap)
+
+3. **Model B's round count cannot be fixed from a config, and its early stopping cannot be switched off.**
    `_fit` (252–300) runs early stopping whenever `0 < n_hold < train.height`, then sets
    `rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))` —
    `num_rounds` is a **cap and a scaling target, never a fixed count**. `inner_holdout_months` and
@@ -549,12 +619,12 @@ These are facts about the repository, not findings about the data.
    Empirically `unmatched_num_rounds: 600` gives a **bit-identical** run.
    — `holdout-month-decides-rounds.md` §2, §4.2
 
-3. **The inner holdout is per model and is the latest calendar month of that fold's training side.**
+4. **The inner holdout is per model and is the latest calendar month of that fold's training side.**
    `_inner_holdout_mask` (239–250) takes `uniq[-months:]` and is applied inside `_fit`, separately to the
    matched and unmatched frames — model B's forward-fold holdout is October's 1,913 unmatched rows while model
    A's is October's 183,761 matched rows. — `holdout-month-decides-rounds.md` §4.1
 
-4. **Label encodings are fitted on the whole training side including the holdout month.** `predict_fold`
+5. **Label encodings are fitted on the whole training side including the holdout month.** `predict_fold`
    (317–318) fits ref / arh / apt / op on all labelled training rows and `_fit` then carves the holdout month
    out of the same frame, so every holdout row's `ref_*` / `arh_med` / `apt_med` contains its own label
    (December contributes ~8–10 % of each group at the median, 100 % at the maximum; 4.1 % of holdout rows sit in
@@ -562,13 +632,13 @@ These are facts about the repository, not findings about the data.
    count, because `_fit` uses the early-stop booster for nothing but `best_iteration`.
    — `holdout-encoding-self-inclusion.md` §3.1, §6
 
-5. **`cols_b` is a prefix-exclusion list.** Model B gets the numeric columns not prefixed by `mvt_minus_aobt3`,
+6. **`cols_b` is a prefix-exclusion list.** Model B gets the numeric columns not prefixed by `mvt_minus_aobt3`,
    `aobt3`, `lobt_minus`, `mvt_minus_lobt`, `mvt_minus_eobt1`, `mvt_minus_iobt` (train.py 350–356), plus the 10
    `CATEGORICALS`. `mvt_minus_sched` and `mvt_minus_sched_slog` carry none of those prefixes and
    `configs/main.yaml` has no `exclude_features` key, so both are given to model B; ranking null rate 0.
    — `sched-filled-block.md` §Code
 
-6. **Three numeric columns inside `cols_b` separate the two regimes exactly with one split each.**
+7. **Three numeric columns inside `cols_b` separate the two regimes exactly with one split each.**
    `nm_matched` is 1 on all 2,062,577 matched rows and 0 on 22,424 of 22,470 unmatched rows (1 on the 46
    routing-only rows); `eobt1_null` and `lobt_null` are 0 on **every** matched row and 1 on **every** unmatched
    row. The four `_flt` categoricals do the same through `__NA__`. `_fit` passes **no sample weights** (the word
@@ -576,15 +646,15 @@ These are facts about the repository, not findings about the data.
    `u_tr = tr` (all rows) with `cols_b` unchanged and the **main-model** capacity (`cfg`, not
    `cfg.for_unmatched()`). — `shared-b-no-transfer.md` §G, §G2
 
-7. **`frozen_wx` and `frozen_wx_prev1h` are Boolean** and are therefore excluded by `numeric_feature_columns`,
+8. **`frozen_wx` and `frozen_wx_prev1h` are Boolean** and are therefore excluded by `numeric_feature_columns`,
    so weather contributes **18** numeric columns, not 20. — `n-features-72-mislabel.md` §3.2;
    `cache-fingerprint-gaps.md` §2
 
-8. **`deicing_gate`'s precipitation term is inert.** `precip_mm > 0` occurs in **0 of 138,446** METAR
+9. **`deicing_gate`'s precipitation term is inert.** `precip_mm > 0` occurs in **0 of 138,446** METAR
    station-hours, so `deicing_gate ≡ frozen_wx ∧ temp_c ≤ 3` on every row (1,326 gate hours, 0 disagreements)
    and `temp_x_precip` is identically 0. — `seasonal-deicing-shift.md` §3.1; `eham-jan2026-disruption.md` §3.6
 
-9. **There is no second-of-minute feature.** No `.dt.second`, `% 60`, `mod(60`, `sec0` or `second_zero` anywhere
+10. **There is no second-of-minute feature.** No `.dt.second`, `% 60`, `mod(60`, `sec0` or `second_zero` anywhere
    in `src/prc/`; `minute_of_day_utc` is `hour·60 + minute`. It is algebraically present, though: SCHED seconds
    are 0 on every row, so `mvt_minus_sched mod 60 == 0 ⇔ MVT second == 0` on all 2,085,047 rows, and
    `mvt_minus_aobt3 mod 60 == 0 ⇔ sec(MVT) == sec(AOBT_3)` on all 2,062,577 matched rows.
@@ -592,7 +662,7 @@ These are facts about the repository, not findings about the data.
 
 **Caching, logging and provenance**
 
-10. **The feature-cache fingerprint covers only `features.py`.** `cache_fingerprint` (pipeline.py 55–71,
+11. **The feature-cache fingerprint covers only `features.py`.** `cache_fingerprint` (pipeline.py 55–71,
     unchanged since c2cd247) = `raw_dir`, sorted (name, byte size) of every raw parquet, `train_rows`,
     `rank_rows`, `use_weather`, and `sha256(src/prc/features.py)[:16]` of the **working-tree** file. Not in the
     key: `weather.py`, `airports.py`, `schema.py`, `data/ref/metar/*.csv`, `data/ref/metar_hourly.parquet`,
@@ -600,14 +670,14 @@ These are facts about the repository, not findings about the data.
     keyed by **path alone**. Because `use_weather` is in the key, alternating weather-on/weather-off configs
     rebuild the cache every time (cost, not staleness). — `cache-fingerprint-gaps.md` §3.1, §4
 
-11. **`git_sha` is captured at the end of CV, not the start.** It is evaluated in `run_cv` after the fold loop
+12. **`git_sha` is captured at the end of CV, not the start.** It is evaluated in `run_cv` after the fold loop
     (train.py:448), so it is HEAD at the **end** of the run. **17 of the 35** current records have their
     `git_sha` committed 31–999 s after the estimated start; for `features.py` this never mattered, but for
     `train.py` / `pipeline.py` content the recorded sha may post-date the code that ran (one record has three
     `train.py` commits inside its window). `experiments.jsonl` carries **no timestamp** and no `feature_code`.
     — `cache-fingerprint-gaps.md` §3.3, §4
 
-12. **`overall` silently drops `jul_fwd`.** `run_cv` (train.py 427–444) starts `oof` all-null and left-joins each
+13. **`overall` silently drops `jul_fwd`.** `run_cv` (train.py 427–444) starts `oof` all-null and left-joins each
     fold's predictions with `pl.coalesce([oof, _p])` in fold order `[jan, jul, jul_fwd, forward]`. `jul` and
     `jul_fwd` predict exactly the same 190,713 rows, so **`jul_fwd`'s predictions are never written**:
     `overall.n = 672,428` while `Σ fold n = 863,141`. Verified in all six four-fold records (`overall.rmse_full`
@@ -615,7 +685,7 @@ These are facts about the repository, not findings about the data.
     toy replay. `configs/main.yaml` and `configs/submitted_v4.yaml` set no `folds:` key, so production CV runs
     all four and reports this `overall`. — `fold-shape-vs-ranking.md` §3.3
 
-13. **`n_features` in `experiments.jsonl` has never been the matrix width.** From e0099d7 through 97e67c6 it was
+14. **`n_features` in `experiments.jsonl` has never been the matrix width.** From e0099d7 through 97e67c6 it was
     `len(numeric_feature_columns(feats))` (frame width, including `month`, excluding the 9 encodings). It changed
     at **fd848bf** to `len(visible_numeric_columns(feats, cfg))` plus `n_frame_columns`, and **no record with the
     new semantics exists** (`grep -c n_frame_columns experiments/experiments.jsonl` = 0).
@@ -623,7 +693,7 @@ These are facts about the repository, not findings about the data.
 
 **Decision machinery**
 
-14. **`verdict()` reads two rows of the curve and ignores the month bootstrap.**
+15. **`verdict()` reads two rows of the curve and ignores the month bootstrap.**
     `verdict(curve, sign_check_level=200)` (compare.py 91–119) reads only the `dropped == 0` and
     `dropped == 200` entries; its signature has no month argument; `main` computes and prints
     `month_bootstrap_rmse_diff` (157–161) and calls `verdict(curve)` (169) without it.
@@ -632,37 +702,37 @@ These are facts about the repository, not findings about the data.
     K = 200 CI hi ≥ 0; else ADOPT. Boundary: a full hi of exactly 0.0 yields "no difference"; a K = 200 hi of
     exactly 0.0 yields "tail-only". — `decision-rule-blind-to-tail.md` §3.1
 
-15. **`robustness_curve` drops by `max(se_a, se_b)`** (compare.py line 43) — the rows where the two models
+16. **`robustness_curve` drops by `max(se_a, se_b)`** (compare.py line 43) — the rows where the two models
     disagree most — and reuses the **same seed (0) at every K**. — `decision-rule-blind-to-tail.md` §3.1, §3.4
 
-16. **`load_pair` restricts silently.** It inner-joins on `MVT_ID_mvt` and keeps only rows where both
+17. **`load_pair` restricts silently.** It inner-joins on `MVT_ID_mvt` and keeps only rows where both
     predictions are non-null (compare.py 128–129); `main` prints `rows = …` (146) but **no warning** about the
     restriction. A 3-fold OOF compared with a `folds: [forward]` OOF therefore evaluates 328,009 Nov–Dec rows; a
     Jan-only vs forward-only pair evaluates **0** rows and returns "no full-data comparison"; a single-month pair
     gets a **NaN** month CI (the function returns NaN below 2 months).
     — `decision-rule-blind-to-tail.md` §3.5
 
-17. **The routing rule is one rule in one place.** `train.py` 329 / 348 in `predict_fold`, used by both `run_cv`
+18. **The routing rule is one rule in one place.** `train.py` 329 / 348 in `predict_fold`, used by both `run_cv`
     and `predict_ranking`; `AOBT_3_flt` null ≡ `mvt_minus_aobt3` null on **every row of both frames**
     (0 disagreements), and `proxy_ok_but_unmatched` (FLIGHT_ID null but proxy present) = 0 in both sets.
     — `fold-shape-vs-ranking.md` §3.4
 
-18. **Every OOF file has 2,085,047 rows**, one per training row, with `oof` null on unscored rows; non-null
+19. **Every OOF file has 2,085,047 rows**, one per training row, with `oof` null on unscored rows; non-null
     counts are 672,428 (3-fold), 328,009 (`folds: [forward]`), 190,713 (`[jul, jul_fwd]`), 153,706 (`[jan]`).
     Aggregates that do not filter nulls report inflated `n` while RMSE / SSE are unaffected (polars skips nulls).
     `plan.md` §0's "672,428 rows" is the scored subset. — `decision-rule-blind-to-tail.md` §3.1;
     `lirf-matched-fill.md` §4 (F2); `sched-filled-block.md` §6
 
-19. **The submission transform** is `np.clip(pred, 0, None)` in `_assemble` (train.py:377) then `np.rint` in
+20. **The submission transform** is `np.clip(pred, 0, None)` in `_assemble` (train.py:377) then `np.rint` in
     `write_submission`, which also gained a `reference_median` gate (d5c4535). The clip — not the rounding — is
     what makes raw-float and submission-space RMS differ: 5 of the 20 largest disagreement rows in item 21 have
     a negative raw prediction in one or both fits. — `refit-seed-semantics-changed.md` §2, §3.2;
     `v4-config-not-reproducible.md` §3.3
 
-20. **`data/work/adv_score.parquet` has no producer in the repository.** `src/prc/adversarial.py::main()` writes
+21. **`data/work/adv_score.parquet` has no producer in the repository.** `src/prc/adversarial.py::main()` writes
     no file; the column is taken to be the per-row P(ranking) of that module's docstring, unverifiably.
     — `sched-anchored-delay-shift.md` §3.6
 
-21. **A silent-null path exists in the distance feature.** `add_destination_distance`'s `except Exception`
+22. **A silent-null path exists in the distance feature.** `add_destination_distance`'s `except Exception`
     fallback would cache a null `dest_distance_km` column with an identical fingerprint; whether the current
     cache's column is populated was not verified. — `cache-fingerprint-gaps.md` §4 (C), §5
