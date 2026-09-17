@@ -1,0 +1,29 @@
+# v10 probe: configs/main.yaml verbatim + the model-B schedule reparameterisation at LIRF.
+#
+# Purpose. The reparameterisation is the first change `prc.compare` adopts on its own terms
+# (forward fold, unmatched 2,109.32 -> 1,028.41, every drop level's CI excluding zero;
+# docs/investigation_2026-09-16/results/reparam-implementation.md). CV cannot tell us what it
+# does on the leaderboard, because the unmatched-row paired CI is hundreds of seconds wide
+# (results/decision-rule-blind-to-tail.md). A probe can: the submission built from this run
+# keeps v4's 339,551 matched predictions untouched and replaces only the 5,290 unmatched ones,
+# so the difference from v4's 305.027 is the model-B change and nothing else. v9 established
+# the method (v8 matched + v4 unmatched = 306.4555, which located the v4->v8 regression).
+#
+# folds: [forward] keeps the CV record cheap; the submission comes from the full-data refit,
+# which `folds` does not affect.
+name: submit_v10_reparam
+note: "probe: v4 matched rows + model B with the LIRF schedule reparameterisation"
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+folds: [forward]
