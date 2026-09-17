@@ -133,9 +133,32 @@ def train_side_counts() -> None:
         )
 
 
+def holdout_counts() -> None:
+    """Composition of the inner early-stopping holdout that `_fit` carves out of the forward fold's training side.
+
+    `_inner_holdout_mask` takes the latest `inner_holdout_months` calendar months of the frame it is given, and
+    `predict_fold` gives it the matched rows (model A) and the unmatched rows (model B) separately, so the
+    holdout is per model. Also prints the refit scaling factor train.height / (train.height - n_hold) that
+    `_fit` applies to `best_iteration`."""
+    f = load_feats().filter(pl.col("ym") <= 202510)  # forward fold training side
+    for model, d in (("A (matched)", f.filter(pl.col(PROXY).is_not_null())), ("B (unmatched)", f.filter(pl.col(PROXY).is_null()))):
+        for months, hold in ((1, [202510]), (2, [202509, 202510])):
+            h = d.filter(pl.col("ym").is_in(hold))
+            y = h[LABEL].to_numpy().astype(float)
+            print(
+                f"model {model}, inner_holdout_months={months}: train {d.height:,}, holdout {h.height:,} "
+                f"({', '.join(str(m) for m in hold)}), y>=14400 {(y >= 14_400).sum()}, y>=43200 {(y >= 43_200).sum()}, "
+                f"y>=7200 {(y >= 7_200).sum()}, max y {y.max():,.0f}, "
+                f"refit scaling {d.height / (d.height - h.height):.4f}"
+            )
+
+
 def main(argv: list[str]) -> int:
     if argv and argv[0] == "--train-counts":
         train_side_counts()
+        argv = argv[1:]
+    if argv and argv[0] == "--holdout-counts":
+        holdout_counts()
         argv = argv[1:]
     exp_ids = argv or []
     if not exp_ids:
