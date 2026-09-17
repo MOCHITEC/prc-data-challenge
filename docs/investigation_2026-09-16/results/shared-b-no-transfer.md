@@ -71,8 +71,8 @@ H. Extra "extreme" examples pooling would add per airport (matched counts at y �
 | all | matched | 2,062,577 | 911 | 987 | 1,464 | 2,303 | 87,002 | 0.0000 | 0.0000 | 3,045 | 103 | 3 | 1 |
 | all | unmatched | 22,470 | 951 | 1,384 | 1,731 | 10,211 | 131,167 | 0.0214 | 0.0053 | 1,087 | 481 | 119 | 33 |
 
-At nine of ten airports the unmatched median is within −206 … +134 s of the matched median and the unmatched p99
-exceeds the matched p99 by +137 … +3,905 s. LIRF is the exception on every statistic: unmatched median 3.8× matched, p90 7.0×, p99 18×.
+At nine of ten airports the unmatched median is within −205.5 (EHAM) … +133.5 (LEBL) s of the matched median and the
+unmatched p99 exceeds the matched p99 by +137 (LSZH) … +3,905 (LTFM) s. LIRF is the exception on every statistic: unmatched median 3.8× matched, p90 7.0×, p99 18×.
 
 ### C. Fill rate matched vs unmatched by airport
 
@@ -215,7 +215,7 @@ BLOCK − AOBT_3 +179 s; a filled day-rollover row); LFPG 184881387 (Mar, B734, 
 |---|---|---|---|---|
 | A1 | A | The matched rows "carry the same airport/hour/aircraft structure" as the unmatched rows (5b90919) | CONFIRMED for airport / hour / runway / stand / traffic-window / weather columns; REFUTED for aircraft and operator columns | G: 66 `cols_b` numerics and `ADEP`, `RUNWAY`, `STAND`, `ADES`, `ADES_REGION` are ≥ 99.8 % non-null and varying on both groups. `AIRCRAFT_OPERATOR_flt`, `MARKET_SEGMENT_flt`, `FLIGHT_TYPE_flt`, `WK_TBL_CAT_flt` are null on 100 % of unmatched rows (training and ranking); `AIRCRAFT_TYPE_mvt` is null on 1,487 / 1,488 LIRF unmatched rows and 0 matched rows (D). |
 | A2 | A | "Extreme examples go from 33 to ≈ 2,000" (docs/README.md Phase 2' a) | REFUTED | H: the 33 are unmatched y ≥ 12 h; pooling adds 1 (→ 34). At y ≥ 4 h: 119 → 122; at y ≥ 2 h: 481 → 584. No label threshold maps 33 unmatched rows onto ≈ 2,000 pooled rows (y ≥ 1 h gives 1,087 → 4,132; y ≥ 45 min gives 1,222 → 11,736). |
-| A3 | A | Per-airport y distribution unmatched vs matched (E's pre-check) | DONE — nine airports alike, LIRF unlike | B: at EDDF, EDDM, EGLL, EHAM, LEBL, LEMD, LFPG, LSZH, LTFM the unmatched median is within −206 … +134 s of the matched median; at LIRF 3,922 vs 1,024, p90 11,819 vs 1,682, share y ≥ 2 h 0.295 vs 0.0003. |
+| A3 | A | Per-airport y distribution unmatched vs matched (E's pre-check) | DONE — nine airports alike, LIRF unlike | B: at EDDF, EDDM, EGLL, EHAM, LEBL, LEMD, LFPG, LSZH, LTFM the unmatched median is within −205.5 … +133.5 s of the matched median; at LIRF 3,922 vs 1,024, p90 11,819 vs 1,682, share y ≥ 2 h 0.295 vs 0.0003. |
 | A4 | A | Pooling improves unmatched predictions | UNDETERMINED — needs the item-30 run | No training here. |
 | B1 | B | Matched \|BLOCK − SCHED\| ≤ 120 s is 11–26 % per airport | CONFIRMED | C: f120 matched 0.114 (LSZH) – 0.257 (LIRF). |
 | B2 | B | Matched y ≥ 2 h is 103 rows of 2.06 M | CONFIRMED | B/H: 103 of 2,062,577 (routing) and 103 of 2,062,623 (FLIGHT_ID). |
