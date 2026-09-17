@@ -12,12 +12,15 @@ from prc.synth import generate_month
 from prc.train import (
     ENCODING_COLS,
     PROXY,
+    SCHED_OFFSET,
     TrainConfig,
     attach_encodings,
     feature_parity_report,
     fit_encodings,
     predict_fold,
     run_cv,
+    sched_reparam_shift,
+    unmatched_target,
 )
 
 
@@ -182,3 +185,146 @@ def test_candidate_columns_never_reach_the_model_unless_named():
     p_hidden, _ = predict_fold(tr, tg, base)
     p_shown, _ = predict_fold(tr, tg, replace(base, include_candidates=("noise_control",)))
     assert p_hidden.height == p_shown.height == tg.height
+
+
+def _lirf_filled_month(year: int, month: int, seed: int, deps: int = 10, blank_dep: bool = False) -> pl.DataFrame:
+    """A month in which every LIRF departure is unmatched and has BLOCK_TIME filled with SCHED_TIME.
+
+    That is the regime the reparameterisation exists for (docs/investigation_2026-09-16/results/
+    sched-filled-block.md): with BLOCK == SCHED the label equals `mvt_minus_sched` exactly, so a model fitted
+    on `LABEL - mvt_minus_sched` learns ~0 there and everything it returns has to come from the shift. The
+    generator already produces a few such rows; this turns the knob all the way up so a small fixture has them.
+    """
+    df = generate_month(year, month, seed=seed, deps_per_airport_day=deps, blank_dep=blank_dep)
+    dep = (pl.col("ADEP_mvt") == "LIRF") & (pl.col("PHASE_mvt") == "DEP")
+    mvt = pl.col("SCHED_TIME_UTC_mvt") + pl.duration(hours=3)
+    df = df.with_columns(
+        pl.when(dep).then(None).otherwise(pl.col("FLIGHT_ID_mvt")).alias("FLIGHT_ID_mvt"),
+        pl.when(dep).then(None).otherwise(pl.col("AOBT_3_flt")).alias("AOBT_3_flt"),
+        pl.when(dep).then(mvt).otherwise(pl.col("MVT_TIME_UTC_mvt")).alias("MVT_TIME_UTC_mvt"),
+    )
+    if not blank_dep:  # the ranking frame has no BLOCK_TIME and no label to fill in
+        df = df.with_columns(
+            pl.when(dep)
+            .then(pl.col("SCHED_TIME_UTC_mvt"))
+            .otherwise(pl.col("BLOCK_TIME_UTC_mvt"))
+            .alias("BLOCK_TIME_UTC_mvt"),
+            pl.when(dep).then(pl.lit(3 * 3600.0)).otherwise(pl.col("TAXITIME_SEC_mvt")).alias("TAXITIME_SEC_mvt"),
+        )
+    return df
+
+
+def test_sched_reparam_shifts_exactly_the_configured_airport_rows():
+    """The shift is `mvt_minus_sched` at the named airports and exactly zero everywhere else."""
+    feats = build_departure_features(generate_month(2025, 7, seed=31, deps_per_airport_day=6))
+    on = TrainConfig(unmatched_sched_reparam=True)
+    shift = sched_reparam_shift(feats, on)
+    ms = feats[SCHED_OFFSET].to_numpy().astype(float)
+    lirf = (feats["ADEP_mvt"] == "LIRF").to_numpy()
+    assert lirf.any() and (~lirf).any(), "fixture needs both airports"
+    assert np.array_equal(shift[lirf], ms[lirf])
+    assert (shift[~lirf] == 0.0).all()
+    # and the target is the label minus that shift, on those rows only
+    y = feats["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    assert np.array_equal(unmatched_target(feats, on), y - np.where(lirf, ms, 0.0))
+    # the airport set is config, not a constant: naming a second airport moves those rows too
+    two = sched_reparam_shift(feats, replace(on, unmatched_sched_reparam_airports=("LIRF", "EHAM")))
+    eham = (feats["ADEP_mvt"] == "EHAM").to_numpy()
+    assert np.array_equal(two[eham], ms[eham]) and np.array_equal(two[lirf], ms[lirf])
+    assert (two[~(lirf | eham)] == 0.0).all()
+    # ...and naming none is a no-op even with the flag on
+    assert (sched_reparam_shift(feats, replace(on, unmatched_sched_reparam_airports=())) == 0.0).all()
+
+
+def test_sched_reparam_never_shifts_a_row_with_a_null_schedule_offset():
+    """`mvt_minus_sched` has null rate 0 on the ranking set, but a null here would put a NaN in the labels."""
+    feats = build_departure_features(generate_month(2025, 7, seed=32, deps_per_airport_day=6))
+    lirf = (feats["ADEP_mvt"] == "LIRF").to_numpy()
+    holed = feats.with_columns(
+        pl.when((pl.col("ADEP_mvt") == "LIRF") & (pl.int_range(pl.len()) % 3 == 0))
+        .then(None)
+        .otherwise(pl.col(SCHED_OFFSET))
+        .alias(SCHED_OFFSET)
+    )
+    null_ms = holed[SCHED_OFFSET].is_null().to_numpy()
+    assert (null_ms & lirf).any(), "fixture needs LIRF rows without the offset"
+    on = TrainConfig(unmatched_sched_reparam=True)
+    shift = sched_reparam_shift(holed, on)
+    assert (shift[null_ms] == 0.0).all()
+    target = unmatched_target(holed, on)
+    y = holed["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    assert np.array_equal(target[null_ms], y[null_ms])
+    assert np.isfinite(target).all()
+
+
+def test_sched_reparam_is_off_by_default_and_leaves_the_model_unchanged():
+    """With the flag off the target is the label itself and neither new field can reach the model.
+
+    What this can show inside the repository is that the added arithmetic is `y - 0.0` / `pred + 0.0` and that
+    the two new fields change nothing while the flag is off. That the fitted model is then the one the old code
+    produced was checked on the real data instead: rerunning `configs/inv_baseline_forward.yaml` under this
+    code reproduced `oof_inv_baseline_forward-67e76a5dfc` with every logged metric equal and 327,983 of 328,009
+    predictions bit-identical, the other 26 within 4.5e-13
+    (docs/investigation_2026-09-16/results/reparam-implementation.md)."""
+    assert TrainConfig().unmatched_sched_reparam is False, "main.yaml must keep today's model"
+    tr = build_departure_features(_lirf_filled_month(2025, 7, seed=33, deps=10))
+    tg = build_departure_features(_lirf_filled_month(2025, 7, seed=34, deps=6))
+    off = TrainConfig(num_rounds=40, early_stopping=10, unmatched_num_rounds=40)
+    assert (sched_reparam_shift(tr, off) == 0.0).all()
+    y = tr["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    assert np.array_equal(unmatched_target(tr, off), y)  # `y - 0.0`, not merely close to y
+    p_off, info_off = predict_fold(tr, tg, off)
+    # the flag is what switches the code path: with it off, the airport set cannot matter
+    p_other, _ = predict_fold(tr, tg, replace(off, unmatched_sched_reparam_airports=("LIRF", "EHAM")))
+    assert (p_off["pred"].to_numpy() == p_other["pred"].to_numpy()).all()
+    # ...and with it on but no airport named, the shift is zero and the model is the same one again
+    p_empty, _ = predict_fold(tr, tg, replace(off, unmatched_sched_reparam=True, unmatched_sched_reparam_airports=()))
+    assert (p_off["pred"].to_numpy() == p_empty["pred"].to_numpy()).all()
+    assert "sched_reparam_train_rows" not in info_off
+
+
+def test_sched_reparam_predictions_come_back_on_the_label_scale():
+    """Fit on `LABEL - shift`, predict `LABEL`: the same call is the CV fold and the full-data refit.
+
+    The target frame here is unlabelled, i.e. the ranking shape - predict_ranking reaches model B through this
+    very call - so nothing in the add-back can come from the target side's labels."""
+    tr = build_departure_features(_lirf_filled_month(2025, 7, seed=35, deps=12))
+    tg = build_departure_features(_lirf_filled_month(2026, 7, seed=36, deps=6, blank_dep=True))
+    cfg = TrainConfig(num_rounds=60, early_stopping=15, unmatched_num_rounds=60, unmatched_sched_reparam=True)
+    pred, info = predict_fold(tr, tg, cfg)
+    lirf = (tg["ADEP_mvt"] == "LIRF").to_numpy()
+    unmatched = tg[PROXY].is_null().to_numpy()
+    sel = lirf & unmatched
+    assert sel.sum() > 20, "fixture needs LIRF unmatched rows"
+    assert info["sched_reparam_train_rows"] == int(((tr["ADEP_mvt"] == "LIRF") & tr[PROXY].is_null()).sum()), (
+        "the rows fitted on the shifted target are the LIRF unmatched ones"
+    )
+    assert info["sched_reparam_target_rows"] == int(sel.sum())
+    ms = tg[SCHED_OFFSET].to_numpy().astype(float)
+    joined = tg.select("MVT_ID_mvt").join(pred, on="MVT_ID_mvt", how="left", maintain_order="left")
+    v = joined["pred"].to_numpy().astype(float)
+    assert np.isfinite(v).all() and (v >= 0).all()
+    # every LIRF row here is sched-filled, so the model space target is ~0 and the shift carries the prediction:
+    # without the add-back these would sit near zero instead of near three hours.
+    assert (v[sel] > 0.8 * ms[sel]).all(), (v[sel].min(), ms[sel].min())
+    assert np.median(np.abs(v[sel] - ms[sel])) < 0.2 * float(np.median(ms[sel]))
+
+
+def test_overall_names_the_folds_it_pooled_and_the_ones_it_shadowed(tmp_path):
+    """`jul` and `jul_fwd` validate the same months, and `overall` keeps whichever the fold order reached first.
+
+    That was silent: overall.n read 672,428 against a fold sum of 863,141 in production, and overall.rmse_full
+    was the pooled OOF of {jan, jul, forward} with no record saying so
+    (docs/investigation_2026-09-16/results/fold-shape-vs-ranking.md §3.3). The pooling is unchanged - the
+    record now names it."""
+    df = pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=4) for m in (1, 6, 7)])
+    feats = build_departure_features(df)
+    rec = run_cv(feats, TrainConfig(num_rounds=20, early_stopping=10), out_dir=tmp_path)
+    assert list(rec["folds"]) == ["jan", "jul", "jul_fwd"]
+    assert rec["overall"]["folds_pooled"] == ["jan", "jul"]
+    assert rec["overall"]["folds_shadowed"] == ["jul_fwd"], "jul_fwd predicts rows jul already predicted"
+    assert rec["folds"]["jul_fwd"]["n_into_overall"] == 0
+    assert rec["folds"]["jul"]["n_into_overall"] == rec["folds"]["jul"]["n"]
+    # overall.n is the folds that reached it, not the sum over the fold table
+    assert rec["overall"]["n"] == sum(rec["folds"][f]["n_into_overall"] for f in rec["overall"]["folds_pooled"])
+    assert rec["overall"]["n"] < sum(rec["folds"][f]["n"] for f in rec["folds"])

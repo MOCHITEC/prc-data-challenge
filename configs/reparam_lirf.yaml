@@ -1,0 +1,22 @@
+# configs/main.yaml verbatim + the model-B schedule reparameterisation at LIRF + folds [forward] + num_threads 2,
+# so the only difference from configs/inv_baseline_forward.yaml is the two reparam keys.
+# Target for model B on LIRF unmatched rows: TAXITIME - mvt_minus_sched, added back after prediction. Measured
+# on the jan/jul/forward OOF by docs/investigation_2026-09-16/results/mms-mixture-reparam.md (variant A):
+# unmatched RMSE 2,326.5 -> 1,632.1.
+name: reparam_lirf
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+folds: [forward]
+params:
+  num_threads: 2

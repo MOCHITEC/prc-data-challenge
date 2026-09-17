@@ -38,6 +38,8 @@ from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
 
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
+# MVT_TIME - SCHED_TIME. Model B's optional reparameterisation offset; see TrainConfig.unmatched_sched_reparam.
+SCHED_OFFSET = "mvt_minus_sched"
 ENCODING_COLS = ["ref_p10", "ref_p20", "ref_med", "ref_n", "arh_med", "arh_n", "apt_med", "ref_p10_fb", "ref_missing"]
 # Encodes what model A actually predicts - the offset between the two off-block clocks, AOBT_3 minus
 # BLOCK_TIME - rather than the taxi time. Measured on one month: the median offset runs from -301 s to +56 s
@@ -93,6 +95,22 @@ class TrainConfig:
     unmatched_num_leaves: int = 255
     unmatched_min_data_in_leaf: int = 20
     unmatched_num_rounds: int = 3000
+    # Model B's target at the airports where BLOCK_TIME is filled with SCHED_TIME: `LABEL - mvt_minus_sched`
+    # instead of `LABEL`, with the same offset added back to the prediction. The identity
+    # y - mvt_minus_sched == -(BLOCK - SCHED) holds on all 2.08M training rows, so at an airport that fills
+    # BLOCK with SCHED the label *is* the offset on the filled rows (LIRF unmatched: 48.5% of rows, corr(y,
+    # offset) 0.8964 against 0.0205 at LFPG). A tree cannot represent that identity - the same reason model A
+    # is given its proxy rather than asked to reproduce it. Measured on the jan/jul/forward OOF
+    # (docs/investigation_2026-09-16/results/mms-mixture-reparam.md §3.3): unmatched RMSE 2,326.5 -> 1,632.1,
+    # better on each of the three folds, lower at nine of ten airports and higher at none, and every non-LIRF
+    # prediction >= 4 h gone (10 -> 0). Off by default: the §6 decision rule has not been run on it, and the
+    # rows it moves are the ones §6 calls unmeasurable in a full-data comparison.
+    unmatched_sched_reparam: bool = False
+    # Departure airports the reparameterisation applies to; every other row keeps the plain target. Restricting
+    # it is the point, not a detail: the same shift on *all* unmatched rows measures 2,696.7 against the same
+    # 2,326.5 baseline (EHAM 954.7 -> 3,408.9), because only LIRF has the fill mechanism. A row whose
+    # mvt_minus_sched is null is never shifted either way (null rate is 0 on the ranking set).
+    unmatched_sched_reparam_airports: tuple[str, ...] = ("LIRF",)
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/README). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
@@ -215,6 +233,38 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     if not cfg.use_offset_encoding:
         hidden |= set(OFFSET_COLS)
     return [c for c in cols if c not in hidden]
+
+
+# ---------- model B's target parameterisation ----------
+
+
+def sched_reparam_shift(frame: pl.DataFrame, cfg: TrainConfig) -> np.ndarray:
+    """Per-row offset model B's target is measured against: `mvt_minus_sched` on the configured airports, 0
+    elsewhere. Subtracted when fitting, added back when predicting, so one function defines both directions.
+
+    Zero - not "no shift" - is what makes the two directions a single code path: with the flag off, or at an
+    airport the config does not name, the arithmetic is `y - 0.0` and `pred + 0.0`, which is the unshifted
+    model exactly. A row whose `mvt_minus_sched` is null is also given 0: shifting it would put a NaN into the
+    label vector, and LightGBM trains on that without complaining."""
+    if not cfg.unmatched_sched_reparam:
+        return np.zeros(frame.height)
+    airports = list(cfg.unmatched_sched_reparam_airports)
+    if not airports or SCHED_OFFSET not in frame.columns or "ADEP_mvt" not in frame.columns:
+        return np.zeros(frame.height)
+    shift = (
+        pl.when(pl.col("ADEP_mvt").is_in(airports).fill_null(False))
+        .then(pl.col(SCHED_OFFSET))
+        .otherwise(0.0)
+        .fill_null(0.0)
+        .cast(pl.Float64)
+        .alias("_shift")
+    )
+    return frame.select(shift)["_shift"].to_numpy().astype(float)
+
+
+def unmatched_target(frame: pl.DataFrame, cfg: TrainConfig) -> np.ndarray:
+    """Model B's target in model space. Identical to the label whenever the reparameterisation is off."""
+    return frame[LABEL].to_numpy().astype(float) - sched_reparam_shift(frame, cfg)
 
 
 # ---------- fitting ----------
@@ -355,10 +405,16 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             )
         ]
         if u_tr.height >= 200:
-            (g,), rounds = _fit(
-                u_tr, lambda f: f[LABEL].to_numpy().astype(float), cfg.for_unmatched(), cols_b, cat_cols, [u_tg]
-            )
+            cfg_b = cfg.for_unmatched()
+            (g,), rounds = _fit(u_tr, lambda f: unmatched_target(f, cfg_b), cfg_b, cols_b, cat_cols, [u_tg])
+            # Back to seconds of taxi time. The fit above ran on `LABEL - shift`, so the model's output is in
+            # that space and nothing downstream (_assemble's clip, the metrics, the submission) knows it.
+            shift_tg = sched_reparam_shift(u_tg, cfg_b)
+            g = g + shift_tg
             info["rounds_unmatched"] = rounds
+            if cfg_b.unmatched_sched_reparam:
+                info["sched_reparam_train_rows"] = int((sched_reparam_shift(u_tr, cfg_b) != 0.0).sum())
+                info["sched_reparam_target_rows"] = int((shift_tg != 0.0).sum())
         else:
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))
             g = u_tg["ref_p10_fb"].fill_null(fallback).to_numpy().astype(float)
@@ -413,7 +469,12 @@ def run_cv(
     """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record.
 
     log_name exists so a synthetic run cannot land in the real-data experiment log: its RMSE level is an
-    artefact of the generator, and mixing the two would corrupt the CV-to-LB correspondence we track."""
+    artefact of the generator, and mixing the two would corrupt the CV-to-LB correspondence we track.
+
+    `overall` pools one prediction per row, so a fold whose rows an earlier fold already predicted contributes
+    nothing to it. That is unchanged here; what is new is that the record says so: `overall.folds_pooled`,
+    `overall.folds_shadowed` and each fold's `n_into_overall`. Read `overall` as the pooled OOF of
+    `folds_pooled` alone - with the production fold list that is {jan, jul, forward} and not `jul_fwd`."""
     t0 = time.time()
     months = year_month_key(feats)
     folds: list[Fold] = month_block_folds(months.unique().to_list())
@@ -424,6 +485,8 @@ def run_cv(
             raise ValueError(f"cfg.folds={cfg.folds} matched none of the available folds")
     oof = pl.DataFrame({"MVT_ID_mvt": feats["MVT_ID_mvt"]}).with_columns(pl.lit(None, dtype=pl.Float64).alias("oof"))
     fold_metrics: dict[str, dict] = {}
+    pooled: list[str] = []  # folds whose rows reach `overall`
+    shadowed: list[str] = []  # folds an earlier fold had already predicted, so `overall` never saw them
     for f in folds:
         tr_f = feats.filter(months.is_in(list(f.train_months)))
         va_f = feats.filter(months.is_in(list(f.valid_months)))
@@ -435,13 +498,24 @@ def run_cv(
             **info,
             "by_airport": per_airport(y, pv, joined["ADEP_mvt"].to_numpy()),
         }
-        oof = (
-            oof.join(p.rename({"pred": "_p"}), on="MVT_ID_mvt", how="left", maintain_order="left")
-            .with_columns(pl.coalesce([pl.col("oof"), pl.col("_p")]).alias("oof"))
-            .drop("_p")
-        )
+        # Two folds can validate the same months - `jul` and `jul_fwd` both predict all of July, differing only
+        # in how much history they trained on - and `pl.coalesce` keeps whichever came first in fold order
+        # [jan, jul, jul_fwd, forward]. So `jul_fwd`'s 190,713 predictions were silently discarded from
+        # `overall` while its rows still counted in the fold table: overall.n 672,428 against a fold sum of
+        # 863,141, and overall.rmse_full equal to pooled{jan, jul, forward} in all six four-fold records
+        # (docs/investigation_2026-09-16/results/fold-shape-vs-ranking.md §3.3). The pooling is kept as it was -
+        # the logged numbers stay comparable - but which folds it used is now written down instead of inferred.
+        merged = oof.join(p.rename({"pred": "_p"}), on="MVT_ID_mvt", how="left", maintain_order="left")
+        n_new = int(merged.select((pl.col("oof").is_null() & pl.col("_p").is_not_null()).sum()).item())
+        oof = merged.with_columns(pl.coalesce([pl.col("oof"), pl.col("_p")]).alias("oof")).drop("_p")
+        fold_metrics[f.name]["n_into_overall"] = n_new
+        (pooled if n_new else shadowed).append(f.name)
     scored = feats.select(["MVT_ID_mvt", LABEL]).join(oof, on="MVT_ID_mvt", how="inner").drop_nulls(["oof", LABEL])
-    overall = metrics(scored[LABEL].to_numpy().astype(float), scored["oof"].to_numpy().astype(float))
+    overall = {
+        **metrics(scored[LABEL].to_numpy().astype(float), scored["oof"].to_numpy().astype(float)),
+        "folds_pooled": pooled,
+        "folds_shadowed": shadowed,
+    }
     rec = {
         "exp_id": f"{cfg.name}-{cfg.hash()}",
         "config": {**cfg.__dict__},
