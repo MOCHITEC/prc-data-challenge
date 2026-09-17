@@ -115,11 +115,31 @@ def rows_table(exp_ids: list[str], feats: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def train_side_counts() -> None:
+    """Unmatched training rows available to model B on the forward fold (Jan-Oct 2025) by ms band.
+
+    The hypothesis of item 10 is a comparison between `min_data_in_leaf` and the number of LIRF rows in the
+    extreme ms bands, so the counts have to be taken on the fold's training side, not on the whole year."""
+    f = load_feats().filter(pl.col(PROXY).is_null())
+    for tag, d in (("all 12 months", f), ("forward train (Jan-Oct 2025)", f.filter(pl.col("ym") <= 202510))):
+        lirf = d.filter(pl.col("ADEP_mvt") == "LIRF")
+        ms, y = lirf[MS].to_numpy().astype(float), lirf[LABEL].to_numpy().astype(float)
+        ms_all = d[MS].to_numpy().astype(float)
+        print(
+            f"{tag}: unmatched {d.height:,}; LIRF unmatched {lirf.height:,}; "
+            f"LIRF ms>43200 {(ms > 43_200).sum()}; LIRF ms in (14400,43200] {((ms > 14_400) & (ms <= 43_200)).sum()}; "
+            f"LIRF ms>=7200 {(ms >= 7_200).sum()}; LIRF y>=43200 {(y >= 43_200).sum()}; "
+            f"LIRF y>=14400 {(y >= 14_400).sum()}; all-unmatched ms>43200 {(ms_all > 43_200).sum()}"
+        )
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "--train-counts":
+        train_side_counts()
+        argv = argv[1:]
     exp_ids = argv or []
     if not exp_ids:
-        print(__doc__)
-        return 2
+        return 0
     feats, recs = load_feats(), records()
     allst = [stats(e, feats, recs.get(e)) for e in exp_ids]
     keys = sorted({k for s in allst for k in s} - {"exp_id"})
