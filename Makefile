@@ -4,6 +4,8 @@ PY=.venv/bin/python
 bootstrap:            ## create venv, install, fetch data if keys are present, run tests (idempotent)
 	uv venv -q .venv || true
 	uv pip install -q --python $(PY) -e ".[dev]"
+	@# pyproject pins nothing, so pin to the environment the submissions were produced in.
+	uv pip install -q --python $(PY) -r requirements-lock.txt
 	$(PY) -c "import prc, lightgbm, polars; print('env ok')"
 	@if [ -n "$$OSN_ACCESS_KEY" ]; then \
 	  $(PY) -c "from prc.io_minio import download_all; print(len(download_all()), 'files')" || echo "download failed"; \
