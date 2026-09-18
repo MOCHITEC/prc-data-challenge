@@ -92,13 +92,13 @@ non-null in the ranking set.
   2026 alike. Per-airport equality rate for comparison (train / rank): LTFM 1.000/1.000,
   LSZH 0.696/0.735, EHAM 0.695/0.698, EDDF 0.685/0.696, LEMD 0.659/0.639, EDDM 0.656/0.668,
   LEBL 0.638/0.668, LFPG 0.744/0.647, EGLL 0.586/0.537, LIRF 0.503/0.502.
-- **Operators:** it is an airport property, not an operator property — the largest operator at LTFM
-  sits at 0.9664 (train) / 0.9647 (rank) overall, i.e. below 1 once its non-LTFM departures are
-  included. Keyed on the flight's origin instead of the row's airport, LTFM-origin ARR rows give
+- **Operators:** it is an airport property, not an operator property — no operator reaches 1.0 once
+  its departures from all ten airports are pooled; the highest among operators with ≥ 5,000 DEP rows
+  is 0.9664 (train, 222,550 rows) / 0.9647 (rank, 38,885 rows), the next 0.785. Keyed on the flight's origin instead of the row's airport, LTFM-origin ARR rows give
   20,481 / 20,487 (train) and 3,518 / 3,520 (rank) — the handful of exceptions are ARR rows whose DEP
   counterpart is not in the set.
 - **Identifiable in the ranking set:** yes — `LOBT_flt` and `EOBT_1_flt` are both non-null on
-  334,261 of 344,841 ranking DEP rows, and `ADEP_mvt` is non-null on all of them.
+  339,551 of the 344,841 ranking DEP rows (46,860 of them at LTFM), and `ADEP_mvt` is non-null on all of them.
 - **Consequence for the derived columns (measured, §2 F11):** `lobt_minus_eobt1` is identically 0 and
   `mvt_minus_lobt` is identically equal to `mvt_minus_eobt1` on every LTFM departure in both sets.
 - **Query:**
@@ -355,7 +355,8 @@ non-null in the ranking set.
   The training range for `LOBT == EOBT1` at LFPG is 0.720–0.783 across twelve months; 2026-07's
   0.535 is far outside it. `SCHED == EOBT1` also trends downward through 2025 (0.674 → 0.580) and
   continues (0.544, 0.373).
-- **Rows:** 39,138 ranking LFPG DEP rows, of which 19,254 in 2026-07 (the month with the shift).
+- **Rows:** 39,138 ranking LFPG DEP rows with the `_flt` block present, 17,804 in 2026-01 and
+  **21,334 in 2026-07** (the month with the shift).
 - **Identifiable in the ranking set:** yes.
 - **Query:** `eq_cell.parquet` filtered to `apt = "LFPG", PHASE_mvt = "DEP", B = "EOBT1"`; the script
   writes it as `extras_lfpg_eobt1_by_month`.
