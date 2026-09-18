@@ -459,3 +459,114 @@ if "2" in SECTIONS:
             rows.append({"grouping": "x".join(keys) + " " + lab, "groups": G,
                          "rmse_after": round(after, 3), "gain": round(gain, 4)})
     print(pl.DataFrame(rows))
+
+    print("\nG. WHY the protocol matters: the four OOF months come from THREE DIFFERENT MODELS")
+    print("   fold-shape-vs-ranking.md: month 1 = `jan` fold model, month 7 = `jul` fold model,")
+    print("   months 11+12 = the `forward` fold model.  LOMO across months therefore fits a")
+    print("   correction on one model's residuals and applies it to another model's residuals.")
+    print("   Within-fold transfer (11 <-> 12, same model) vs cross-fold transfer:")
+
+    def fit_apply(cd: np.ndarray, fit_mask: np.ndarray, app_mask: np.ndarray, k: float = 50.0,
+                  e: np.ndarray | None = None) -> float:
+        e = err if e is None else e
+        G = int(cd.max()) + 1
+        s = np.bincount(cd[fit_mask], weights=e[fit_mask], minlength=G)
+        n = np.bincount(cd[fit_mask], minlength=G).astype(float)
+        g = np.where(n > 0, s / (n + k), 0.0)
+        return rmse(e[app_mask]) - rmse(e[app_mask] - g[cd[app_mask]])
+
+    rows = []
+    for keys in [["ADEP_mvt"], ["AIRCRAFT_OPERATOR_flt"], ["ADEP_mvt", "AIRCRAFT_OPERATOR_flt"],
+                 ["ADEP_mvt", "hour_utc"], ["ADEP_mvt", "STAND_mvt"], ["ADEP_mvt", "AIRCRAFT_TYPE_mvt"],
+                 ["ADEP_mvt", "RUNWAY_mvt"], ["MARKET_SEGMENT_flt"], ["ADEP_mvt", "MARKET_SEGMENT_flt"],
+                 ["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"]]:
+        cd = codes_of(m2, keys)
+        rows.append({
+            "grouping": "x".join(keys),
+            "11->12 (same model)": round(fit_apply(cd, mo == 11, mo == 12), 4),
+            "12->11 (same model)": round(fit_apply(cd, mo == 12, mo == 11), 4),
+            "7->12 (cross model)": round(fit_apply(cd, mo == 7, mo == 12), 4),
+            "1->12 (cross model)": round(fit_apply(cd, mo == 1, mo == 12), 4),
+            "1+7->11+12 (cross)": round(fit_apply(cd, np.isin(mo, [1, 7]), clean_mask), 4),
+            "11+12->1+7 (cross)": round(fit_apply(cd, clean_mask, np.isin(mo, [1, 7])), 4),
+        })
+    print(pl.DataFrame(rows))
+
+    print("\n   controls for the within-fold gain (grouping ADEP x operator, k=50):")
+    cd = codes_of(m2, ["ADEP_mvt", "AIRCRAFT_OPERATOR_flt"])
+    rng = np.random.default_rng(0)
+    half = rng.random(m2.height) < 0.5
+    print(f"     random half of 11+12 -> other half (same model, same months): "
+          f"{fit_apply(cd, clean_mask & half, clean_mask & ~half):+.4f} s")
+    perm = []
+    for seed in range(20):
+        r = np.random.default_rng(100 + seed)
+        sh = err.copy()
+        idx = np.where(clean_mask)[0]
+        p = idx.copy()
+        r.shuffle(p)
+        sh[idx] = err[p]
+        perm.append(fit_apply(cd, mo == 11, mo == 12, e=sh))
+    print(f"     month-11-fit gain with err SHUFFLED inside 11+12, 20 draws: "
+          f"mean {np.mean(perm):+.4f}, sd {np.std(perm):.4f}, max {np.max(perm):+.4f} s")
+    for frac in (0.25, 0.5, 1.0):
+        r = np.random.default_rng(7)
+        sub = (r.random(m2.height) < frac) & (mo == 11)
+        print(f"     fit on {frac:.0%} of month 11 ({int(sub.sum())} rows) -> month 12: "
+              f"{fit_apply(cd, sub, mo == 12):+.4f} s")
+
+    print("\n   same-model (11->12) gain for the whole grouping list and both k, sorted:")
+    rows = []
+    for keys in GROUPINGS + [["ADEP_mvt", "AIRCRAFT_OPERATOR_flt", "hour_utc"],
+                             ["ADEP_mvt", "STAND_mvt", "AIRCRAFT_TYPE_mvt"]]:
+        cd = codes_of(m2, keys)
+        for k in (0.0, 20.0, 50.0, 200.0):
+            rows.append({"grouping": "x".join(keys), "k": k,
+                         "gain_11to12": round(fit_apply(cd, mo == 11, mo == 12, k=k), 4),
+                         "gain_12to11": round(fit_apply(cd, mo == 12, mo == 11, k=k), 4)})
+    g2 = pl.DataFrame(rows)
+    print(g2.sort("gain_11to12", descending=True).head(20))
+    print(f"   positive in BOTH directions: "
+          f"{int(((g2['gain_11to12'] > 0) & (g2['gain_12to11'] > 0)).sum())} of {g2.height}")
+
+    print("\n   numeric-column deciles under the same-model protocol (11 -> 12), top 15:")
+    rows = []
+    apt_c = codes_of(m2, ["ADEP_mvt"])
+    for c in num_cols:
+        if c in ("oof", "err", "month"):
+            continue
+        x = m2[c].cast(pl.Float64).to_numpy()
+        if np.sum(np.isfinite(x)) < 1000:
+            continue
+        d = deciles(x, 10)
+        if d.max() == d.min():
+            continue
+        rows.append({"col": c, "in_audit_22": c in SWEPT22,
+                     "gain_dec_11to12": round(fit_apply(d.astype(np.int64), mo == 11, mo == 12), 4),
+                     "gain_aptdec_11to12": round(fit_apply((apt_c * 12 + d).astype(np.int64), mo == 11, mo == 12), 4)})
+    df2 = pl.DataFrame(rows)
+    print(df2.sort("gain_aptdec_11to12", descending=True).head(15))
+
+    print("\nH. size and robustness of the within-model gain")
+    cd = codes_of(m2, ["ADEP_mvt", "AIRCRAFT_OPERATOR_flt", "hour_utc"])
+    G = int(cd.max()) + 1
+    s = np.bincount(cd[mo == 11], weights=err[mo == 11], minlength=G)
+    n = np.bincount(cd[mo == 11], minlength=G).astype(float)
+    g = np.where(n > 0, s / (n + 20.0), 0.0)
+    t = mo == 12
+    e0, e1 = err[t], err[t] - g[cd[t]]
+    print(f"   month 12, ADEP x operator x hour, k=20:  RMSE {rmse(e0):.3f} -> {rmse(e1):.3f}"
+          f"  ({rmse(e0) - rmse(e1):+.4f} s)")
+    # trimmed, to show it is not one tail row
+    for cap in (600, 900, 1800):
+        keep = np.abs(e0) <= cap
+        print(f"     restricted to |err| <= {cap} ({keep.sum()} of {len(e0)} rows): "
+              f"{rmse(e0[keep]) - rmse(e1[keep]):+.4f} s")
+    # what the same relative SSE reduction would be worth on the FULL scored set
+    all_sc = load_oof_frame([])
+    ea = all_sc["err"].to_numpy().astype(float)
+    tot = float(np.sum(ea * ea))
+    mtot = float(np.sum(err * err))
+    frac = 1.0 - (rmse(e1) / rmse(e0)) ** 2
+    print(f"   matched SSE share of total {mtot / tot:.4f}; a {frac:.4%} matched-SSE reduction moves total RMSE "
+          f"{rmse(ea):.3f} -> {np.sqrt((tot - mtot * frac) / len(ea)):.3f}")
