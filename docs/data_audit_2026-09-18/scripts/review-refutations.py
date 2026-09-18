@@ -570,3 +570,251 @@ if "2" in SECTIONS:
     frac = 1.0 - (rmse(e1) / rmse(e0)) ** 2
     print(f"   matched SSE share of total {mtot / tot:.4f}; a {frac:.4%} matched-SSE reduction moves total RMSE "
           f"{rmse(ea):.3f} -> {np.sqrt((tot - mtot * frac) / len(ea)):.3f}")
+
+
+# =====================================================================================
+# C1  "arrival-derived features carry no usable signal"
+# =====================================================================================
+
+if "1" in SECTIONS:
+    print("\n" + "=" * 100)
+    print("C1  arrival-rows.md §4: corr(y, prev same-stand taxi-in) = 0.11 pooled / 0.047 residualised;")
+    print("    arrival counts 0.02; flat on the LIRF tail")
+    print("=" * 100)
+
+    MC = ["MVT_ID_mvt", "PHASE_mvt", "ADEP_mvt", "ADES_mvt", "STAND_mvt", "MVT_TIME_UTC_mvt",
+          "BLOCK_TIME_UTC_mvt", "SCHED_TIME_UTC_mvt", "TAXITIME_SEC_mvt", "AIRCRAFT_TYPE_mvt", "AOBT_3_flt"]
+    raw = pl.concat([pl.scan_parquet(f).select(MC) for f in TRAIN_FILES]).collect()
+    dep = (raw.filter(pl.col("PHASE_mvt") == "DEP")
+           .select(pl.col("MVT_ID_mvt"), pl.col("ADEP_mvt").alias("apt"), pl.col("STAND_mvt").alias("stand"),
+                   pl.col("SCHED_TIME_UTC_mvt").alias("a_sched"), pl.col("AOBT_3_flt").alias("a_aobt3"),
+                   pl.col("MVT_TIME_UTC_mvt").alias("a_mvt"), pl.col("BLOCK_TIME_UTC_mvt").alias("dep_block"),
+                   pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
+                   pl.col("AIRCRAFT_TYPE_mvt").alias("d_actype")))
+    arr = (raw.filter(pl.col("PHASE_mvt") == "ARR")
+           .select(pl.col("MVT_ID_mvt").alias("arr_id"), pl.col("ADES_mvt").alias("apt"),
+                   pl.col("STAND_mvt").alias("stand"), pl.col("BLOCK_TIME_UTC_mvt").alias("arr_block"),
+                   pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("taxi_in"),
+                   pl.col("AIRCRAFT_TYPE_mvt").alias("a_actype"))
+           .drop_nulls("arr_block").sort("arr_block"))
+    del raw
+    print(f"\nA. frame: {dep.height} departures, {arr.height} arrivals")
+
+    def stand_join(anchor: str) -> pl.DataFrame:
+        d = dep.drop_nulls(anchor).sort(anchor)
+        j = d.join_asof(arr, left_on=anchor, right_on="arr_block", by=["apt", "stand"], strategy="backward")
+        return j.select(
+            "MVT_ID_mvt", "arr_id", "taxi_in",
+            (pl.col(anchor) - pl.col("arr_block")).dt.total_seconds().alias("gap_s"),
+            (pl.col("a_actype") == pl.col("d_actype")).alias("actype_agree"),
+        )
+
+    J = {}
+    for anch in ("a_sched", "a_aobt3", "a_mvt"):
+        J[anch] = stand_join(anch)
+        cov = J[anch].filter(pl.col("gap_s").is_not_null())
+        print(f"   anchor {anch:8s}: deps with anchor {J[anch].height}, any prev same-stand arrival "
+              f"{cov.height} ({cov.height / J[anch].height:.4f}), <=12h "
+              f"{float((cov['gap_s'] <= 43200).mean()):.4f}, gap p50 {float(cov['gap_s'].median()):.0f}")
+
+    base = (dep.select("MVT_ID_mvt", "apt", "y", "a_sched", "a_mvt", "a_aobt3")
+            .with_columns(
+                (pl.col("a_mvt") - pl.col("a_sched")).dt.total_seconds().alias("ms"),
+                pl.col("a_aobt3").is_not_null().alias("matched"),
+                pl.col("a_mvt").dt.month().alias("month")))
+    for anch, tag in (("a_sched", "S"), ("a_aobt3", "A"), ("a_mvt", "M")):
+        base = base.join(J[anch].rename({"arr_id": f"arr_{tag}", "taxi_in": f"ti_{tag}",
+                                         "gap_s": f"gap_{tag}", "actype_agree": f"ag_{tag}"}),
+                         on="MVT_ID_mvt", how="left")
+
+    print("\nB. do the three anchors even select the SAME inbound arrival?")
+    sub = base.filter(pl.col("arr_S").is_not_null() & pl.col("arr_M").is_not_null())
+    print(f"   SCHED-anchored vs MVT-anchored pick a different arrival on "
+          f"{float((sub['arr_S'] != sub['arr_M']).mean()):.4f} of {sub.height} rows")
+    sub2 = base.filter(pl.col("arr_S").is_not_null() & pl.col("arr_A").is_not_null())
+    print(f"   SCHED-anchored vs AOBT_3-anchored differ on {float((sub2['arr_S'] != sub2['arr_A']).mean()):.4f}"
+          f" of {sub2.height} rows")
+    print("   by departure delay band (MVT - SCHED), fraction where SCHED and MVT anchors differ:")
+    bb = (sub.with_columns(pl.col("ms").cut([900, 1800, 3600, 7200], labels=["<15m", "15-30m", "30-60m", "1-2h", ">2h"]).alias("band"))
+          .group_by("band").agg(n=pl.len(), differ=(pl.col("arr_S") != pl.col("arr_M")).mean(),
+                                gapS_p50=pl.col("gap_S").median(), gapM_p50=pl.col("gap_M").median()).sort("band"))
+    print(bb)
+
+    b = base.join(pl.scan_parquet(OOF).select(["MVT_ID_mvt", "oof"]).drop_nulls("oof").collect(),
+                  on="MVT_ID_mvt", how="left").with_columns((pl.col("y") - pl.col("oof")).alias("err"))
+    sc = b.filter(pl.col("oof").is_not_null())
+    print(f"\nC. correlations. scored rows {sc.height}; label y and MODEL RESIDUAL err, per anchor")
+    rows = []
+    for grp, f in (("matched", pl.col("matched")), ("unmatched", ~pl.col("matched"))):
+        for tag in ("S", "A", "M"):
+            s = sc.filter(f & (pl.col(f"gap_{tag}") <= 43200))
+            if s.height < 100:
+                continue
+            ti = s[f"ti_{tag}"].to_numpy()
+            gp = s[f"gap_{tag}"].to_numpy().astype(float)
+            yy = s["y"].to_numpy()
+            ee = s["err"].to_numpy()
+            rows.append({"group": grp, "anchor": tag, "n": s.height,
+                         "r(y,ti)": round(pearson(ti, yy)[1], 4), "r(err,ti)": round(pearson(ti, ee)[1], 4),
+                         "rho(err,ti)": round(spearman(ti, ee)[1], 4),
+                         "r(y,gap)": round(pearson(gp, yy)[1], 4), "r(err,gap)": round(pearson(gp, ee)[1], 4),
+                         "rho(err,gap)": round(spearman(gp, ee)[1], 4)})
+    print(pl.DataFrame(rows))
+    print("   (S = departure's SCHEDULED off-block = the audit's anchor; A = actual off-block AOBT_3,"
+          " ranking-visible on 339,551 of 344,841 rows; M = take-off MVT_TIME, ranking-visible on all)")
+
+    print("\n   per airport, matched scored rows, MVT anchor, gap <= 12 h:")
+    r = []
+    for apt in sorted(sc["apt"].unique().to_list()):
+        s = sc.filter((pl.col("apt") == apt) & pl.col("matched") & (pl.col("gap_M") <= 43200))
+        r.append({"apt": apt, "n": s.height,
+                  "r(y,ti)": round(pearson(s["ti_M"].to_numpy(), s["y"].to_numpy())[1], 4),
+                  "r(err,ti)": round(pearson(s["ti_M"].to_numpy(), s["err"].to_numpy())[1], 4),
+                  "rho(err,ti)": round(spearman(s["ti_M"].to_numpy(), s["err"].to_numpy())[1], 4),
+                  "r(err,gap)": round(pearson(s["gap_M"].to_numpy().astype(float), s["err"].to_numpy())[1], 4)})
+    print(pl.DataFrame(r))
+
+    print("\nD. NONPARAMETRIC: honest group-mean subtraction of err on arrival-feature groupings")
+    print("   P1 = leave-one-month-out over the 4 OOF months (the audit's honesty protocol)")
+    print("   SM = same-model forward transfer, fit on 2025-11 -> apply to 2025-12 (see C2 G)")
+    ms_ = sc.filter(pl.col("matched"))
+    e_m = ms_["err"].to_numpy().astype(float)
+    mo_m = ms_["month"].to_numpy().astype(int)
+    apt_m = codes_of(ms_, ["apt"])
+
+    def sm_gain(cd: np.ndarray, k: float = 50.0) -> float:
+        Gg = int(cd.max()) + 1
+        f, t = mo_m == 11, mo_m == 12
+        s = np.bincount(cd[f], weights=e_m[f], minlength=Gg)
+        n = np.bincount(cd[f], minlength=Gg).astype(float)
+        g = np.where(n > 0, s / (n + k), 0.0)
+        return rmse(e_m[t]) - rmse(e_m[t] - g[cd[t]])
+
+    rows = []
+    for tag in ("S", "A", "M"):
+        ti = ms_[f"ti_{tag}"].to_numpy()
+        gp = ms_[f"gap_{tag}"].to_numpy().astype(float)
+        ti = np.where(gp <= 43200, ti, np.nan)
+        dti, dgp = deciles(ti, 10), deciles(gp, 10)
+        for lab, cd in (("ti decile", dti),
+                        ("apt x ti decile", apt_m * 12 + dti),
+                        ("apt x gap decile", apt_m * 12 + dgp),
+                        ("apt x ti x gap decile (5x5)", apt_m * 36 + deciles(ti, 5) * 6 + deciles(gp, 5)),
+                        ("apt x ti decile x actype-agree", (apt_m * 12 + dti) * 3
+                         + ms_[f"ag_{tag}"].fill_null(False).cast(pl.Int8).to_numpy().astype(np.int64))):
+            cd = cd.astype(np.int64)
+            G, after, p1 = lomo_gain(e_m, mo_m, cd, k=50.0)
+            rows.append({"anchor": tag, "grouping": lab, "groups": G,
+                         "P1_gain": round(p1, 4), "SM_gain": round(sm_gain(cd), 4)})
+    print(pl.DataFrame(rows))
+    print("   reference bars: matched-error.md's best honest gain +0.024 s (P1);"
+          " C2's best same-model gain +1.02 s (ADEP x operator x hour)")
+
+    print("\nE. the arrival features the model ALREADY has, and their residual correlation")
+    already = ["arr_land_prev_5m", "arr_land_prev_15m", "arr_land_prev_30m", "arr_land_prev_60m",
+               "arr_land_next_15m", "arr_land_next_30m", "arr_land_next_60m", "arr_inblock_prev_30m",
+               "arr_taxi_in_mean_30m", "arr_taxi_in_mean_60m", "arr_taxi_in_n_30m", "arr_taxi_in_n_60m"]
+    a2 = load_oof_frame(already).filter(pl.col("mvt_minus_aobt3").is_not_null())
+    ea = a2["err"].to_numpy().astype(float)
+    mo2 = a2["month"].to_numpy().astype(int)
+    apt2 = codes_of(a2, ["ADEP_mvt"])
+    r = []
+    for c in already:
+        x = a2[c].cast(pl.Float64).to_numpy()
+        d = deciles(x, 10).astype(np.int64)
+        G, after, p1 = lomo_gain(ea, mo2, (apt2 * 12 + d).astype(np.int64), k=50.0)
+        f, t = mo2 == 11, mo2 == 12
+        cd = (apt2 * 12 + d).astype(np.int64)
+        Gg = int(cd.max()) + 1
+        s = np.bincount(cd[f], weights=ea[f], minlength=Gg)
+        n = np.bincount(cd[f], minlength=Gg).astype(float)
+        g = np.where(n > 0, s / (n + 50.0), 0.0)
+        r.append({"col": c, "r(err,X)": round(pearson(x, ea)[1], 5),
+                  "rho(err,X)": round(spearman(x, ea)[1], 5),
+                  "P1 apt x dec": round(p1, 4),
+                  "SM apt x dec": round(rmse(ea[t]) - rmse(ea[t] - g[cd[t]]), 4)})
+    print(pl.DataFrame(r))
+
+    print("\nF. the LIRF tail, with an instrument that can see more than a median")
+    for scope, f in (("LIRF unmatched (all training rows)", (pl.col("apt") == "LIRF") & ~pl.col("matched")),
+                     ("LIRF matched", (pl.col("apt") == "LIRF") & pl.col("matched")),
+                     ("all unmatched", ~pl.col("matched"))):
+        s = b.filter(f)
+        pos = (s["y"] >= 7200).to_numpy()
+        print(f"   {scope}: n {s.height}, y>=2h {int(pos.sum())}")
+        for tag in ("S", "M"):
+            for col in (f"ti_{tag}", f"gap_{tag}"):
+                v = s[col].cast(pl.Float64).to_numpy()
+                n1, n0, a = auc(v, pos)
+                med1 = np.nanmedian(v[pos]) if pos.sum() else np.nan
+                med0 = np.nanmedian(v[~pos]) if (~pos).sum() else np.nan
+                print(f"      AUC({col}) = {a:.4f}   median tail {med1:.0f} vs rest {med0:.0f}")
+    print("\n   arrival-rows.md §2.5 reported: taxi-in medians 602 vs 601, arr-in-60-min 25 vs 25,"
+          " turn_gap 9,152 vs 4,319 on the LIRF unmatched tail.")
+    print("   arrival COUNT features on the same tail (from feat_train, the model's own columns):")
+    cnt = load_oof_frame(["arr_land_prev_60m", "arr_land_next_60m", "arr_taxi_in_mean_60m",
+                          "arr_inblock_prev_30m"])
+    cl = cnt.filter((pl.col("ADEP_mvt") == "LIRF") & pl.col("mvt_minus_aobt3").is_null())
+    pos = (cl["TAXITIME_SEC_mvt"] >= 7200).to_numpy()
+    print(f"      LIRF unmatched scored rows {cl.height}, y>=2h {int(pos.sum())}")
+    for c in ("arr_land_prev_60m", "arr_land_next_60m", "arr_taxi_in_mean_60m", "arr_inblock_prev_30m"):
+        n1, n0, a = auc(cl[c].cast(pl.Float64).to_numpy(), pos)
+        print(f"      AUC({c}) = {a:.4f}")
+
+    print("\nG. CONTROLS for the D-table gains")
+    gapM = ms_["gap_M"].to_numpy().astype(float)
+    tiM = np.where(gapM <= 43200, ms_["ti_M"].to_numpy(), np.nan)
+    msd = deciles(ms_["ms"].to_numpy().astype(float), 10)
+    d_gap, d_ti = deciles(gapM, 10), deciles(tiM, 10)
+    cand = {
+        "apt x gap_M decile": apt_m * 12 + d_gap,
+        "apt x ms decile (no arrival data)": apt_m * 12 + msd,
+        "apt x ms decile x gap_M 5-tile": (apt_m * 12 + msd) * 6 + deciles(gapM, 5),
+        "apt x ti_M decile": apt_m * 12 + d_ti,
+        "apt alone": apt_m,
+    }
+    rows = []
+    for lab, cd in cand.items():
+        cd = cd.astype(np.int64)
+        G, after, p1 = lomo_gain(e_m, mo_m, cd, k=50.0)
+        rows.append({"grouping": lab, "groups": G, "P1_gain": round(p1, 4), "SM_gain": round(sm_gain(cd), 4)})
+    print(pl.DataFrame(rows))
+    print("   -> if 'apt x ms decile' matches 'apt x gap_M decile', the gain is departure delay, not arrival data")
+
+    cd = (apt_m * 12 + d_gap).astype(np.int64)
+    print("\n   per-held-out-month gain of apt x gap_M decile under P1 (k=50):")
+    Gg = int(cd.max()) + 1
+    for m in OOF_MONTHS:
+        hold = mo_m == m
+        s = np.bincount(cd[~hold], weights=e_m[~hold], minlength=Gg)
+        n = np.bincount(cd[~hold], minlength=Gg).astype(float)
+        g = np.where(n > 0, s / (n + 50.0), 0.0)
+        print(f"     month {m:2d}: {rmse(e_m[hold]) - rmse(e_m[hold] - g[cd[hold]]):+.4f} s  (n {int(hold.sum())})")
+    perm = []
+    for seed in range(20):
+        r = np.random.default_rng(500 + seed)
+        p = np.arange(len(e_m))
+        r.shuffle(p)
+        _, _, gg = lomo_gain(e_m[p], mo_m, cd, k=50.0)
+        perm.append(gg)
+    print(f"   shuffle control (err permuted across all matched rows), 20 draws: "
+          f"mean {np.mean(perm):+.4f}, sd {np.std(perm):.4f}, max {np.max(perm):+.4f} s")
+
+    print("\n   extra controls: does gap add anything beyond airport x hour, and what is the NULL gain?")
+    hr = ms_["a_mvt"].dt.hour().to_numpy().astype(np.int64) if "a_mvt" in ms_.columns else None
+    rows = []
+    for lab, cd in (("apt x hour", (apt_m * 25 + hr).astype(np.int64)),
+                    ("apt x hour x gap_M 5-tile", ((apt_m * 25 + hr) * 6 + deciles(gapM, 5)).astype(np.int64)),
+                    ("global mean only (1 group)", np.zeros(len(e_m), dtype=np.int64))):
+        G, after, p1 = lomo_gain(e_m, mo_m, cd, k=50.0)
+        rows.append({"grouping": lab, "groups": G, "P1_gain": round(p1, 4), "SM_gain": round(sm_gain(cd), 4)})
+    print(pl.DataFrame(rows))
+    print("   the LOMO null: a single global-mean correction recovers the -4.38 s offset and nothing else.")
+    for lab, cd in (("5 groups (flight-type-sized)", (np.arange(len(e_m)) % 5).astype(np.int64)),
+                     ("119 groups (apt x decile-sized)", (np.arange(len(e_m)) % 119).astype(np.int64))):
+        gs = []
+        for seed in range(10):
+            r = np.random.default_rng(900 + seed)
+            p = np.arange(len(e_m)); r.shuffle(p)
+            gs.append(lomo_gain(e_m[p], mo_m, cd, k=50.0)[2])
+        print(f"     random grouping, {lab}: P1 gain mean {np.mean(gs):+.4f} sd {np.std(gs):.4f}")
