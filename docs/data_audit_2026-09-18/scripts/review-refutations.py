@@ -384,7 +384,7 @@ if "2" in SECTIONS:
             s = np.bincount(cd[f], weights=err[f], minlength=int(cd.max()) + 1)
             n = np.bincount(cd[f], minlength=int(cd.max()) + 1).astype(float)
             g = np.where(n > 0, s / (n + k), 0.0)
-            p4 = rmse(err[t]) - rmse((err - g[cd[t]])[t])
+            p4 = rmse(err[t]) - rmse(err[t] - g[cd[t]])
             rows.append({"grouping": "x".join(keys), "k": k, "groups": G,
                          "P1_gain": round(gain, 4), "P2_gain": round(p2, 4),
                          "P3_gain": round(p3, 4), "P4_gain": round(p4, 4)})
