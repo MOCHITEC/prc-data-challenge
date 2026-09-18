@@ -1,0 +1,24 @@
+# Frozen before screening. Separate from production and never creates a submission.
+name: codex_fe_screen
+seed: 42
+num_rounds: 1200
+early_stopping: 80
+n_seeds: 1
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 1200
+unmatched_sched_reparam: true
+params:
+  objective: regression
+  learning_rate: 0.05
+  num_leaves: 127
+  min_data_in_leaf: 50
+  feature_fraction: 1.0
+  bagging_fraction: 0.8
+  bagging_freq: 1
+  lambda_l2: 1.0
+  verbose: -1
+  num_threads: 2
+  deterministic: true
+  force_row_wise: true

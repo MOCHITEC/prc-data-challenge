@@ -1,0 +1,49 @@
+{
+  "train_rows": 1387414,
+  "dropped_unlabelled": 0,
+  "rounds_matched": 742,
+  "rounds_unmatched": 90,
+  "sched_reparam_train_rows": 1065,
+  "sched_reparam_target_rows": 423,
+  "seconds": 409.8782408237457,
+  "config": {
+    "name": "codex_fe_screen",
+    "seed": 42,
+    "params": {
+      "objective": "regression",
+      "learning_rate": 0.05,
+      "num_leaves": 127,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 1.0,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "lambda_l2": 1.0,
+      "verbose": -1,
+      "num_threads": 2,
+      "deterministic": true,
+      "force_row_wise": true
+    },
+    "num_rounds": 1200,
+    "early_stopping": 80,
+    "use_categoricals": true,
+    "use_linear_tree": false,
+    "linear_lambda": 1.0,
+    "use_encodings": true,
+    "reference_min_count": 30,
+    "inner_holdout_months": 1,
+    "unmatched_num_leaves": 127,
+    "unmatched_min_data_in_leaf": 50,
+    "unmatched_num_rounds": 1200,
+    "unmatched_sched_reparam": true,
+    "unmatched_sched_reparam_airports": [
+      "LIRF"
+    ],
+    "n_seeds": 1,
+    "folds": null,
+    "exclude_features": [],
+    "include_candidates": [],
+    "use_offset_encoding": false
+  },
+  "feature_source": "data/work/feat_train.parquet",
+  "feature_source_sha256": "a7851e7c3ae8f2a96b2de2f3a2cbe3ca99b9845e5a0b06f06293e63fb04ba5ad"
+}

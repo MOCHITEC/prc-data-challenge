@@ -1,0 +1,22 @@
+{
+  "versions": {
+    "polars": "1.44.2",
+    "lightgbm": "4.7.0",
+    "numpy": "2.4.6"
+  },
+  "sha256": {
+    "src/prc/features.py": "590ceb8f8170ff6b854feded5a8302f0917e3d5cf3eebd201948c9636bbe1598",
+    "src/prc/train.py": "6cc4f4330a59ca246c66436a5f9f338f0c4d373c2ae490ebd25c1344b445dc7e",
+    "configs/main.yaml": "59dc75977eb8a28b255ce2ee80e7911007730d9bdacf7455dde4d1b84fd56fed",
+    "configs/codex_fe_screen.yaml": "4992fb520ff9b0adeb4fcf94800a1e78a6252412947e15ed6796c1510dd01456",
+    "data/work/feat_meta.json": "a7851e7c3ae8f2a96b2de2f3a2cbe3ca99b9845e5a0b06f06293e63fb04ba5ad",
+    "scripts/codex_fe/run_stages.py": "59abe945d6eb2eb57ed2c52562a532c43f1553fa35238fd54fabf9f2bb0467fd",
+    "scripts/codex_fe/screen.py": "8f11d118714f0b9347bfca2378b6afe3273629a2de9fc6d2c0bec6eee638f013",
+    "scripts/codex_fe/report.py": "13821e018da4ca14046817e2519357e9946877efe541222c0f7096fc2b5f6681",
+    "scripts/codex_fe/refit.py": "75933597a50914d547f5b642ee6c90ea39f6bc28e1ddeb579f245a5034faaa12",
+    "scripts/codex_fe/evaluate_refits.py": "b12e86c7e8980d52c6d2364b29bfc2f18003309dbf1fdd304c6fb36e18231a5f",
+    "scripts/codex_fe/baseline.py": "00a3973932b6d942beaba6940baa921b319e4657b71940051f86edd37b88c6b8",
+    "scripts/codex_fe/candidates.py": "e302ced0082342c6a17e41ca044c92cd0e9a423163723a4d286bb6ccadfb45f2",
+    "scripts/codex_fe/checks.py": "6da6522ed22aa214a2477bac933641b366c8cf1a21cbef0591e74eb3a8f842d4"
+  }
+}

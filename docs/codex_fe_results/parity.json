@@ -1,0 +1,337 @@
+[
+  {
+    "feature": "arrival_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "actual_remaining",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "filed_remaining",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "iobt_eobt_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "aobt_iobt_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "aobt_lobt_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "iobt_schedule_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "eobt_schedule_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "lobt_iobt_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "duration_revision",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "mvt_second",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "mvt_minute5",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "schedule_second",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "schedule_minute5",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "aobt_second",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "aobt_minute5",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "arvt_second",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "arvt_minute5",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "schedule_hour",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "schedule_day_gap",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "aobt_hour",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "aobt_day_gap",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "offblock_clock_spread",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "offblock_unique",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "flight_rule",
+    "train_null": 9.73599156278012e-05,
+    "rank_null": 5.799774388776276e-05
+  },
+  {
+    "feature": "flight_prefix",
+    "train_null": 0.00490828264302915,
+    "rank_null": 0.005469187248616029
+  },
+  {
+    "feature": "callsign_suffix",
+    "train_null": 0.38000486319972643,
+    "rank_null": 0.3938307799826587
+  },
+  {
+    "feature": "flight_number_band",
+    "train_null": 0.005148085390880877,
+    "rank_null": 0.004961706989598105
+  },
+  {
+    "feature": "stand_prefix",
+    "train_null": 1.3428953879696717e-05,
+    "rank_null": 1.1599548777552553e-05
+  },
+  {
+    "feature": "stand_number",
+    "train_null": 0.002525122934878686,
+    "rank_null": 0.002488103212785023
+  },
+  {
+    "feature": "stand_suffix",
+    "train_null": 0.9036736342154398,
+    "rank_null": 0.9025927891405024
+  },
+  {
+    "feature": "runway_heading",
+    "train_null": 0.00021678168405796127,
+    "rank_null": 0.000272589396272485
+  },
+  {
+    "feature": "runway_side",
+    "train_null": 0.3251466273901739,
+    "rank_null": 0.315960109151754
+  },
+  {
+    "feature": "same_airport",
+    "train_null": 5.851187047582141e-05,
+    "rank_null": 3.7698533527045796e-05
+  },
+  {
+    "feature": "dest_region_mismatch",
+    "train_null": 0.010815103928112892,
+    "rank_null": 0.015360702468673968
+  },
+  {
+    "feature": "temp_c_trend",
+    "train_null": 0.0003107843612158383,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "wind_ms_trend",
+    "train_null": 0.0002877632974220725,
+    "rank_null": 0.00022039142677349852
+  },
+  {
+    "feature": "gust_ms_trend",
+    "train_null": 0.9945238644500579,
+    "rank_null": 0.9913177377400019
+  },
+  {
+    "feature": "vis_km_trend",
+    "train_null": 0.00026282381164549287,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "precip_mm_trend",
+    "train_null": 0.0002594665731755687,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "dewp_spread_c_trend",
+    "train_null": 0.0003107843612158383,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "gust_excess",
+    "train_null": 0.977050397425094,
+    "rank_null": 0.9661960149750175
+  },
+  {
+    "feature": "dep_acceleration_5",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "arr_acceleration_5",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "dep_acceleration_15",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "arr_acceleration_15",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "dep_acceleration_30",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "arr_acceleration_30",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "proxy_neighbor_deviation",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "delay_neighbor_deviation",
+    "train_null": 0.010776735488456615,
+    "rank_null": 0.015340403258313252
+  },
+  {
+    "feature": "runway_headway_asymmetry",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "stand_arrival_gap",
+    "train_null": 0.17728329385380762,
+    "rank_null": 0.1826899933592583
+  },
+  {
+    "feature": "stand_arrival_taxi",
+    "train_null": 0.17728329385380762,
+    "rank_null": 0.1826899933592583
+  },
+  {
+    "feature": "stand_arrival_type_match",
+    "train_null": 0.17794083298841704,
+    "rank_null": 0.18366725534376713
+  },
+  {
+    "feature": "stand_arrival_delay",
+    "train_null": 0.17728329385380762,
+    "rank_null": 0.1826899933592583
+  },
+  {
+    "feature": "stand_sched_turn",
+    "train_null": 0.17728329385380762,
+    "rank_null": 0.1826899933592583
+  },
+  {
+    "feature": "stand_aobt_turn",
+    "train_null": 0.18588789605222328,
+    "rank_null": 0.19478542284705125
+  },
+  {
+    "feature": "runway_proxy_mean",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "runway_proxy_sd",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "runway_proxy_n",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "operator_proxy_mean",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "operator_proxy_sd",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "operator_proxy_n",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "noise_0",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "noise_1",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "noise_2",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  },
+  {
+    "feature": "noise_3",
+    "train_null": 0.0,
+    "rank_null": 0.0
+  }
+]
