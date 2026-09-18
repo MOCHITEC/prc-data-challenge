@@ -21,7 +21,7 @@ empirical instead, from two independent sources:
 (b) the **ARR taxi-in** distribution at the same `(airport, STAND_mvt)` — a separate traversal of the
 same apron-to-runway-system path, measured on different rows.
 The airport coordinates are used for what they can do: great-circle distance between `ADEP_mvt` and
-`ADES_mvt` for the implied-ground-speed check in §5.6.
+`ADES_mvt` for the implied-ground-speed check in §2.13.
 
 ---
 
