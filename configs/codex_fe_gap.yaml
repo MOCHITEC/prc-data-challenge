@@ -1,0 +1,26 @@
+# Gap feature refit; rounds inherited from the frozen eight-month baseline.
+name: codex_fe_gap
+seed: 42
+num_rounds: 742
+early_stopping: 80
+n_seeds: 1
+use_weather: true
+inner_holdout_months: 0
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 90
+unmatched_sched_reparam: true
+params:
+  objective: regression
+  learning_rate: 0.05
+  num_leaves: 127
+  min_data_in_leaf: 50
+  feature_fraction: 1.0
+  bagging_fraction: 0.8
+  bagging_freq: 1
+  lambda_l2: 1.0
+  verbose: -1
+  num_threads: 2
+  deterministic: true
+  force_row_wise: true
+include_candidates: [stand_arrival_gap]

@@ -1,0 +1,30 @@
+[
+  {
+    "split": "train",
+    "rows": 2085047,
+    "exact_equality": true,
+    "columns": [
+      "stand_arrival_gap",
+      "stand_aobt_turn",
+      "stand_arrival_type_match",
+      "eobt_schedule_revision",
+      "delay_neighbor_deviation"
+    ],
+    "default_hidden": true,
+    "opt_in_visible": true
+  },
+  {
+    "split": "rank",
+    "rows": 344841,
+    "exact_equality": true,
+    "columns": [
+      "stand_arrival_gap",
+      "stand_aobt_turn",
+      "stand_arrival_type_match",
+      "eobt_schedule_revision",
+      "delay_neighbor_deviation"
+    ],
+    "default_hidden": true,
+    "opt_in_visible": true
+  }
+]

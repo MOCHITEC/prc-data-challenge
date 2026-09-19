@@ -217,3 +217,95 @@ Candidate generation passes a departure-label-masking test: replacing all depart
 Run from this worktree with `POLARS_MAX_THREADS=2 OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 PYTHONPATH=src`. Use `.venv/bin/python scripts/codex_fe/candidates.py`, then `baseline.py`, `screen.py screen`, `screen.py confirm`, `refit.py noise`, `refit.py selected`, `refit.py all`, `evaluate_refits.py`, `checks.py`, and `report.py`. Run training commands serially. `run_stages.py` coordinates the middle stages after baseline completion; clear stale output metadata when intentionally starting a new experiment. Predictions are keyed parquet files under ignored `outputs/codex_fe/`; all aggregate evidence is under `docs/codex_fe_results/`.
 
 **Commit limitation:** `git add` failed because `/home/user/prc-data-challenge/.git/worktrees/codex-fe/index.lock` is outside the writable workspace and the filesystem is read-only. No commit could be created on the requested branch. Files and results are preserved in this worktree; no workaround modified another checkout.
+
+## NEW — continuation status (2026-09-18)
+
+The continuation follows [continuation_protocol.md](codex_fe_results/continuation_protocol.md).
+The prior findings above are preserved. The saved run completed only the noise feature refit;
+selected/all refits are being completed before drawing feature-adoption conclusions.
+The handoff's statement that the scalar gap improves at all ten airports is incorrect:
+`confirmation.json` records improvements at seven, and worsening at EHAM (+0.374),
+LEMD (+0.428), LSZH (+1.035). All-ten improvement applies to the joint correction.
+
+Stage 1 commit attempt: `git add docs/codex_fe_results/continuation_protocol.md` failed with
+`Unable to create '/home/user/prc-data-challenge/.git/worktrees/codex-fe/index.lock': Read-only file system`.
+No workaround used; results will remain in the writable worktree.
+
+### NEW — pipeline and failure diagnosis measurements
+
+`stand_arrival_gap` now exists in `prc.features.candidate_features`, hidden by default via
+`CANDIDATE_COLS`; `configs/codex_fe_gap.yaml` explicitly enables it. The production helper
+matches the saved experimental column exactly on all 2,085,047 training and 344,841 ranking
+rows ([pipeline_parity.json](codex_fe_results/pipeline_parity.json)). Existing feature tests
+plus a boundary/key/order/opt-in test pass (8 tests). Exact-time arrivals are excluded;
+six-hour equality is included; missing anchors and wrong airports yield null.
+This changes the feature-source fingerprint, so an ordinary pipeline run would rebuild its
+cache. This investigation continues reading the original cache and never writes `data/`.
+
+[scalar_diagnosis.json](codex_fe_results/scalar_diagnosis.json) measures a specific failure:
+`stand_aobt_turn`, `eobt_schedule_revision`, and `delay_neighbor_deviation` are 100% null
+on unmatched confirmation rows. Their corrections are exactly airport-only there.
+On 1,356 November unmatched rows they add **51,760,194 squared seconds**, +14.567 RMSE;
+on 1,649 December unmatched rows they remove 7,678,201, −2.968 RMSE. The November mean
+correction is −36.965 s while the mean evaluation residual is +28.826 s. The type-match
+correction adds 51,684,670 squared seconds on November unmatched rows, despite having
+nonmissing feature values; it is not literally the same correction.
+
+Gap is nonmissing on 75.59% / 76.96% of November / December unmatched rows, reducing their
+SSE by 13,847,863 / 10,195,215 and RMSE by 3.925 / 3.944 seconds. All four failed scalars
+still improve pooled matched RMSE (prior confirmation table). **Inference:** scalar screening
+partly rewarded airport calibration that failed to transfer to November unmatched traffic;
+gap retained discriminating information in that regime. These post-hoc decompositions do
+not prove a causal turnaround mechanism, or that the other features cannot help a joint fit.
+
+All five selected columns are now opt-in production features via `configs/codex_fe_selected.yaml`.
+The expanded parity check matches all five columns exactly on every train/ranking row; all eight
+feature tests pass again. This integration adds no residual correction to any model.
+
+The 11 cache/config tests also pass. `main.yaml` is unchanged. The opt-in configs use weather,
+matching the cached baseline. They preserve this experiment's one seed, full column sampling
+and 742/90 rounds; they are not a reproduction of the production three-seed ensemble.
+
+Ten-month gap/selected refits generate their added columns directly with the production
+helpers, using the original cached context. The eight-month refits used the saved sidecars;
+full-row exact parity validates these as the same feature values. This avoids rebuilding or
+writing the shared cache. It does not assert byte-identical results for a future full pipeline
+rebuild (column order, stopping and production ensembling can change fitted trees).
+
+A fresh [label-support audit](codex_fe_results/data_support.json) finds labels only in January–December
+2025. January 2026 has 152,719 ranking departures and July 2026 has 192,122; both have zero
+labels. Thus a full-twelve-month fit cannot have an honest subsequent local RMSE measurement.
+I chose the ten-month sensitivity over unscored full-year inference: fitting/ranking prediction
+alone would demonstrate execution, not establish the competition effect. No full-year model
+or ranking prediction was produced in this continuation.
+
+### NEW — actual feature-refit measurements
+
+Results below use actual feature additions and fresh fits, without residual corrections.
+
+| Comparison | ΔRMSE [day CI] | 7-day CI | Nov Δ | Dec Δ | Matched Δ | Unmatched Δ |
+|---|---:|---:|---:|---:|---:|---:|
+| noise_vs_baseline | -0.145 [-0.711, +0.426] | [-0.667, +0.396] | -0.187 | -0.101 | +0.028 | -4.037 |
+| selected_vs_baseline | -3.663 [-5.048, -2.355] | [-5.053, -2.039] | -4.305 | -3.005 | -3.351 | -15.843 |
+| selected_vs_noise | -3.518 [-4.939, -2.151] | [-4.991, -1.881] | -4.118 | -2.904 | -3.379 | -11.806 |
+| all_vs_baseline | -4.333 [-6.314, -2.271] | [-6.046, -2.429] | -5.554 | -3.084 | -3.774 | -22.786 |
+| all_vs_noise | -4.188 [-6.025, -2.216] | [-5.748, -2.429] | -5.366 | -2.983 | -3.802 | -18.749 |
+| gap_vs_baseline | -3.242 [-4.282, -2.225] | [-4.226, -2.144] | -4.302 | -2.157 | -2.673 | -20.262 |
+| gap_vs_noise | -3.097 [-4.279, -1.949] | [-4.194, -1.921] | -4.115 | -2.056 | -2.701 | -16.225 |
+| selected_vs_gap | -0.421 [-1.261, +0.492] | [-1.324, +0.461] | -0.003 | -0.848 | -0.678 | +4.419 |
+| all_vs_selected | -0.670 [-2.064, +0.711] | [-1.974, +0.498] | -1.249 | -0.079 | -0.422 | -6.943 |
+| baseline_10m_vs_baseline | -2.689 [-4.923, -0.954] | [-5.121, -0.822] | -3.156 | -2.210 | -2.436 | -12.150 |
+
+Selected/all bundle comparisons retain the original 98.75% intervals. Gap and training-size
+comparisons use descriptive 95% intervals: their design follows the already-seen confirmation
+outcomes. Seven-day intervals are a dependence sensitivity. These intervals omit training uncertainty.
+
+Completed fit metadata:
+
+- `refit_all.json`: 1,387,414 training rows, 742/90 rounds, 397.3 s.
+- `refit_baseline_10m.json`: 1,757,038 training rows, 742/90 rounds, 235.0 s.
+- `refit_gap.json`: 1,387,414 training rows, 742/90 rounds, 241.5 s.
+- `refit_noise.json`: 1,387,414 training rows, 742/90 rounds, 248.0 s.
+- `refit_selected.json`: 1,387,414 training rows, 742/90 rounds, 254.3 s.
+
+Stage commit attempts remain blocked by the read-only git worktree index lock. Files are saved locally.

@@ -241,7 +241,11 @@ def main():
         ),
         "",
     ]
-    Path("docs/codex_feature_report.md").write_text("\n".join(out))
+    path = Path("docs/codex_feature_report.md")
+    marker = "\n## NEW — continuation status (2026-09-18)"
+    previous = path.read_text() if path.exists() else ""
+    appendix = marker + previous.split(marker, 1)[1] if marker in previous else ""
+    path.write_text("\n".join(out) + appendix)
 
 
 if __name__ == "__main__":

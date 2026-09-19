@@ -1,0 +1,90 @@
+{
+  "train": [
+    {
+      "year": 2025,
+      "month": 1,
+      "rows": 153706,
+      "labelled": 153706
+    },
+    {
+      "year": 2025,
+      "month": 2,
+      "rows": 143732,
+      "labelled": 143732
+    },
+    {
+      "year": 2025,
+      "month": 3,
+      "rows": 164449,
+      "labelled": 164449
+    },
+    {
+      "year": 2025,
+      "month": 4,
+      "rows": 175288,
+      "labelled": 175288
+    },
+    {
+      "year": 2025,
+      "month": 5,
+      "rows": 185202,
+      "labelled": 185202
+    },
+    {
+      "year": 2025,
+      "month": 6,
+      "rows": 183142,
+      "labelled": 183142
+    },
+    {
+      "year": 2025,
+      "month": 7,
+      "rows": 190713,
+      "labelled": 190713
+    },
+    {
+      "year": 2025,
+      "month": 8,
+      "rows": 191182,
+      "labelled": 191182
+    },
+    {
+      "year": 2025,
+      "month": 9,
+      "rows": 183950,
+      "labelled": 183950
+    },
+    {
+      "year": 2025,
+      "month": 10,
+      "rows": 185674,
+      "labelled": 185674
+    },
+    {
+      "year": 2025,
+      "month": 11,
+      "rows": 162332,
+      "labelled": 162332
+    },
+    {
+      "year": 2025,
+      "month": 12,
+      "rows": 165677,
+      "labelled": 165677
+    }
+  ],
+  "rank": [
+    {
+      "year": 2026,
+      "month": 1,
+      "rows": 152719,
+      "labelled": 0
+    },
+    {
+      "year": 2026,
+      "month": 7,
+      "rows": 192122,
+      "labelled": 0
+    }
+  ]
+}

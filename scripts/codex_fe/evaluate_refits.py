@@ -29,9 +29,9 @@ def week_ci(f, p, alpha=0.0125):
     return np.quantile(ds, [alpha / 2, 1 - alpha / 2]).tolist()
 
 
-def details(f, p):
-    r = evaluate(f, p, alpha=0.0125, boot=10000)
-    r["week_ci"] = week_ci(f, p)
+def details(f, p, alpha=0.0125):
+    r = evaluate(f, p, alpha=alpha, boot=10000)
+    r["week_ci"] = week_ci(f, p, alpha=alpha)
     r["by_month"] = {
         str(m): evaluate(f.filter(pl.col("month") == m), p[f["month"].to_numpy() == m])
         for m in f["month"].unique().sort().to_list()
