@@ -34,7 +34,13 @@ youthful-giraffe: v3–v12 264.4→262.7, then v13 = 248.5 on 09-08 (one-step �
 2024: 1st likable-jelly LightGBM + physics + METAR + normalised target; 3rd tiny-rainbow CatBoost+LGBM+XGB+MLP+SAINT stacked. 2025: 1st resourceful-quiver 200.83 LightGBM + domain knowledge; 2nd jubilant-vase CatBoost 64%/LGBM 20%/XGB 16%, GroupKFold by flight.
 
 ## A5. Literature [S]
-ATXOT (https://ansperformance.eu/library/pru-tx-out-pi.pdf): unimpeded = median per runway × stand group (≥10 flights) at sub-saturation congestion; taxi-out ≥300 min excluded. NASA Charlotte: RMSE 5–6.5 min. CDG regression tree RMSE 1.6 min; top features unimpeded time, congestion, departures last 20 min. Shenzhen stacking: RMSE 140 s after discarding taxi >3600 s. NASA pushback winners: all per-airport models.
+ATXOT: SUPERSEDED. The description here (median per runway x stand group, >=10 flights, sub-saturation
+  congestion, taxi-out >=300 min excluded) is Edition 00-04. Edition 01.00 (2023-03),
+  https://ansperformance.eu/library/ATXOT_indicator_documentation_mar23.pdf, replaced it: 10th PERCENTILE, not
+  median; stand individually x runway, not stand group; at least 10 flights AT OR BELOW that P10; a rolling
+  12 months; exclusions are taxi-out > 120 min, helicopters, de-icing after AOBT, and missing runway/stand/
+  off-block. The saturation-level mechanism is gone. Corrected 2026-09-21 by
+  docs/competitor_research_2026-09-21/results/19-atm-literature-sota.md. NASA Charlotte: RMSE 5–6.5 min. CDG regression tree RMSE 1.6 min; top features unimpeded time, congestion, departures last 20 min. Shenzhen stacking: RMSE 140 s after discarding taxi >3600 s. NASA pushback winners: all per-airport models.
 
 ## Part B — 12 candidates (unranked)
 H1  unmatched-LIRF error dominant (OpenAir matched ≈236 at LB 277 vs ours 217.7 at LB 305). Verify: SSE share of unmatched rows by airport on OOF. No training.
