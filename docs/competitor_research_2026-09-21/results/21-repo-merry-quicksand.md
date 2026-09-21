@@ -735,18 +735,48 @@ theirs: delta            = BLOCK − AOBT_3
 reparameterisation is the point."* We adopted it as **v2, "2 クロック化", 345.35 → 312.02**
 ([S] `docs/handoff.md:81`), on **all matched rows**, not at LIRF only.
 
-**So: ours is NOT a LIRF-only special case of theirs. We already have the general form, and have had
-it since v2.** What was LIRF-only, and what bought the 20.67 s from 305.03 → 284.36, is a *different*
-mechanism: the **schedule-fill** class, where `BLOCK_TIME` is stamped with `SCHED_TIME` so the label
-degenerates to `y = MVT − SCHED = sp` ([S] `docs/data_audit_2026-09-18/README.md:3-6`;
-[S] our model B's per-airport `mvt_minus_sched` shift, `src/prc/train.py:98-109`).
-That mechanism is **also** in merry-quicksand's pipeline — as the `p·sp` branch of the unmatched
-mixture, plus the LIRF logistic, plus arm R, plus the schedule floor (§4.5).
+**So: our version of *their* reparameterisation is not a LIRF-only special case. We already have the
+general form, on every matched row at every airport, and have had it since v2.** [S] `src/prc/train.py:379-396`:
+`m_tr = tr.filter(PROXY.is_not_null())`, fit on `LABEL − PROXY`, predict `PROXY + g` — no airport
+condition anywhere.
 
-**[X] Consequence: there is nothing to "generalise", and the cost of generalising is zero, because it
-is already general.** The headline number that motivated this slot (285.24 → 252.66) is a gain we
-have already banked. Anyone planning work on the assumption that we have an ungeneralised LIRF-only
-reparameterisation should stop; the plan built on that premise is void.
+What *is* LIRF-only — and what bought the 20.67 s from 305.03 → 284.36 — is a **different
+reparameterisation of a different lane**: model **B**'s (unmatched) target shifted by
+`mvt_minus_sched` at the configured airports ([S] `src/prc/train.py:98-113`,
+`unmatched_sched_reparam_airports = ("LIRF",)`; shipped in `configs/submit_v10_reparam.yaml:27-28`,
+**not** in `configs/main.yaml`). Its mechanism is the schedule-fill class: at LIRF `BLOCK_TIME` is
+stamped with `SCHED_TIME`, so on those rows the label degenerates to `y = MVT − SCHED = sp`
+([S] `docs/data_audit_2026-09-18/README.md:3-6`).
+
+**That mechanism is also in merry-quicksand's pipeline** — as the `p·sp` branch of the unmatched
+mixture, the LIRF logistic, arm R and the schedule floor (§4.5). So both teams have both ideas;
+the two systems are structurally the same family.
+
+### 6.1b "Is ours a special case of theirs, and what would generalising ours cost?"
+
+Precisely:
+
+* **The matched-lane clock reparameterisation:** ours is *theirs*, sign-flipped, already general.
+  Generalising costs **nothing — it is done**. The headline 285.24 → 252.66 is a gain we banked at v2.
+* **The LIRF schedule-fill reparameterisation:** ours is genuinely LIRF-restricted, and
+  **we have already measured what generalising it costs.** [S] `src/prc/train.py:109-113`:
+  applying the same `mvt_minus_sched` shift to *all* unmatched rows measures **2,696.7** against the
+  same **2,326.5** baseline, with **EHAM 954.7 → 3,408.9** — "because only LIRF has the fill
+  mechanism". Restricted to LIRF it measures **2,326.5 → 1,632.1**, better on each of three folds,
+  lower at nine of ten airports and higher at none
+  ([S] `docs/investigation_2026-09-16/results/mms-mixture-reparam.md` §3.3, cited in that comment).
+  **[X] So generalising this one costs ≈ +370 s of unmatched RMSE. Do not.** merry-quicksand reached
+  the same conclusion by a different route and encoded it as a *probability* rather than a switch:
+  their `p` is a per-row fill classifier whose cell rate is LIRF 48.5 % against 0.2–9.4 % elsewhere,
+  so the mixture degrades gracefully to `(1−p)·body` at the nine airports where the mechanism is
+  absent, instead of being on or off.
+* **[X] The one genuine upgrade available to us from this comparison** is therefore not
+  generalising the LIRF shift but *softening* it: replace our hard per-airport switch with their
+  mixture form `pred = p·sp + (1−p)·body`, `p` fitted per row (their LIRF logistic's load-bearing
+  feature is airline identity, estimated far more precisely on LIRF's **159k matched** rows where the
+  copy is visible as `|BLOCK−SCHED| ≤ 60 ∧ |BLOCK−AOBT_3| > 300` — a training signal we are not
+  currently using at all). Their stake weighting for the same classifier is
+  `clip(1 + (max(sp,0)/3600)², 1, 25) × 8 if unmatched`.
 
 ### 6.2 Where the real difference is, then
 
@@ -758,8 +788,8 @@ reparameterisation should stop; the plan built on that premise is void.
 | them, v10 | ≈ 222.6 (fold arm F) | ≈ 1,410 | 281.5182 [S] `reports/PIPELINE_TO_245_2026_09_10.md` §1a |
 | them, v12 | ≈ 210.4 after ADS-B | ≈ 1,336 (back-solved) | 266.3738 |
 
-**[X]** So at v10 our matched lane was *comparable or slightly better* than theirs, and both lanes
-差 were small. Their 15 s of subsequent gain is **~2/3 matched (ADS-B, −7,722 MSE)** and ~1/3
+**[X]** So at v10 our matched lane was *comparable or slightly better* than theirs, and the gap in
+both lanes was small. Their 15 s of subsequent gain is **~2/3 matched (ADS-B, −7,722 MSE)** and ~1/3
 unmatched/LIRF rules. Our remaining ~18 s to them is therefore *not* a target-parameterisation
 question at all.
 
