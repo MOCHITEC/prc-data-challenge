@@ -457,7 +457,7 @@ Items 20, 25, 26, 28 are code/config reads and do not count against the polars c
 | 29 | `v5-verdict-confounded` | same-code 255/20 vs 127/50 comparison via submission |
 | 11 (c) | `linear-tree-model-b` step (c) | v4-matched + candidate-unmatched |
 
-Constraints from E A1: 5 submissions/day, 1 GB; ranking.html: "We will monitor submissions for attempts to learn from or exploit the ranking process. We consider such practices unfair."
+Constraints from E A1: 5 submissions/day, 1 GB; ranking.html: "We will monitor submissions for attempts to learn from or exploit the ranking process. We consider such practices unfair and inconsistent with the purposes and goals of the Data Challenge."
 
 ---
 

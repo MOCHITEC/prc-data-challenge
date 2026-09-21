@@ -4,7 +4,7 @@ Legend: [S] = backed by a source the agent read; [X] = the agent's extrapolation
 
 ## A1. Official 2026 rules [S]
 - Site: https://prc-data-challenge-2026.netlify.app/ (data.html, ranking.html, eligibility.html)
-- Ranking = best RMSE across submissions; 5/day; 1 GB; every MVT_ID_mvt must match. "We will monitor submissions for attempts to learn from or exploit the ranking process. We consider such practices unfair." (ranking.html)
+- Ranking = best RMSE across submissions; 5/day; 1 GB; every MVT_ID_mvt must match. "We will monitor submissions for attempts to learn from or exploit the ranking process. We consider such practices unfair and inconsistent with the purposes and goals of the Data Challenge." (ranking.html)
 - External data allowed if openly accessible, documented, open-source licensed. Prizes need all code on GitHub under GPLv3. Team size not stated. (eligibility.html)
 - 2026 site has NO final-phase text as of 2026-09-16 (raw ranking.qmd and commit log of github.com/euctrl-pru/prc_data_challenge_website_2026 checked). 2025 had Phase 2 with fuel_final_submission.parquet; 2024 reserved 52,190 flights.
 - data.html: MVT_TIME_UTC_mvt = "(best available) movement time"; movements LEFT-JOINED to NM flight table; "Real world data is messy… We haven't tried to reconcile them". 10 airports in local ranking set (no LTAI).

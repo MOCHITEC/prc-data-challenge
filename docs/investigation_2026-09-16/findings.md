@@ -575,7 +575,7 @@ inside a pooled fit (2,154.29 → 2,144.73) and **nothing** outside one.
 Batch D "NOT scheduled — needs the user's explicit authorization"; `docs/README.md` line 253 states
 「提出は依頼があるまで行わない」. The recorded constraints are 5 submissions per day and 1 GB
 (`docs/README.md` §1, `docs/handoff.md` §1), and `plan.md` §3 quotes ranking.html: "We will monitor submissions
-for attempts to learn from or exploit the ranking process. We consider such practices unfair."
+for attempts to learn from or exploit the ranking process. We consider such practices unfair and inconsistent with the purposes and goals of the Data Challenge."
 
 ### 5.4 Provenance questions left open
 
