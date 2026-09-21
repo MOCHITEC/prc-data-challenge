@@ -28,3 +28,14 @@ Rule for every slot: facts with sources only. Mark [S] = read from a source,
 | 18 | turnaround-features | arrival / turnaround / stand-linkage feature catalogs |
 | 19 | atm-literature-sota | academic SOTA for taxi-out prediction |
 | 20 | tabular-comp-craft | general tabular-competition craft not yet applied here |
+
+## Slots added after slot 10's discovery sweep (2026-09-21)
+
+| # | slug | scope | state |
+|---|------|-------|-------|
+| 21 | repo-merry-quicksand | saurabhdxt-labs/prc-challenge, rank 11, 257.55 — clock-disagreement reparameterisation | running |
+| 22 | repo-kind-mango | skylinkapi/...-kind-mango — RECAP.md signed-delta ablation ledger | queued |
+| 23 | repo-col3name-satam2 | col3name/air-data (rank 21, 268.52) + satam2 (rank 36, 278.01) | queued |
+| 24 | repo-tail-sweep | fenil264, sqcm9896, GLAPM, victoralcadi, kagervig | queued |
+
+Queued slots are waiting on the 20-concurrent-subagent limit.
