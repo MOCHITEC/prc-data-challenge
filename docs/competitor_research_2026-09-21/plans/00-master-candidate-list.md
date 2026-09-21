@@ -16,6 +16,27 @@ in G22.
 
 ---
 
+## 0a. Superseded while this list was being written — read this first
+
+Two sibling planners measured their own themes on **our** data during this same round, after
+the 24 research slots closed. Their numbers override the slots' numbers for three of my
+entries. I have left the entries below as the slots wrote them, because that is the record
+this list is auditing, and recorded the corrections here.
+
+| entry | what the slots said | what the planner measured on our data | effect |
+|---|---|---|---|
+| **C29** physics-identity lower bound (`m_aobt > 1800 → max(pred, m_aobt − 3600)`) | sqcm9896: holdout −23.9, **live −20.3** (336.46 → 316.19) on 11,826 rows **[S]** slot 24 | **+0.0985** [+0.0584, +0.1481] at K=0 and **+0.1465** [+0.0839, +0.2130] at K=200 on our 3-fold OOF, **P(better) = 0.000 at every drop level** **[S]** `P5-physics-lower-bound.md` §0, via `prc.compare.robustness_curve` | **C29 → refuted on our data.** Do not ship. My "highest evidence-per-line item in the document" call was wrong. |
+| **C30** LOBT window (`clip(pred, m_lobt − 3606, m_lobt + 3606)`) | javidmardanov: zero violations in training, 55 changed rows in v1 **[S]** slot 08 | **−0.0993** [−0.2037, −0.0258] at K=0 and **−0.0941** [−0.1759, −0.0275] at K=200, **P(better) = 1.000 at every level** — "the first change in this repository's history to pass `prc.compare` at all four drop levels" **[S]** `P5-physics-lower-bound.md` §0 | **C30 → confirmed and promoted.** Ship alone as one isolated probe. |
+| **C23** `stand_arrival_gap` as a feature | our own codex-branch measurement, **−3.242 s [−4.282, −2.225]**, 9/10 airports **[S]** slot 18 | the −3.2424 is real **but was measured against an eight-month baseline**; the ten-month baseline the production `forward` fold uses is already **−2.6888 s better than that baseline on the same 328,009 rows**, and the ten-month arm was started and never finished (`continuation_state.json`: `"current": "gap_10m"`) **[S]** `P4-turnaround-features.md` §0 | **C23 → still actionable, headline number unreliable.** The open question is how much of −3.24 survives the baseline we actually ship. |
+
+The general lesson for the rest of this list **[X]**: the two candidates with the strongest
+*external* leaderboard evidence (C29, sourced at −20.3 s live) and the strongest *internal*
+evidence (C23, −3.24 s on our own folds) are the two that moved most when re-measured under
+our own gate. Treat every unreplicated number below — including the ones I called strongest —
+as a hypothesis with a named test, not as a size estimate.
+
+---
+
 ## 0. How to read the table columns
 
 For each merged candidate: **(a)** what it changes, **(b)** strongest sourced evidence for,
@@ -1673,9 +1694,15 @@ Twenty distinct candidates fall outside all ten planning themes. Eighteen are ac
 | G29 | GPBoost random effects | actionable (low priority) | 7.02 % vs 17.4 % (LGBM-Cat) on high-card regression [S] |
 | G30 | Peer-validated anomaly filtering of training rows | **refuted** | v33: 17 rows dropped, **+13.7 on the board** [S] |
 
-(30 rows; G8, G25, G28 blocked and G30 refuted leaves **26** live gap candidates, of which 18
-are actionable with no predecessor and 8 are actionable-but-sequenced behind an item in the
-themes — principally G10 behind C35 and G18 behind C50.)
+30 gap candidates in total. G8, G25 and G28 are blocked and G30 is refuted, leaving **26
+actionable gap candidates** — 18 with no predecessor and 8 that should be sequenced behind an
+item in the themes (principally G10 behind C35, G18 behind C50).
+
+**If only three of the 26 are taken, take G13, G16 and G22** — the arrival mirror, backward
+elimination, and spending the submission budget. Each attacks the same thing from a different
+side: we have no labelled read on 2026, our search direction is the one PRC 2025's rank 11 used
+rather than rank 1's, and the one exact instrument available to us is 89 %-unused. **[X]** for
+the ranking; every input cited above.
 
 ## The five recorded disagreements
 

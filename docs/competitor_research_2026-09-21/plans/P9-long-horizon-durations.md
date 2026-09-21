@@ -126,11 +126,11 @@ the 200-row-trimmed RMSE delta with a 95% CI. Negative = better. **[S]**
 | # | column | family | window actually used | vs noise (200-row trim) | verdict |
 |---|---|---|---|---|---|
 | 1 | `queue_ahead` | queue count | **no fixed window** — `[own SCHED, own MVT]`, `features.py:325-332` | −0.16 [−0.40, +0.08] | rejected |
-| 2 | `bank_position` | queue position | `dep_tko_prev_60m / (prev_60m + next_60m)`, `features.py:377-379` → **±60 min** | −0.19 [−0.41, +0.07] | rejected |
+| 2 | `bank_position` | queue position | `dep_tko_prev_60m / (prev_60m + next_60m)`, `features.py:377`, `:397-399` → **±60 min** | −0.19 [−0.41, +0.07] | rejected |
 | 3 | `stand_rwy_share` | route/geometry | none (a static share) | −0.10 [−0.38, +0.14] | rejected |
-| 4 | `active_runways_60m` | operating mode | **±30 min centred = 60 min span**, `features.py:364-370` | −0.06 [−0.29, +0.17] | rejected |
-| 5 | `dep_arr_ratio_30m` | operating mode | **30 min**, `features.py:381-386` | +0.03 [−0.16, +0.22] | rejected |
-| 6 | `congestion_vs_usual_30m` | operating mode | **30 min** ÷ per-`(airport, hour_local)` median, `features.py:388-393` | +0.09 [−0.16, +0.31] | rejected |
+| 4 | `active_runways_60m` | operating mode | **±30 min centred = 60 min span**, `features.py:363-371` | −0.06 [−0.29, +0.17] | rejected |
+| 5 | `dep_arr_ratio_30m` | operating mode | **30 min**, `features.py:401-405` | +0.03 [−0.16, +0.22] | rejected |
+| 6 | `congestion_vs_usual_30m` | operating mode | **30 min** ÷ per-`(airport, hour_local)` median, `features.py:407-411` | +0.09 [−0.16, +0.31] | rejected |
 
 Four further rejections followed (`op_offset_med` −0.17, `dest_distance_km` +0.02, the two re-measured at
 3 folds +0.15, `planned_flight_s` −0.21), giving the 10-loss run that closed the feature loop. **[S]**
@@ -140,7 +140,7 @@ Three things this table establishes and one it does not:
 - **Establishes:** the longest window ever screened here is 60 minutes, and it was screened as a *count* or a
   *ratio of counts*, never as a *duration mean*. The 2 h – 30 h band is genuinely untested. **[S]**
 - **Establishes:** `queue_ahead` is the endogeneity instance. Its window is `[SCHED_i, MVT_i]`, whose length
-  is `mvt_minus_sched` — a column the model already holds (`features.py:61`) and which decomposes as
+  is `mvt_minus_sched` — a column the model already holds (`features.py:63`) and which decomposes as
   `(MVT − AOBT_3) + (AOBT_3 − SCHED)`, i.e. the proxy plus another held column. It does not break at scoring
   time; it launders columns the model already has. **[S]** for the code, **[X]** for the decomposition
   argument (slot 17 §4.1 reaches the same conclusion independently).
@@ -310,7 +310,7 @@ transfers as a proxy (`dep_taxi_30hr` → `nbr_mvt_minus_aobt`), one does not ex
 |---|---|---|
 | **quantity** | mean of `TAXITIME_SEC_mvt` over ARR rows | the only real duration label available at scoring time [S, §4] |
 | **grouping key** | `ADES_mvt == ADEP_mvt` of the query, i.e. the airport, one group, no runway/stand split | at 30 h a runway split would be a slow-moving average of the runway's *usage share*, not its congestion; and slot 17 F4a's rule that a missing stand must not form an `UNKNOWN` group [S] means a stand split would silently shrink the pool |
-| **anchor `t`** | the query departure's own `MVT_TIME_UTC_mvt` | matches every other context column (`features.py:150`, module docstring `:8`); `MVT_TIME` is the only timestamp with a 0.0 null-rate on ranking DEP [S] |
+| **anchor `t`** | the query departure's own `MVT_TIME_UTC_mvt` | matches every other context column (`features.py:143`, `:160`; module docstring `:8`); `MVT_TIME` is the only timestamp with a 0.0 null-rate on ranking DEP [S] |
 | **event time** | the arrival's `BLOCK_TIME_UTC_mvt` (`_t_inblock`, `features.py:145-146`) | a taxi-in duration is first *knowable* at in-block; using the landing time would credit the window with information from the future of that arrival |
 | **window** | `[t − W, t)`, `lag_sec = 0` | identical to `:212`; upper bound `side='left'` |
 | **self-exclusion** | none needed | anchor population (DEP) and event population (ARR) are disjoint; `lag_sec=0` is correct and is not an oversight |
@@ -387,7 +387,7 @@ Two residual caveats that must be stated, because "not endogenous" is not "not r
 - **It is a batch-only look-ahead of a mild kind.** The pool is *realised* departures in the file, not
   *scheduled* departures, so the count conditions on those neighbours having actually operated. This is the
   same class of "legal for this leaderboard, would not exist in a live system" as the `dep_tko_next_*m`
-  columns already at `features.py:167` and as Phoenix's whole following-context block
+  columns already at `features.py:167-168` and as Phoenix's whole following-context block
   (`"These observations do not establish availability before departure"` [S, slot 17 F2]). It is legal. It is
   not live. **[X]**
 
@@ -584,7 +584,7 @@ Measurement protocol throughout, from `docs/features_log.md` and `docs/README §
 versus a noise block **with the same number of columns**, judged on the **200-row-trimmed** delta with a 95%
 CI that must exclude zero. **[S]**
 
-One prerequisite that is currently missing: `features.py:408-411` defines exactly **one** `noise_control`
+One prerequisite that is currently missing: `features.py:412-417` defines exactly **one** `noise_control`
 column. Screening a 3-column or 4-column block requires 3–4 independent hashed noise columns, or the
 comparison measures the column-count change rather than the feature — the precise failure that produced the
 false "3 本とも有害" conclusion in experiments 1–3 [S, `docs/features_log.md`]. **Add `noise_control_2..4`
@@ -692,7 +692,7 @@ mattered at KMEM and should not here: NASA's models made ~6–20 predictions per
 grid with a thin calendar block (`hour, day, weekday, month, year` as five plain integers, one model per
 airport) [S, slot 05 §5.3], so a 30-hour rolling mean was carrying information the calendar columns could not.
 Ours already carries `month`, `dow`, `hour_utc`, `hour_local`, `minute_of_day_utc` and a 10-level airport
-categorical (`features.py:80-98`, `:28-42`), plus per-fold target encodings.
+categorical (`features.py:82-87`, `:99-100`; `CATEGORICALS` at `:33-44`), plus per-fold target encodings.
 
 **Prior, stated as a number.** The four-column duration block: **0.050 s** of in-sample linear value on top
 of what we hold, against a **0.25 s** floor. My subjective probability that S3 returns a CI excluding zero at
