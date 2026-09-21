@@ -1596,35 +1596,45 @@ a direct measurement of the narrowest version (17 rows, peer-free by constructio
 
 | classification | count |
 |---|---|
-| actionable now | **46** |
-| blocked | **11** |
-| unmeasurable (real but below our 0.25 s instrument) | **4** |
-| refuted | **3** (as merged candidates; ~25 further refuted claims are recorded inside the theme sections rather than as candidates) |
-| already done (verified in code) | **9** (recorded inside the theme sections) |
-| **total distinct merged candidates carried** | **64** |
+| **actionable now** | **66** |
+| blocked | 11 |
+| unmeasurable (real but below our 0.25 s instrument) | 4 |
+| refuted (carried as a merged candidate) | 2 |
+| already done (verified in code) | 9 |
+| **total distinct merged candidates carried** | **92** |
 
-## The 46 actionable candidates, distributed
+A further ~25 refuted claims are recorded inside the theme sections as "do not spend time
+here" rather than carried as candidates (the whole of `../SUMMARY.md` §F, plus the
+per-theme refutation blocks above). They are not counted in the 92.
 
-| theme | actionable | blocked | unmeasurable | refuted |
-|---|---|---|---|---|
-| P1 unmatched lane specialist | 6 (C1, C3, C4, C5, C6, C7) | 1 (C2) | — | — |
-| P2 cross-fit target encodings | 1 (C8) | — | — | — |
-| P3 OOF fold column + protocol | 13 (C9–C22, less C10's blocked half) | — | — | — |
-| P4 stand_arrival_gap + taxi | 4 (C23, C24, C25, C28) | 2 (C26, C27) | — | — |
-| P5 physics-identity lower bound | 2 (C29, C30) | — | — | — |
-| P6 per-airport upper bound | 2 (C31, C33) | 1 (C34) | — | 1 (C32) |
-| P7 capacity on clipped residuals | 3 (C35, C36, splice-helper) | 1 (C37) | — | — |
-| P8 weather + coverage parity | 4 (C38, C39, C40, C41) | 1 (OPDI `icao_turn`) | — | — |
-| P9 long-horizon rolling durations | 3 (C42, C43, C44) | — | 4 (C45, C46, C47, C48) | — |
-| P10 CatBoost as a rival | 1 (C49) | 2 (C50, C51) | — | — |
-| **themes subtotal** | **39** | **8** | **4** | **1** |
-| **GAPS (outside all ten)** | **20** | **3** (G8, G25, G28) | — | **1** (G30) |
-| **total** | **46**¹ | **11** | **4** | **3** |
+## The 66 actionable candidates, distributed
 
-¹ 39 + 20 = 59 minus the 13 P3 items double-counted against their own sub-blockers; the
-reconciled actionable count is **46** distinct candidates that can be started today with no
-predecessor. The theme/gap split of those 46 is **28 inside the ten themes** and **18 in the
-gaps** (G1–G7, G9–G24, G26, G27, G29 less the three blocked and one refuted).
+| theme | actionable | blocked | unmeasurable | refuted | already done |
+|---|---|---|---|---|---|
+| P1 unmatched lane specialist | **6** — C1, C3, C4, C5, C6, C7 | 1 — C2 | — | — | 2 |
+| P2 cross-fit target encodings | **1** — C8 | — | — | — | — |
+| P3 OOF fold column + protocol | **14** — C9–C22 | — | — | — | 5 |
+| P4 stand_arrival_gap + taxi | **4** — C23, C24, C25, C28 | 2 — C26, C27 | — | — | — |
+| P5 physics-identity lower bound | **2** — C29, C30 | — | — | — | 1 |
+| P6 per-airport upper bound | **2** — C31, C33 | 1 — C34 | — | 1 — C32 | — |
+| P7 capacity on clipped residuals | **3** — C35, C36, splice helper | 1 — C37 | — | — | — |
+| P8 weather + coverage parity | **4** — C38, C39, C40, C41 | 1 — OPDI `icao_turn` | — | — | — |
+| P9 long-horizon rolling durations | **3** — C42, C43, C44 | — | 4 — C45–C48 | — | 1 |
+| P10 CatBoost as a rival | **1** — C49 | 2 — C50, C51 | — | — | — |
+| **ten themes subtotal** | **40** | **8** | **4** | **1** | **9** |
+| **GAPS — outside all ten** | **26** | 3 — G8, G25, G28 | — | 1 — G30 | — |
+| **TOTAL** | **66** | **11** | **4** | **2** | **9** |
+
+**40 of the 66 actionable candidates live inside the ten planning themes; 26 live outside
+all ten.** Of those 26, **18 have no predecessor at all** and can be started today; the
+other 8 are actionable but should be sequenced (principally **G10** behind C35, because
+slot 17 measured the same feature family at 0.283 s through a shallow LightGBM and 1.4 s
+through a deep CatBoost, and **G18** behind C50).
+
+Density note: P3 carries 14 of the 40 in-theme candidates, i.e. more than a third of the
+in-theme work is validation protocol rather than modelling. That is consistent with the
+three independent noise-floor measurements in C12 — seed spread 10 s, cross-machine 4 s,
+paired floor ~5 s **[S]** — against our own 0.25 s screening resolution **[R]**.
 
 ## The gap list, one line each — this is the output of this slot
 
