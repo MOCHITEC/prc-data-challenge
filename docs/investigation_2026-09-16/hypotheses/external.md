@@ -12,7 +12,12 @@ Legend: [S] = backed by a source the agent read; [X] = the agent's extrapolation
 
 ## A2. Live leaderboard 2026-09-16 [S] (https://prc-leaderboard.fly.dev/data.json)
 154 teams. vigorous-whistle 243.58 (13 subs), enthusiastic-daisy 244.83 (49), youthful-giraffe 245.02 (21, last 09-10), jovial-uniform 245.29, gentle-igloo 252.43, gentle-lemon 259.00, merry-quicksand 260.37, quick-boat 260.81, zesty-puzzle 263.63, strong-crane 264.20. resilient-hedgehog 305.03.
-youthful-giraffe: v3–v12 264.4→262.7, then v13 = 248.5 on 09-08 (one-step −14 s), then 245.02 by 09-10. Solo, Kaggle GM (Matt Motoki).
+youthful-giraffe: v3–v12 264.4→262.7, then v13 = 248.5 on 09-08 (one-step −14 s), then 245.02 by 09-10. Solo.
+  RETRACTED 2026-09-21 by docs/competitor_research_2026-09-21/results/02-motoki-method.md: this line previously named the
+  team as Matt Motoki. That claim carried no URL and no source was ever found for it. The official team page
+  https://prc-data-challenge-2026.netlify.app/teams/youthful-giraffe.html gives Indonesia, Independent, 1 member,
+  registered 2026-09-01. Motoki is US-based. The submission curve above is also unverified: it appears in no snapshot
+  we hold and the live feed no longer exposes per-submission history through this endpoint.
 
 ## A3. Public 2026 repos [S]
 - OpenAir / ChandanHegde07, LB 276.99 — https://github.com/ChandanHegde07/OpenAir
