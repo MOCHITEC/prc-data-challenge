@@ -393,7 +393,7 @@ per-(airport, month) level correction estimated from a public series. `kind-mang
 
 **[X] There is no published threshold.** I looked for guidance of the form "a rule must touch at least N
 rows" in Kaggle write-ups and in the four public 2026 competitor repositories and found none. What exists
-instead are four decision procedures, all sourced:
+instead are five decision procedures, all sourced:
 
 1. **Magnitude, not count, is the published criterion. [S]** `kind-mango`'s MP7 gate lists "a list of every
    row moved by more than **3,000 s**" and their stop rule is denominated in **MSE of fold gain** ("if phases
@@ -414,7 +414,12 @@ instead are four decision procedures, all sourced:
    a mixture (`p*a + (1−p)*b`, OpenAir's 50 % blend, `kind-mango`'s `p_fb_cal * sd + (1−p_fb_cal) * R_norm`).
    The one that blew up was a full replacement on a *model-selected* row set.
 
-4. **Sign count on the touched rows. [S]** Phoenix-Ops report "18 squared errors improve and 13 worsen" on
+4. **A 1–2 row post-processing is a correctness fix, not a gain lever. [S]** javidmardanov's attempt log
+   records restoring "V3's nonnegative projection" to remove "one negative ranking prediction in V5 and two
+   in V6"; it was kept, with "No model or coefficient was retuned", and no separate gain is claimed for it.
+   — <https://raw.githubusercontent.com/javidmardanov/PRC-Data-Challenge-2026/main/docs/autoresearch_attempts.md>
+
+5. **Sign count on the touched rows. [S]** Phoenix-Ops report "18 squared errors improve and 13 worsen" on
    their 31 rows; our own item-13 reports "49 helped / 4 hurt" at cap 3,600 and "24 helped / 0 hurt" at cap
    7,200. **[X]** A 58 % hit rate (Phoenix) yields a gain only because the winners are larger than the
    losers; a 92–100 % hit rate (our cap) is a qualitatively different object. Publish the hit rate before
