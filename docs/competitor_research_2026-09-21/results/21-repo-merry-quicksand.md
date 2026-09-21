@@ -21,7 +21,7 @@ Marking: **[S]** = stated/measured in their repo or in our own repo, with a cita
 **[X]** Therefore: everything in this repo is their *266.37* pipeline. The ~8.8 s between 266.37
 and 257.55 was earned after 2026-09-12 and is **not in the public snapshot**. Their `reports/`
 end mid-flight with three live threads that plausibly carry it (ADS-B code-2 rows, the
-CAP+CatBoost bundle, the unmatched body) — see §5.4. Do not read this repo as their current system.
+CAP+CatBoost bundle, the unmatched body) — see §3.1 and §3.9. Do not read this repo as their current system.
 
 **[S]** Their own ranking history, from `reports/MSE_LEDGER.md`:
 v1 689.69 (constant probe) → v2 301.7019 (rank 26/80) → v3 291.6317 → v4 289.6732 → v5 288.1406 →
@@ -206,7 +206,7 @@ delta_hat = mean_over_seeds(model.predict(X_scored))          # average on the D
 y_hat     = np.rint(np.maximum(proxy_scored - delta_hat, 1.0)).astype("int32")
 assert (proxy_scored - delta_hat < 1.0).mean() < 0.005
 
-# ---- unmatched scored rows: a different estimator entirely (§5.5) --------------
+# ---- unmatched scored rows: a different estimator entirely (§4.5) --------------
 ```
 
 ### 1.7 What cannot be determined from the repo
