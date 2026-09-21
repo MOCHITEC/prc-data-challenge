@@ -504,7 +504,7 @@ Two constraints:
 Do **not** put the cap in `write_submission` or in `validate_submission`. The gate's job is to refuse a file,
 not to change one; `MAX_PLAUSIBLE_SECONDS = 3*3600` there is explicitly commented "sanity bound, not a
 clipping rule" (`src/prc/validate_submission.py:19`) **[S]** and it currently fires only as a warning
-(`:87-88`), which is correct and should stay that way.
+(`:91`), which is correct and should stay that way.
 
 ### 5.2 Composition with theme P5's lower bound
 
@@ -566,7 +566,7 @@ Structural (adapted from `src_v3/gate.py` and `build_v48.py` **[S]**, plus our o
 
 - [ ] `prc.validate_submission` passes: schema, dtypes, 344,841 rows, id set **and order** equal to
       `data/raw/submitting.parquet`, no null/NaN/inf, no negative, not all-constant, median within 30 % of the
-      training median (`src/prc/validate_submission.py:39-108`).
+      training median (`src/prc/validate_submission.py:39-110`).
 - [ ] Row-level diff against the scored v10 file: **exactly 12 rows differ**, and their `MVT_ID`s are the
       twelve in §4.4. Any thirteenth row is a blocker.
 - [ ] Maximum absolute movement **1,147 s**; no row moved by more than 3,000 s (the MP7 `BIG_MOVE_S` rule,
@@ -645,7 +645,7 @@ Stated without hedging.
    ten airports, seven of which do have long tails, with `ADEP` as one categorical among many. A per-airport
    monotone constraint, an airport-conditioned leaf, or training-target clipping at those two airports would
    remove the cause. Note that sqcm9896 measured train-target clipping as "vacuous" **[S]**
-   (`24-repo-tail-sweep.md:799-800`), so that specific variant is already priced at zero.
+   (`24-repo-tail-sweep.md:797-800`), so that specific variant is already priced at zero.
 7. **Opportunity cost is the real risk, not the 0.03 s.** This plan costs an upload slot and a few hours. The
    same effort spent on P5 (−20.3 s live, 11,826 rows, sourced) or on the deep-CatBoost residual blend
    (−7.11 s, sourced) is worth two orders of magnitude more **[S]** `SUMMARY.md:91-99`. **[X]** Ship P6 only
