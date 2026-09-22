@@ -40,6 +40,8 @@ LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
 # MVT_TIME - SCHED_TIME. Model B's optional reparameterisation offset; see TrainConfig.unmatched_sched_reparam.
 SCHED_OFFSET = "mvt_minus_sched"
+# MVT_TIME - LOBT. The anchor of the prediction-side bound; see TrainConfig.lobt_bound.
+LOBT_OFFSET = "mvt_minus_lobt"
 ENCODING_COLS = ["ref_p10", "ref_p20", "ref_med", "ref_n", "arh_med", "arh_n", "apt_med", "ref_p10_fb", "ref_missing"]
 # Encodes what model A actually predicts - the offset between the two off-block clocks, AOBT_3 minus
 # BLOCK_TIME - rather than the taxi time. Measured on one month: the median offset runs from -301 s to +56 s
@@ -128,6 +130,19 @@ class TrainConfig:
     # by default.
     include_candidates: tuple[str, ...] = ()
     use_offset_encoding: bool = False  # under test; see OFFSET_COLS
+    # Project the prediction onto [mvt_minus_lobt - slack, mvt_minus_lobt + slack]. Since y = MVT - BLOCK,
+    # that window is exactly {p : |(BLOCK implied by p) - LOBT| <= slack}, and |BLOCK - LOBT| <= 3606 is an
+    # identity on this data: 0 violations in 2,062,577 training rows, in all 12 months and at all 10
+    # airports, with the maximum attained at exactly 3606 and nothing beyond. So the truth lies inside the
+    # window, and clipping onto an interval that contains the truth is a metric projection - it cannot
+    # increase the squared error on any row, whether or not it binds. That is a different operation from
+    # capping the label, which five board measurements refute; see docs/competitor_research_2026-09-21/
+    # plans/{P5-physics-lower-bound.md,P5-REVIEW.md} for the derivation, the 2026 transfer argument and the
+    # enumerated cost. Off by default: the bound cannot be verified on 2026, where BLOCK is blanked.
+    lobt_bound: bool = False
+    # The system constant, not a tuned quantile. Re-deriving it on our data returns 3606 exactly; widening it
+    # weakens the bound and narrowing it makes it false. Do not sweep this.
+    lobt_bound_slack: float = 3606.0
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -421,17 +436,65 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             info["rounds_unmatched"] = 0
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
-    return _assemble(parts, tr, tg, target_f, info)
+    return _assemble(parts, tr, tg, target_f, info, cfg)
 
 
-def _assemble(parts: list[pl.DataFrame], tr: pl.DataFrame, tg: pl.DataFrame, target_f: pl.DataFrame, info: dict):
+def _lobt_bound(out: pl.DataFrame, cfg: TrainConfig, info: dict) -> pl.DataFrame:
+    """Project `pred` onto the window the LOBT clock admits, on the rows that have one.
+
+    `y = MVT - BLOCK` and `|BLOCK - LOBT| <= slack` put the truth inside `mvt_minus_lobt +- slack`, so this
+    is the metric projection onto a convex set containing the truth: `|clip(p) - y| <= |p - y|` row by row,
+    with equality where it does not bind. The lower edge is raised to 0 so the existing zero floor stays in
+    force - `max(m - slack, 0)` can sit above the truth only on rows whose label is negative, which the floor
+    already overrode. Rows with no NM record have no window and are returned untouched."""
+    slack = float(cfg.lobt_bound_slack)
+    if not np.isfinite(slack) or slack <= 0.0:
+        raise ValueError(f"lobt_bound_slack must be a positive finite number, got {slack!r}")
+    m = pl.col(LOBT_OFFSET)
+    lo, hi = pl.max_horizontal(m - slack, pl.lit(0.0)), m + slack
+    # An inverted window means MVT precedes LOBT by more than the slack, which the zero floor and the bound
+    # cannot both satisfy. It does not occur on either year's data; a silent clip with inverted bounds would
+    # be a submission-destroying bug, so refuse rather than guess which edge wins.
+    inverted = int(out.select((m.is_not_null() & (lo > hi)).sum()).item())
+    if inverted:
+        raise AssertionError(f"lobt bound is inverted (lo > hi) on {inverted} rows")
+    before = out["pred"]
+    out = out.with_columns(
+        pl.when(m.is_null())
+        .then(pl.col("pred"))
+        .otherwise(pl.min_horizontal(pl.max_horizontal(pl.col("pred"), lo), hi))
+        .alias("pred")
+    )
+    move = out["pred"] - before
+    info["lobt_bound_slack"] = slack
+    info["lobt_bound_rows"] = int((move.abs() > 1e-9).sum())
+    info["lobt_bound_up"] = int((move > 1e-9).sum())
+    info["lobt_bound_down"] = int((move < -1e-9).sum())
+    info["lobt_bound_max_move"] = float(move.abs().max() or 0.0)
+    return out
+
+
+def _assemble(
+    parts: list[pl.DataFrame],
+    tr: pl.DataFrame,
+    tg: pl.DataFrame,
+    target_f: pl.DataFrame,
+    info: dict,
+    cfg: TrainConfig | None = None,
+):
     pred = pl.concat(parts) if parts else pl.DataFrame({"MVT_ID_mvt": tg["MVT_ID_mvt"].head(0), "pred": []})
     fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float))) if tr.height else 0.0
+    bound = bool(cfg is not None and cfg.lobt_bound)
+    if bound and LOBT_OFFSET not in target_f.columns:
+        raise ValueError(f"lobt_bound is on but {LOBT_OFFSET} is not in the target frame")
     out = (
-        target_f.select("MVT_ID_mvt")
+        target_f.select(["MVT_ID_mvt", LOBT_OFFSET] if bound else ["MVT_ID_mvt"])
         .join(pred, on="MVT_ID_mvt", how="left", maintain_order="left")
         .with_columns(pl.col("pred").fill_null(fallback).fill_nan(fallback).clip(lower_bound=0.0))
     )
+    if bound:
+        out = _lobt_bound(out, cfg, info)
+    out = out.select(["MVT_ID_mvt", "pred"])
     if out.height != target_f.height:
         raise AssertionError("prediction join changed the row count")
     return out, info

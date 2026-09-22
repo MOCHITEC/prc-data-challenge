@@ -1,3 +1,52 @@
+> **CORRECTED 2026-09-22 — read `P5-REVIEW.md` first.** Adversarial review found this plan
+> transforms the wrong file. `outputs/v10_probe_reparam.parquet  [CORRECTED: see the header]` is the OUTPUT OF THE TRAINING RUN
+> whose `exp_id` the submission log records; the file that actually scored 284.3584 is
+> `outputs/v10_probe_reparam.parquet` (`experiments/submissions.jsonl`, entry
+> `resilient-hedgehog_v10.parquet`). The two differ on **336,426 of 344,841 rows**, RMS 64.20 s,
+> max 5,623 s — verified. Executing §4/§5.4/§6 as written would have shipped a file differing from
+> our best score on 336,426 rows, which is the failure §1.6 congratulates itself on avoiding.
+>
+> **Every figure in §4 and §5.4 below is superseded.** Against the scored file, re-measured and
+> reproduced independently by `scripts/build-p5-lobt-bound.py`:
+>
+> | | this plan | corrected |
+> |---|---|---|
+> | rows moved | 47 (43 up / 4 down) | **34 (30 up / 4 down)** |
+> | sum(move^2) | 1.7567e7 | **2.3729e7** |
+> | guaranteed gain | +0.0896 s | **+0.1210 s** |
+> | max move | 2,881 s | **4,295 s** |
+> | top-1 share | 47.2 % | **77.7 %** (one LFPG flight; LFPG-July is 97.9 %) |
+> | airports touched | "all 10" | **6** |
+> | worst case | +0.3683 s | **+0.3550 s** |
+> | calibrated expectation | "+0.3 to +0.6 s" | **+0.36 s** |
+> | overlap with the 47 | — | **17 rows** |
+>
+> **The single-row-share guard now fails outright, not narrowly.** The sign defence still holds,
+> because the per-row sign is a theorem rather than an estimate, but the realised board delta is
+> close to a two-point distribution and the plan must be read that way.
+>
+> **Three further corrections carried from the review.** (1) §0's "first change in this
+> repository's history to pass `prc.compare` at all four drop levels with P(better) = 1.000" is a
+> tautology — a per-row nonpositive delta passes that test by construction, and the gate has no
+> power against the only real failure mode, which is the bound ceasing to hold in 2026. Keep the
+> numbers, drop the claim. (2) §3.5/§6.1/§6.3's drift signal is a seasonality artefact: the plan
+> compares 2026 Jan+Jul against all twelve months of 2025. Season-matched, `|AOBT_3 - LOBT| > 3606`
+> **falls** 0.328 % -> 0.2815 %, so the withdrawal trigger is calibrated against the wrong baseline.
+> (3) "ΔSSE ≤ 0 with certainty" is conditional on the pre-existing zero floor at
+> `src/prc/train.py`, because `max(m - slack, 0)` sits above the truth on the 129 training rows
+> whose label is negative.
+>
+> **What the review could not break, and one thing it strengthened.** The identity re-verifies at
+> zero violations across all ten airports, all 676 operators, all twelve months and every
+> mis-join-shaped subpopulation. The reviewer tried to kill 3606 as a minute-rounding artefact and
+> refuted their own hypothesis: at the window edge, `BLOCK`'s sub-minute jitter is truncated from
+> its full `[-30, +29]` support to `[-30, +6]` and `[-6, +27]`, with 0 of an expected 11 % of 608
+> edge rows beyond 3606. That is only explicable as a raw-second rule at 3606.
+>
+> Independently re-verified here before implementing: `|BLOCK - LOBT| > 3606` is **0 of 2,062,577**
+> departure rows carrying LOBT, in each of the twelve months and at each of the ten airports, with
+> the maximum attained at exactly 3606.0.
+
 # P5 — the physics-identity bound on predictions
 
 Plan, 2026-09-21. Theme P5. One change, pre-priced, effect isolated.
@@ -221,7 +270,7 @@ i.e. when it has actively concluded the off-block was very late. There is no ide
 the floor to restore; it can only overrule a decision.
 
 [S] The calibration check confirms the model has learned this quantity well. `ĝ = pred − m_aobt`
-on the 339,551 matched ranking rows of `outputs/submit_v10_reparam.parquet`, against the true
+on the 339,551 matched ranking rows of `outputs/v10_probe_reparam.parquet  [CORRECTED: see the header]`, against the true
 `g` distribution from §1.2 (`p5_g.py`):
 
 | | model ĝ (2026 ranking) | true g (2025 training) |
@@ -259,7 +308,7 @@ v10-lineage OOF. There is no single row carrying the loss; the loss is the rule.
 
 ### 2.3 Rule A on the ranking set
 
-[S] `p5_rank.py`, against `outputs/submit_v10_reparam.parquet` (our 284.3584 file):
+[S] `p5_rank.py`, against `outputs/v10_probe_reparam.parquet  [CORRECTED: see the header]` (our 284.3584 file):
 
 - binds on **193 rows** (0.0560 %), all matched rows, none unmatched;
 - moves them **up** by median 169 s, mean 240 s, max 1,897 s;
@@ -445,7 +494,7 @@ is the number that disciplines everything below.
 ### 4.2 What rule B does to our 284.3584 file — enumerated, no labels needed
 
 [S] `p5_rank.py`, `p5_break.py`, applying `clip(pred, max(m_lobt−3606,0), m_lobt+3606)` to
-`outputs/submit_v10_reparam.parquet`:
+`outputs/v10_probe_reparam.parquet  [CORRECTED: see the header]`:
 
 - rows where the lower bound is even positive (`m_lobt > 3606`): **7,166**;
 - of those, the prediction is **already inside** the window on **7,123**;
@@ -670,7 +719,7 @@ history that has produced an attributable leaderboard number [S]
 difference from v4's 305.027 is the model-B change and nothing else"). Here the isolation is
 even cleaner, because no retraining is involved at all.
 
-**Build the candidate by transforming `outputs/submit_v10_reparam.parquet` directly, with no
+**Build the candidate by transforming `outputs/v10_probe_reparam.parquet  [CORRECTED: see the header]` directly, with no
 model run.** The candidate differs from our 284.3584 file in **47 rows and nothing else**; the
 other 344,794 rows are bit-identical. Any board delta is therefore those 47 rows, exactly, and
 the metric is deterministic — there is no seed, no fold, no retrain variance to confound it.
@@ -683,7 +732,7 @@ Order of operations:
    `.../15-postprocess-overlays.md:238-240`, "One pre-registered price per upload"). Written
    here, now: **guaranteed ≥ +0.0896 s; expected +0.3 to +0.6 s; absolute worst case
    −0.3683 s; result outside [−0.37, +0.89] falsifies the construction, not the rule.**
-2. **Build the file** with a throwaway script that reads `outputs/submit_v10_reparam.parquet`
+2. **Build the file** with a throwaway script that reads `outputs/v10_probe_reparam.parquet  [CORRECTED: see the header]`
    and `data/raw/ranking.parquet`, computes the window, clips, and writes
    `outputs/v12_lobt_bound.parquet`. Route it through `prc.predict.write_submission` so the
    existing gate runs (`src/prc/predict.py:56-114`: template row order, id dtype, id-set

@@ -11,6 +11,7 @@ from prc.features import build_departure_features
 from prc.synth import generate_month
 from prc.train import (
     ENCODING_COLS,
+    LOBT_OFFSET,
     PROXY,
     SCHED_OFFSET,
     TrainConfig,
@@ -328,3 +329,80 @@ def test_overall_names_the_folds_it_pooled_and_the_ones_it_shadowed(tmp_path):
     # overall.n is the folds that reached it, not the sum over the fold table
     assert rec["overall"]["n"] == sum(rec["folds"][f]["n_into_overall"] for f in rec["overall"]["folds_pooled"])
     assert rec["overall"]["n"] < sum(rec["folds"][f]["n"] for f in rec["folds"])
+
+
+# --- the LOBT prediction bound (docs/competitor_research_2026-09-21/plans/P5-*) -------------------------
+
+
+def _lobt_frames(seed: int = 5):
+    df = pl.concat([generate_month(2025, m, seed=seed + m, deps_per_airport_day=8) for m in (1, 7)])
+    feats = build_departure_features(df)
+    tr = feats.filter(pl.col("MVT_TIME_UTC_mvt").dt.month() == 7)
+    va = feats.filter(pl.col("MVT_TIME_UTC_mvt").dt.month() == 1)
+    return tr, va
+
+
+def test_lobt_bound_is_off_by_default_and_changes_nothing_when_on_but_never_binding():
+    """Default builds must be bit-identical, and a slack wide enough to admit every prediction is a no-op."""
+    tr, va = _lobt_frames()
+    base = TrainConfig(num_rounds=30, early_stopping=10)
+    off, info_off = predict_fold(tr, va, base)
+    assert "lobt_bound_rows" not in info_off
+    wide, info_wide = predict_fold(tr, va, replace(base, lobt_bound=True, lobt_bound_slack=1e9))
+    assert info_wide["lobt_bound_rows"] == 0
+    assert off["pred"].to_list() == wide["pred"].to_list()
+    assert off["MVT_ID_mvt"].to_list() == wide["MVT_ID_mvt"].to_list()
+
+
+def test_lobt_bound_moves_a_row_outside_its_window_to_the_boundary_and_leaves_the_rest_alone():
+    """The mutation test for the bound: with a slack this tight it must bind, and only onto the edge."""
+    tr, va = _lobt_frames()
+    base = TrainConfig(num_rounds=30, early_stopping=10)
+    off, _ = predict_fold(tr, va, base)
+    # Wide enough that no row's window is inverted (that is a separate test), tight enough to bind here.
+    slack = float(-min(va[LOBT_OFFSET].min(), 0.0)) + 300.0
+    on, info = predict_fold(tr, va, replace(base, lobt_bound=True, lobt_bound_slack=slack))
+    assert info["lobt_bound_rows"] > 0, f"a {slack:.0f} s window must bind here or the test proves nothing"
+    m = va.select(["MVT_ID_mvt", LOBT_OFFSET]).join(
+        off.rename({"pred": "before"}).join(on.rename({"pred": "after"}), on="MVT_ID_mvt"),
+        on="MVT_ID_mvt",
+    )
+    for row in m.iter_rows(named=True):
+        anchor, before, after = row[LOBT_OFFSET], row["before"], row["after"]
+        if anchor is None:  # no NM record, no window
+            assert after == before
+            continue
+        lo, hi = max(anchor - slack, 0.0), anchor + slack
+        assert lo - 1e-9 <= after <= hi + 1e-9, row
+        # a projection: unchanged inside the window, otherwise exactly the nearer edge
+        assert after == pytest.approx(min(max(before, lo), hi), abs=1e-9), row
+        assert abs(after - before) <= abs(hi - lo) + abs(before) + 1e-9
+
+
+def test_lobt_bound_never_moves_a_prediction_away_from_a_truth_inside_the_window():
+    """The property the whole change rests on: clipping onto an interval containing y cannot increase |p - y|."""
+    rng = np.random.default_rng(0)
+    slack, anchor = 3606.0, rng.uniform(-3000, 12000, 20000)
+    y = anchor + rng.uniform(-slack, slack, anchor.size)  # a truth the identity admits
+    p = rng.uniform(-5000, 20000, anchor.size)
+    lo, hi = np.maximum(anchor - slack, 0.0), anchor + slack
+    clipped = np.clip(np.maximum(p, 0.0), lo, hi)
+    assert (np.abs(clipped - np.maximum(y, 0.0)) <= np.abs(np.maximum(p, 0.0) - np.maximum(y, 0.0)) + 1e-9).all()
+
+
+def test_lobt_bound_refuses_an_inverted_window_rather_than_clipping_silently():
+    """A row whose MVT precedes LOBT by more than the slack has no window the zero floor also admits."""
+    tr, va = _lobt_frames()
+    broken = va.with_columns(
+        pl.when(pl.int_range(pl.len()) == 0).then(-9e4).otherwise(pl.col(LOBT_OFFSET)).alias(LOBT_OFFSET)
+    )
+    cfg = TrainConfig(num_rounds=30, early_stopping=10, lobt_bound=True)
+    with pytest.raises(AssertionError, match="inverted"):
+        predict_fold(tr, broken, cfg)
+
+
+def test_lobt_bound_refuses_a_non_positive_slack():
+    tr, va = _lobt_frames()
+    for bad in (0.0, -1.0, float("nan")):
+        with pytest.raises(ValueError, match="positive finite"):
+            predict_fold(tr, va, TrainConfig(num_rounds=30, early_stopping=10, lobt_bound=True, lobt_bound_slack=bad))

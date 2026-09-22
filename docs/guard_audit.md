@@ -35,3 +35,23 @@
 
 **9 件すべて実バグに対する正当なガードで、いまは全件テストで保護されている。**
 削除してよいのは、この表に載っていないコード（提出経路に乗らない補助ツール類）のみ。
+
+---
+
+## 追加 G10: LOBT 予測境界（2026-09-22）
+
+`TrainConfig.lobt_bound`。既定 OFF。予測を `mvt_minus_lobt ± 3606` に射影する。
+
+| # | ガード | 変異 | 結果 | テスト |
+|---|---|---|---|---|
+| G10a | 既定 OFF でビット同一 | フラグ既定を True に | **落ちる** | `test_lobt_bound_is_off_by_default_and_changes_nothing_when_on_but_never_binding` |
+| G10b | 窓の外の行は端へ、内側は不変 | 射影を恒等写像に | **落ちる** | `test_lobt_bound_moves_a_row_outside_its_window_to_the_boundary_and_leaves_the_rest_alone` |
+| G10c | 窓が反転していたら拒否 | `lo > hi` 検査を削除 | **落ちる** | `test_lobt_bound_refuses_an_inverted_window_rather_than_clipping_silently` |
+| G10d | slack が非正・非有限なら拒否 | 検査を削除 | **落ちる** | `test_lobt_bound_refuses_a_non_positive_slack` |
+
+G10b のスラックは **データから導出**している（`-min(mvt_minus_lobt) + 300`）。固定値 60 秒にすると
+G10c のほうが先に発火してテストが目的を果たさない — G2 と同じ「テストが弱い」失敗を一度踏んだ。
+
+性質そのものの検査として `test_lobt_bound_never_moves_a_prediction_away_from_a_truth_inside_the_window`
+を別に置いた。真値が窓の中にある限り `|clip(p) − y| ≤ |p − y|` が全行で成り立つ、という射影の性質は
+この変更全体が乗っている土台なので、合成乱数 2 万行で直接検査している。
