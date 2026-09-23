@@ -1,0 +1,21 @@
+# Two runs of this in separate processes must produce a byte-identical OOF.
+#
+# Before the G11 fix they did not: `_matrix` encoded categoricals with `cast(pl.Categorical)`, which returns a
+# different code permutation on every call over a chunked frame, and LightGBM splits a categorical on its code
+# values. One fold at one seed is the cheapest configuration that exercises the same path as production.
+name: determinism_check
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+folds: [forward]
