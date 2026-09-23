@@ -592,6 +592,16 @@ def run_cv(
             **_lane_metrics(joined, y, pv),
         }
         fold_of.append(p.select("MVT_ID_mvt").with_columns(pl.lit(f.name).alias("fold")))
+        # A four-fold run is ~45 min and used to print nothing until it finished, so a run that died partway
+        # was indistinguishable from one still working. Print each fold as it lands, with both lanes.
+        lm, lu = fold_metrics[f.name]["matched"], fold_metrics[f.name]["unmatched"]
+        print(
+            f"fold {f.name}: n={fold_metrics[f.name]['n']:,} rmse={fold_metrics[f.name]['rmse_full']:.2f}"
+            f"  matched {lm.get('rmse_full', float('nan')):.2f} (n={lm['n']:,})"
+            f"  unmatched {lu.get('rmse_full', float('nan')):.2f} (n={lu['n']:,})"
+            f"  [{round(time.time() - t0)}s]",
+            flush=True,
+        )
         # Two folds can validate the same months - `jul` and `jul_fwd` both predict all of July, differing only
         # in how much history they trained on - and `pl.coalesce` keeps whichever came first in fold order
         # [jan, jul, jul_fwd, forward]. So `jul_fwd`'s 190,713 predictions were silently discarded from
