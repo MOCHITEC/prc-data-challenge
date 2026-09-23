@@ -419,6 +419,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
                 ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
             )
         ]
+        # Model A's and model B's visible column counts have differed by one in past records without the
+        # record saying which, so log both rather than inferring them from the config.
+        info["n_features_unmatched"] = len(cols_b)
         if u_tr.height >= 200:
             cfg_b = cfg.for_unmatched()
             (g,), rounds = _fit(u_tr, lambda f: unmatched_target(f, cfg_b), cfg_b, cols_b, cat_cols, [u_tg])
@@ -523,6 +526,23 @@ def feature_parity_report(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: Tr
     )
 
 
+def _lane_metrics(joined: pl.DataFrame, y: np.ndarray, pv: np.ndarray) -> dict:
+    """Split a fold's predictions by the routing key and report each lane on its own.
+
+    The lanes are the two models: rows with an NM off-block time go to model A, rows without go to model B.
+    Model B is about 1.2% of rows and roughly half the squared error, so a pooled RMSE moves by a few tenths
+    when model B moves by hundreds, and a pooled comparison cannot say which one a change touched."""
+    unmatched = joined[PROXY].is_null().to_numpy()
+    apt = joined["ADEP_mvt"].to_numpy()
+    out = {}
+    for name, mask in (("matched", ~unmatched), ("unmatched", unmatched)):
+        if not mask.any():
+            out[name] = {"n": 0}
+            continue
+        out[name] = {**metrics(y[mask], pv[mask]), "by_airport": per_airport(y[mask], pv[mask], apt[mask])}
+    return out
+
+
 def run_cv(
     feats: pl.DataFrame,
     cfg: TrainConfig,
@@ -550,17 +570,28 @@ def run_cv(
     fold_metrics: dict[str, dict] = {}
     pooled: list[str] = []  # folds whose rows reach `overall`
     shadowed: list[str] = []  # folds an earlier fold had already predicted, so `overall` never saw them
+    # Which fold predicted which row, long: one entry per (id, fold) actually predicted, so the rows `overall`
+    # coalesced away are still recoverable. This goes to a SIDECAR parquet rather than a column in the OOF,
+    # for two reasons. The wide file stays byte-identical, so every archived record and every `make compare`
+    # against one keeps its meaning. And `compare.load_pair` joins two OOF frames, where polars silently
+    # renames a second `fold` column to `fold_right` - a column would have been a quiet corruption of exactly
+    # the tool that reads these files.
+    fold_of: list[pl.DataFrame] = []
     for f in folds:
         tr_f = feats.filter(months.is_in(list(f.train_months)))
         va_f = feats.filter(months.is_in(list(f.valid_months)))
         p, info = predict_fold(tr_f, va_f, cfg)
-        joined = va_f.select(["MVT_ID_mvt", LABEL, "ADEP_mvt"]).join(p, on="MVT_ID_mvt", how="inner")
+        joined = va_f.select(["MVT_ID_mvt", LABEL, "ADEP_mvt", PROXY]).join(p, on="MVT_ID_mvt", how="inner")
         y, pv = joined[LABEL].to_numpy().astype(float), joined["pred"].to_numpy().astype(float)
         fold_metrics[f.name] = {
             **metrics(y, pv),
             **info,
             "by_airport": per_airport(y, pv, joined["ADEP_mvt"].to_numpy()),
+            # The two lanes carry very different error and are routed to different models, so a pooled
+            # number hides which one moved. Always report both, never one alone.
+            **_lane_metrics(joined, y, pv),
         }
+        fold_of.append(p.select("MVT_ID_mvt").with_columns(pl.lit(f.name).alias("fold")))
         # Two folds can validate the same months - `jul` and `jul_fwd` both predict all of July, differing only
         # in how much history they trained on - and `pl.coalesce` keeps whichever came first in fold order
         # [jan, jul, jul_fwd, forward]. So `jul_fwd`'s 190,713 predictions were silently discarded from
@@ -573,9 +604,15 @@ def run_cv(
         oof = merged.with_columns(pl.coalesce([pl.col("oof"), pl.col("_p")]).alias("oof")).drop("_p")
         fold_metrics[f.name]["n_into_overall"] = n_new
         (pooled if n_new else shadowed).append(f.name)
-    scored = feats.select(["MVT_ID_mvt", LABEL]).join(oof, on="MVT_ID_mvt", how="inner").drop_nulls(["oof", LABEL])
+    scored = (
+        feats.select(["MVT_ID_mvt", LABEL, "ADEP_mvt", PROXY])
+        .join(oof, on="MVT_ID_mvt", how="inner")
+        .drop_nulls(["oof", LABEL])
+    )
+    sy, sp = scored[LABEL].to_numpy().astype(float), scored["oof"].to_numpy().astype(float)
     overall = {
-        **metrics(scored[LABEL].to_numpy().astype(float), scored["oof"].to_numpy().astype(float)),
+        **metrics(sy, sp),
+        **_lane_metrics(scored, sy, sp),
         "folds_pooled": pooled,
         "folds_shadowed": shadowed,
     }
@@ -595,6 +632,8 @@ def run_cv(
     with open(out_dir / log_name, "a") as fh:
         fh.write(json.dumps(rec, default=str) + "\n")
     oof.write_parquet(out_dir / f"oof_{rec['exp_id']}.parquet")
+    if fold_of:
+        pl.concat(fold_of).write_parquet(out_dir / f"oof_{rec['exp_id']}_folds.parquet")
     return rec
 
 

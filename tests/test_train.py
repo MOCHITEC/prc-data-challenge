@@ -406,3 +406,39 @@ def test_lobt_bound_refuses_a_non_positive_slack():
     for bad in (0.0, -1.0, float("nan")):
         with pytest.raises(ValueError, match="positive finite"):
             predict_fold(tr, va, TrainConfig(num_rounds=30, early_stopping=10, lobt_bound=True, lobt_bound_slack=bad))
+
+
+# --- the fold sidecar and the two-lane report (P1 stage 0) ---------------------------------------------
+
+
+def test_run_cv_writes_a_fold_sidecar_that_keeps_the_rows_overall_coalesced_away(tmp_path):
+    """`overall` keeps one prediction per row, so a shadowed fold vanishes from it. The sidecar must not."""
+    df = pl.concat([generate_month(2025, m, seed=m, deps_per_airport_day=6) for m in range(1, 13)])
+    feats = build_departure_features(df)
+    cfg = TrainConfig(name="sidecar", num_rounds=30, early_stopping=10)
+    rec = run_cv(feats, cfg, out_dir=tmp_path, log_name="t.jsonl")
+    side = pl.read_parquet(tmp_path / f"oof_{rec['exp_id']}_folds.parquet")
+    assert side.columns == ["MVT_ID_mvt", "fold"]
+    # one entry per (row, fold) actually predicted - so the total matches the fold table, not `overall`
+    assert side.height == sum(rec["folds"][name]["n"] for name in rec["folds"])
+    assert set(side["fold"].unique()) == set(rec["folds"])
+    # and every shadowed fold is still represented, which is the whole point of the sidecar
+    for name in rec["overall"]["folds_shadowed"]:
+        assert side.filter(pl.col("fold") == name).height > 0, name
+    # the wide OOF is untouched: still exactly the two columns every archived record and `compare` expect
+    assert pl.read_parquet(tmp_path / f"oof_{rec['exp_id']}.parquet").columns == ["MVT_ID_mvt", "oof"]
+
+
+def test_every_fold_and_overall_report_both_lanes_separately(tmp_path):
+    """A pooled RMSE moves by tenths when model B moves by hundreds; the record must name which lane moved."""
+    df = pl.concat([generate_month(2025, m, seed=20 + m, deps_per_airport_day=6) for m in range(1, 13)])
+    feats = build_departure_features(df)
+    cfg = TrainConfig(name="lanes", num_rounds=30, early_stopping=10)
+    rec = run_cv(feats, cfg, out_dir=tmp_path, log_name="t.jsonl")
+    for block in [rec["overall"], *rec["folds"].values()]:
+        assert "matched" in block and "unmatched" in block
+        assert block["matched"]["n"] + block["unmatched"]["n"] == block["n"], block["n"]
+        for lane in ("matched", "unmatched"):
+            if block[lane]["n"]:
+                assert block[lane]["rmse_full"] > 0
+                assert set(block[lane]["by_airport"]) <= set(feats["ADEP_mvt"].unique().to_list())
