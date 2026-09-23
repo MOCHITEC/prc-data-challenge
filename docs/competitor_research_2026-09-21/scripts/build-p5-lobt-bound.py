@@ -37,8 +37,17 @@ TEMPLATE = ROOT / "data/raw/submitting.parquet"
 OUT = ROOT / "outputs/v12_lobt_bound.parquet"
 
 
-def main() -> int:
-    sub = pl.read_parquet(SCORED).rename({SUBMISSION_TARGET_COL: "pred"})
+def main(argv: list[str]) -> int:
+    # Default: the scored v10 file, with the provenance assertions that prove it is that file.
+    # `--from PATH --out PATH --expect-moved N --expect-up N --expect-down N` clips a different model
+    # output instead; the provenance assertions are then skipped and the gate is driven by the caller's
+    # counts, which must still be computed and stated before the run.
+    src, out_path, exp = SCORED, OUT, None
+    if "--from" in argv:
+        src = ROOT / argv[argv.index("--from") + 1]
+        out_path = ROOT / argv[argv.index("--out") + 1]
+        exp = {k: int(argv[argv.index(f"--expect-{k}") + 1]) for k in ("moved", "up", "down")}
+    sub = pl.read_parquet(src).rename({SUBMISSION_TARGET_COL: "pred"})
     feats = pl.read_parquet(RANK_FEATS, columns=[SUBMISSION_ID_COL, LOBT_OFFSET, "mvt_minus_aobt3", "ADEP_mvt"])
 
     # --- provenance: prove we are holding the file that scored 284.3584, not the training run's output ---
@@ -46,8 +55,11 @@ def main() -> int:
     n11 = int(((d11["pred"] - d11["v11"]).abs() > 1e-9).sum())
     dw = sub.join(pl.read_parquet(WRONG).rename({SUBMISSION_TARGET_COL: "other"}), on=SUBMISSION_ID_COL)
     nw = int(((dw["pred"] - dw["other"]).abs() > 1e-9).sum())
-    assert n11 == 11, f"input differs from v11 on {n11} rows, expected 11 - this is not the scored file"
-    assert nw == 336426, f"input differs from the training run's output on {nw} rows, expected 336426"
+    if exp is None:
+        assert n11 == 11, f"input differs from v11 on {n11} rows, expected 11 - this is not the scored file"
+        assert nw == 336426, f"input differs from the training run's output on {nw} rows, expected 336426"
+    else:
+        print(f"provenance (informational): differs from v11 on {n11} rows, from the v10 run on {nw}")
 
     df = sub.join(feats, on=SUBMISSION_ID_COL, how="left")
     assert df.height == sub.height == 344841, df.height
@@ -74,9 +86,9 @@ def main() -> int:
     # --- the label-free gate: every number here is checkable before the board answers ---
     checks = {
         "rows_total": (int(len(new)), 344841),
-        "rows_moved": (int(moved.sum()), 34),
-        "moved_up": (int((mv > 0).sum()), 30),
-        "moved_down": (int((mv < 0).sum()), 4),
+        "rows_moved": (int(moved.sum()), 34 if exp is None else exp["moved"]),
+        "moved_up": (int((mv > 0).sum()), 30 if exp is None else exp["up"]),
+        "moved_down": (int((mv < 0).sum()), 4 if exp is None else exp["down"]),
         "unmatched_touched": (int(moved[~have].sum()), 0),
         "negative_predictions": (int((new < 0).sum()), 0),
         "non_finite": (int((~np.isfinite(new)).sum()), 0),
@@ -89,7 +101,7 @@ def main() -> int:
         if got != want:
             bad.append(k)
         print(f"{k:<24} {got:>10} {want:>10}{flag}")
-    print(f"\nmax |move|        {np.abs(mv).max():>10.1f}  (expected 4295.0)")
+    print(f"\nmax |move|        {np.abs(mv).max():>10.1f}")
     print(f"median |move|     {np.median(np.abs(mv)):>10.1f}")
     print(f"sum(move^2)       {sse:>10.4e}")
     print(f"guaranteed gain   {guaranteed:>+10.4f} s")
@@ -103,10 +115,12 @@ def main() -> int:
         return 1
 
     pred = pl.DataFrame({SUBMISSION_ID_COL: df[SUBMISSION_ID_COL], "pred": new})
-    write_submission(pred, TEMPLATE, OUT)
-    print(f"\nwrote {OUT.relative_to(ROOT)}")
+    write_submission(pred, TEMPLATE, out_path)
+    print(f"\nwrote {out_path.relative_to(ROOT)}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys as _sys
+
+    raise SystemExit(main(_sys.argv[1:]))
