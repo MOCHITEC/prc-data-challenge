@@ -291,9 +291,17 @@ def _matrix(df: pl.DataFrame, feature_cols: list[str], cat_cols: list[str]) -> t
     cols = feature_cols + cat_cols
     X = df.select(cols)
     for c in cat_cols:
-        X = X.with_columns(
-            pl.col(c).cast(pl.Utf8).fill_null("__NA__").cast(pl.Categorical).to_physical().cast(pl.Float32).alias(c)
-        )
+        # The integer code a category gets must be a function of the data, not of how it was chunked.
+        # `cast(pl.Categorical)` was used here and is NOT: on the real 17-chunk frame, six casts of the same
+        # column give six different encodings - a pure relabelling, so the data is intact, but the codes are
+        # permuted (STAND_mvt: all 2,085,047 rows move; ADEP_mvt: 1.7M). LightGBM splits a categorical feature
+        # on its code values, so a permutation is a different model: replaying one fit with only the codes
+        # relabelled moved early stopping from 937 to 1101 rounds, which is the whole distance between two
+        # production refits that were supposed to be the same build (1252 and 1175). An explicit Enum over the
+        # sorted levels makes the code deterministic. Train and target share this encoding because `_fit`
+        # stacks them and calls this once.
+        s = X[c].cast(pl.Utf8).fill_null("__NA__")
+        X = X.with_columns(s.cast(pl.Enum(sorted(s.unique().to_list()))).to_physical().cast(pl.Float32).alias(c))
     return X.cast(pl.Float32).to_numpy(), cols
 
 

@@ -10,6 +10,7 @@ from prc.cv import month_block_folds, paired_bootstrap_rmse_diff
 from prc.features import build_departure_features
 from prc.synth import generate_month
 from prc.train import (
+    CATEGORICALS,
     ENCODING_COLS,
     LOBT_OFFSET,
     PROXY,
@@ -23,6 +24,7 @@ from prc.train import (
     sched_reparam_shift,
     unmatched_target,
 )
+from prc.train import _matrix
 
 
 def test_folds_use_year_month_keys():
@@ -442,3 +444,25 @@ def test_every_fold_and_overall_report_both_lanes_separately(tmp_path):
             if block[lane]["n"]:
                 assert block[lane]["rmse_full"] > 0
                 assert set(block[lane]["by_airport"]) <= set(feats["ADEP_mvt"].unique().to_list())
+
+
+def test_the_design_matrix_is_a_function_of_the_data_not_of_its_chunking():
+    """G11: `cast(pl.Categorical)` gave a different code permutation on every call over a chunked frame.
+
+    The data survives a relabelling but the model does not: LightGBM splits a categorical on its code values,
+    so permuting them is a different model. Replaying one production fit with only the codes relabelled moved
+    early stopping by 164 rounds, which is the whole distance between two refits that were meant to be the
+    same build. The frame must be multi-chunk for this test to mean anything - a single-chunk frame encodes
+    stably even under the old code."""
+    parts = [generate_month(2025, m, seed=m, deps_per_airport_day=8) for m in (1, 3, 5, 7)]
+    feats = pl.concat([build_departure_features(p) for p in parts])
+    cats = [c for c in CATEGORICALS if c in feats.columns]
+    assert feats[cats[0]].n_chunks() > 1, "the frame must be chunked or this test cannot fail"
+    nums = [c for c in ("mvt_minus_sched", "hour_local", "month") if c in feats.columns]
+    draws = {_matrix(feats, nums, cats)[0].tobytes() for _ in range(4)}
+    assert len(draws) == 1, f"the design matrix took {len(draws)} distinct values over 4 identical calls"
+    # and the encoding must still separate every level it is given
+    X, cols = _matrix(feats, nums, cats)
+    for c in cats:
+        n_levels = feats[c].cast(pl.Utf8).fill_null("__NA__").n_unique()
+        assert len(np.unique(X[:, cols.index(c)])) == n_levels, c
