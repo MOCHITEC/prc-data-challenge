@@ -157,6 +157,25 @@ def main() -> None:
              "{:.3f}"))
     print("\nvar_ratio = 便間の率の分散 / 二項分布の期待分散（1 なら便ごとの差なし）\n")
 
+    # --- F. LIRF: flight-level sched rate stability (H1 -> H2) and the high-sched flights
+    print("## F. LIRF: 便ごとの SCHED コピー率の半期安定性（H1=1-6 月, H2=7-12 月, 各 n≥20）\n")
+    L = tr.filter(pl.col("ADEP_mvt") == "LIRF")
+    h1 = L.filter(pl.col("ym") % 100 <= 6).group_by("FLIGHT_mvt").agg(pl.len().alias("n1"), (pl.col("clock_src") == "sched").mean().alias("p1"))
+    h2 = L.filter(pl.col("ym") % 100 >= 7).group_by("FLIGHT_mvt").agg(pl.len().alias("n2"), (pl.col("clock_src") == "sched").mean().alias("p2"))
+    j = h1.join(h2, on="FLIGHT_mvt").filter((pl.col("n1") >= 20) & (pl.col("n2") >= 20))
+    print(f"便数 {j.height}, corr(p_H1, p_H2) = {np.corrcoef(j['p1'], j['p2'])[0, 1]:.3f}\n")
+    print(md(j.with_columns((pl.col("p1") > 0.5).alias("H1_sched>50%")).group_by("H1_sched>50%").agg(
+        pl.len().alias("flights"), pl.col("p1").mean().alias("p_H1"), pl.col("p2").mean().alias("p_H2")), "{:.3f}"))
+    g = L.group_by("FLIGHT_mvt").agg(pl.len().alias("n"), (pl.col("clock_src") == "sched").mean().alias("sched_rate"),
+                                     pl.col("airline").mode().first().alias("airline"),
+                                     pl.col("STAND_mvt").mode().first().alias("stand"),
+                                     pl.col("y").mean().alias("y_mean")).filter(pl.col("n") >= 30)
+    hi = g.filter(pl.col("sched_rate") > 0.5)
+    nrk = rk.filter((pl.col("ADEP_mvt") == "LIRF") & pl.col("FLIGHT_mvt").is_in(hi["FLIGHT_mvt"].implode())).height
+    print(f"\nsched>50% の便: {hi.height} / {g.height} 便（学習 {hi['n'].sum():,} 行）。ranking LIRF で該当便の行: {nrk:,}\n")
+    print(md(hi.sort("n", descending=True).head(12), "{:,.2f}"))
+
+
 
 if __name__ == "__main__":
     main()

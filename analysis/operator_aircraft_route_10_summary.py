@@ -31,6 +31,11 @@ def main() -> None:
         "sched クラス": (base["cls"] == "sched").to_numpy(),
         "genuine クラス": (base["cls"] == "genuine").to_numpy(),
     }
+    for apt in sorted(base["ADEP_mvt"].unique().to_list()):
+        segs[f"clean {apt}"] = (y < 7200) & (base["ADEP_mvt"] == apt).to_numpy()
+    for fold in (1, 7):
+        segs[f"clean fold{fold}"] = (y < 7200) & (base["MVT_ID_mvt"].is_in(
+            load_dep(["MVT_ID_mvt", "ym"]).filter(pl.col("ym") % 100 == fold)["MVT_ID_mvt"].implode())).to_numpy()
     rows = []
     for a in arms:
         if a == "base":

@@ -9,7 +9,7 @@ Base features = prc.features.build_departure_features (row-local + context; 06a)
 Folds = jan and jul (fit on the other 11 months of 2025), judged on the pooled jan+jul rows (docs/06 §9-1).
 Fixed round counts, identical for all arms, num_threads=2. Memory-lean: one float32 matrix, per-fold row copies.
 
-usage: python operator_aircraft_route_06c_ablation.py [arm ...]   (default: all arms)
+usage: python operator_aircraft_route_06c_ablation.py [--fwd] [arm ...]   (default: all arms; --fwd = Jan-Oct -> Nov-Dec)
 Appends one JSON line per (arm, fold) to data/interim/oar_ablation.jsonl, OOF to data/interim/oar_oof_<arm>.parquet.
 """
 
@@ -175,7 +175,10 @@ def add_te(fit: pl.DataFrame, tgt: pl.DataFrame) -> pl.DataFrame:
 def run_fold(D: Data, month: int, arm: str) -> tuple[dict, pl.DataFrame]:
     extra_cats, extra_num = ARMS[arm]
     K = D.K
-    is_te = (K["ym"] % 100 == month).to_numpy()
+    if month == 0:  # strictly forward fold: fit Jan-Oct, evaluate Nov-Dec (TE only ever sees the past)
+        is_te = (K["ym"] % 100 >= 11).to_numpy()
+    else:
+        is_te = (K["ym"] % 100 == month).to_numpy()
     idx_tr, idx_te = np.where(~is_te)[0], np.where(is_te)[0]
     Ktr, Kte = K.filter(~pl.Series(is_te)), K.filter(pl.Series(is_te))
     # fixed subsample (same rows for every arm) used to fit the two heads; encodings still use all training rows
@@ -243,12 +246,15 @@ def run_fold(D: Data, month: int, arm: str) -> tuple[dict, pl.DataFrame]:
 
 
 def main() -> None:
-    arms = sys.argv[1:] or list(ARMS)
+    args = sys.argv[1:]
+    folds = (0,) if "--fwd" in args else (1, 7)
+    arms = [a for a in args if not a.startswith("--")] or list(ARMS)
     D = Data()
-    log = os.path.join(INTERIM, "oar_ablation_smoke.jsonl" if SMOKE else "oar_ablation.jsonl")
+    log = os.path.join(INTERIM, "oar_ablation_smoke.jsonl" if SMOKE else
+                       ("oar_ablation_fwd.jsonl" if "--fwd" in sys.argv else "oar_ablation.jsonl"))
     for arm in arms:
         oofs = []
-        for month in (1, 7):
+        for month in folds:
             res, oof = run_fold(D, month, arm)
             print(json.dumps(res), flush=True)
             with open(log, "a") as fh:
@@ -256,7 +262,8 @@ def main() -> None:
             oofs.append(oof)
             gc.collect()
         if not SMOKE:
-            pl.concat(oofs).write_parquet(os.path.join(INTERIM, f"oar_oof_{arm}.parquet"))
+            suffix = "_fwd" if folds == (0,) else ""
+            pl.concat(oofs).write_parquet(os.path.join(INTERIM, f"oar_oof_{arm}{suffix}.parquet"))
 
 
 if __name__ == "__main__":

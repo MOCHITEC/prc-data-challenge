@@ -54,6 +54,8 @@ ARMS = {
     "cfg": ["cfg"],
     "all": list(GROUPS),
     "all_nocfgcat": list(GROUPS),  # all, minus the two high-cardinality configuration categoricals
+    "seq_sched": ["seq", "sched_arr"],  # the two groups that are label-free w.r.t. NM and stationary
+    "seq_nbr_sched": ["seq", "nbr", "sched_arr"],  # recommended set: all minus cfg and qhat
     "base_seed1": [],  # training-noise reference: base with another bagging/feature-fraction seed
 }
 DROP = {"all_nocfgcat": {"cfg_config", "cfg_arr_top"}}
