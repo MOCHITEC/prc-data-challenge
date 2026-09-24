@@ -531,6 +531,85 @@ def main() -> None:
               f"perfect = {n_rank*row['sse_per_row']/per_s:7.3f} s; "
               f"bias-only = {n_rank*row['bias']**2/per_s:7.4f} s; "
               f"10 % of SSE = {0.10*n_rank*row['sse_per_row']/per_s:7.3f} s")
+    hr("S7b  PRICING BY VISIBLE CELL (lane x LIRF x band) -- the only honest unit")
+    cells = jb.with_columns(pl.when(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF")).then(pl.lit("B-LIRF"))
+                            .when(pl.col("unm")).then(pl.lit("B-other"))
+                            .otherwise(pl.lit("A-matched")).alias("cell"))
+    rcells = (rk.filter(pl.col("ms") >= 1800)
+              .with_columns(pl.when(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF")).then(pl.lit("B-LIRF"))
+                            .when(pl.col("unm")).then(pl.lit("B-other"))
+                            .otherwise(pl.lit("A-matched")).alias("cell")))
+    a = agg(cells, ["cell", "band"]).join(
+        rcells.group_by("cell", "band").len().rename({"len": "n_rank"}), on=["cell", "band"], how="left")
+    a = a.with_columns(
+        pl.col("n_rank").fill_null(0),
+        (pl.col("SSE") / pl.col("n")).alias("sse_per_row"))
+    a = a.with_columns(
+        (pl.col("n_rank") * pl.col("sse_per_row") / per_s).alias("s_if_perfect"),
+        (pl.col("n_rank") * pl.col("bias") ** 2 / per_s).alias("s_if_bias_closed"))
+    print(band_sort(a.select("cell", "band", "n", "RMSE", "bias", "sse_per_row", "n_rank",
+                             "s_if_perfect", "s_if_bias_closed"), ["cell"]).sort("cell"))
+    print("\ncell totals:")
+    b = agg(cells, ["cell"]).join(rcells.group_by("cell").len().rename({"len": "n_rank"}), on="cell", how="left")
+    b = b.with_columns((pl.col("SSE") / pl.col("n")).alias("sse_per_row"))
+    print(b.with_columns((pl.col("n_rank") * pl.col("sse_per_row") / per_s).alias("s_if_perfect"),
+                         (pl.col("n_rank") * pl.col("bias") ** 2 / per_s).alias("s_if_bias_closed"))
+          .select("cell", "n", "RMSE", "bias", "n_rank", "s_if_perfect", "s_if_bias_closed"))
+    print("\nsum over cells of s_if_bias_closed (per-band cells): %.4f s" % float(a["s_if_bias_closed"].sum()))
+
+    hr("S7c  is the LIRF-unmatched over-prediction real? SE-adjusted, and per fold/month")
+    # E[bhat^2] = b^2 + SE^2, so the unbiased estimate of the recoverable squared bias
+    # is max(0, bhat^2 - SE^2). Anything at or below zero is noise, not bias.
+    aa = a.filter(pl.col("cell") == "B-LIRF").with_columns(
+        (pl.col("RMSE") / pl.col("n").sqrt()).alias("se"))
+    aa = aa.with_columns((pl.col("bias").abs() / pl.col("se")).alias("t"),
+        ((pl.col("bias") ** 2 - pl.col("se") ** 2).clip(0) * pl.col("n_rank") / per_s).alias("s_shrunk"))
+    print(band_sort(aa.select("band", "n", "bias", "se", "t", "n_rank", "s_if_bias_closed", "s_shrunk")))
+    print("  sum s_shrunk over B-LIRF bands 75-90m..4-6h = %.3f s; incl >=12h = %.3f s"
+          % (float(aa.filter(pl.col("band").is_in(["75-90m", "90-120m", "2-3h", "3-4h", "4-6h"]))["s_shrunk"].sum()),
+             float(aa["s_shrunk"].sum())))
+    print("\n  LIRF unmatched ms>=1800, OOF bias per fold and per month:")
+    ju3 = jb.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))
+    print(agg(ju3, ["fold"]).select("fold", "n", "RMSE", "bias", "y_mean", "pred_mean").sort("fold"))
+    print(agg(ju3, ["month"]).select("month", "n", "RMSE", "bias", "y_mean", "pred_mean").sort("month"))
+    print("\n  same for B-other (non-LIRF unmatched):")
+    print(agg(jb.filter(pl.col("unm") & (pl.col("ADEP_mvt") != "LIRF")), ["month"])
+          .select("month", "n", "RMSE", "bias", "y_mean", "pred_mean").sort("month"))
+    print("\n  realised schedfill rate among LIRF unmatched ms>=1800 by month, train vs OOF months:")
+    print(big.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))
+          .group_by("month").agg(pl.len().alias("n"), (pl.col("kind") == "schedfill").mean().alias("fill"))
+          .sort("month"))
+
+    hr("S7d  months 1+7 (= the scored months) and a leave-one-month-out shift test")
+    ju4 = jb.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))
+    j17 = ju4.filter(pl.col("month").is_in([1, 7]))
+    b17 = float(j17["resid"].mean()); r17 = float(np.sqrt((j17["resid"] ** 2).mean()))
+    se17 = r17 / np.sqrt(j17.height)
+    print(f"OOF months 1+7, LIRF unmatched ms>=1800: n={j17.height} RMSE={r17:.0f} "
+          f"bias={b17:+.0f} SE={se17:.0f} t={abs(b17)/se17:.2f}")
+    nr = rk.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF") & (pl.col("ms") >= 1800)).height
+    print(f"  value of removing that mean shift on the {nr} scored rows: "
+          f"naive {nr*b17**2/per_s:.3f} s, SE-adjusted {nr*max(0.0, b17**2-se17**2)/per_s:.3f} s")
+    print("\n  leave-one-month-out (estimate the shift on one month, apply to the other):")
+    for est, app in [(1, 7), (7, 1)]:
+        e = ju4.filter(pl.col("month") == est); ap = ju4.filter(pl.col("month") == app)
+        sh = float(e["resid"].mean())
+        before = float((ap["resid"] ** 2).sum()); after = float(((ap["resid"] - sh) ** 2).sum())
+        print(f"    shift from month {est} ({sh:+.0f} s) applied to month {app} (n={ap.height}): "
+              f"SSE {before:.3e} -> {after:.3e}  ({(before-after)/before:+.1%}); "
+              f"scaled to {nr} scored rows = {(before-after)/ap.height*nr/per_s:+.3f} s")
+    print("\n  and the same shift test on ALL LIRF unmatched rows (any ms) and on B-other:")
+    for name, fr in [("LIRF unm all ms", j.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))),
+                     ("non-LIRF unm ms>=1800", jb.filter(pl.col("unm") & (pl.col("ADEP_mvt") != "LIRF")))]:
+        for est, app in [(1, 7), (7, 1)]:
+            e = fr.filter(pl.col("month") == est); ap = fr.filter(pl.col("month") == app)
+            if e.height < 5 or ap.height < 5:
+                continue
+            sh = float(e["resid"].mean())
+            before = float((ap["resid"] ** 2).sum()); after = float(((ap["resid"] - sh) ** 2).sum())
+            print(f"    {name}: shift {sh:+.0f} from m{est} -> m{app} (n={ap.height}): "
+                  f"{(before-after)/before:+.2%} of that cell's SSE")
+
     print("\nWhole ms>=1800 population:")
     sse_big = float(jb["sse"].sum())
     print(f"  OOF ms>=1800: n={jb.height} SSE={sse_big:.4e} = {sse_big/TOT:.4f} of total")
