@@ -286,6 +286,22 @@ def main() -> None:
         (pl.col("kind") == "longtaxi").sum().alias("longtaxi"),
         (pl.col("kind") == "modtaxi").sum().alias("modtaxi"))))
 
+    hr("S3b  is |bs|<=10 a real spike, or just the local density of bs?")
+    # A 21-s window. Compare its count with the count in equal-width windows
+    # displaced by +-600 s and +-1200 s at the same airport (ms >= 1800).
+    rows = []
+    for ap in sorted(big["ADEP_mvt"].unique().to_list()):
+        s_ap = big.filter(pl.col("ADEP_mvt") == ap)
+        at0 = int((s_ap["bs"].abs() <= 10).sum())
+        nb = [int(((s_ap["bs"] - d).abs() <= 10).sum()) for d in (-1200, -600, 600, 1200)]
+        base = float(np.mean(nb))
+        rows.append(dict(ADEP=ap, n=s_ap.height, at0=at0, nbr_mean=round(base, 1),
+                         excess=at0 - base, ratio=at0 / max(base, 0.5),
+                         at0_unm=int((s_ap.filter(pl.col("unm"))["bs"].abs() <= 10).sum())))
+    print(pl.DataFrame(rows).sort("excess", descending=True))
+    print("exact bs == 0 count per airport (ms>=1800):")
+    print(big.filter(pl.col("bs") == 0).group_by("ADEP_mvt").len().sort("len", descending=True))
+
     hr("S4c  the 'long taxi at large ms' question: P(y>=1800 | band, lane)")
     t = (big.group_by("band", "unm").agg(
         pl.len().alias("n"), (pl.col("y") >= 1800).mean().alias("p_y1800"),
@@ -294,6 +310,48 @@ def main() -> None:
     print(band_sort(t, ["unm"]))
     print("\nbaseline over ALL training rows: P(y>=1800)=%.5f P(y>=3600)=%.5f mean y=%.1f" %
           (float((tr["y"] >= 1800).mean()), float((tr["y"] >= 3600).mean()), float(tr["y"].mean())))
+
+    hr("S4d  per-band identifiability: AUC for y>=1800, each lane, each candidate")
+    cand_mat = ["ms", "mvt_minus_aobt3", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt",
+                "hour_utc", "dep_tko_prev_30m", "congestion_vs_usual_30m", "queue_ahead",
+                "dest_distance_km", "planned_flight_s", "stand_null", "runway_null"]
+    cand_unm = ["ms", "hour_utc", "dow", "dep_tko_prev_30m", "arr_land_prev_30m",
+                "congestion_vs_usual_30m", "queue_ahead", "dest_distance_km",
+                "planned_flight_s", "actype_null", "stand_null", "runway_null"]
+    for unm, cands in [(False, cand_mat), (True, cand_unm)]:
+        print(f"\n  lane = {'B unmatched' if unm else 'A matched'}")
+        out = []
+        for band in LABELS:
+            s_b = big.filter((pl.col("band") == band) & (pl.col("unm") == unm))
+            if s_b.height < 50:
+                continue
+            lab = (s_b["y"] >= 1800).to_numpy().astype(int)
+            if lab.sum() < 5 or lab.sum() == len(lab):
+                continue
+            d = dict(band=band, n=s_b.height, base=round(float(lab.mean()), 4))
+            for c in cands:
+                d[c] = round(auc(s_b[c].to_numpy().astype(float), lab), 3)
+            out.append(d)
+        print(band_sort(pl.DataFrame(out)))
+    print("\n  matched lane, RMSE of using mvt_minus_aobt3 directly as yhat (ms>=1800):")
+    mm = big.filter(~pl.col("unm"))
+    e = (mm["mvt_minus_aobt3"] - mm["y"]).to_numpy()
+    print(f"    n={len(e)} RMSE={np.sqrt((e**2).mean()):.1f} bias={e.mean():.1f} "
+          f"p25={np.percentile(e,25):.0f} p75={np.percentile(e,75):.0f}")
+
+    hr("S4e  unmatched lane: does airport x band already say it? (lift table, no label)")
+    u2 = big.filter(pl.col("unm")).with_columns(
+        (pl.col("ADEP_mvt") == "LIRF").alias("is_lirf"))
+    t = (u2.group_by("is_lirf", "band").agg(
+            pl.len().alias("n"), (pl.col("y") >= 1800).mean().alias("p_y1800"),
+            pl.col("y").mean().alias("y_mean"), pl.col("y").median().alias("y_p50"))
+         .filter(pl.col("n") >= 20))
+    print(band_sort(t, ["is_lirf"]))
+    print("\n  and with actype_null (LIRF's unmatched rows are 99.9 % actype-null):")
+    t = (u2.group_by("actype_null", "band").agg(
+            pl.len().alias("n"), (pl.col("y") >= 1800).mean().alias("p_y1800"),
+            pl.col("y").mean().alias("y_mean")).filter(pl.col("n") >= 20))
+    print(band_sort(t, ["actype_null"]))
 
     # ------------------------------------------------------------ S5 OOF
     hr("S5  OOF: per band and per kind -- n, RMSE, bias, SSE share")
@@ -331,6 +389,14 @@ def main() -> None:
     print("\nlatepush, matched lane, by band, split on whether AOBT_3 agrees:")
     lp = jb.filter((pl.col("kind") == "latepush") & (~pl.col("unm")))
     print(band_sort(agg(lp, ["band"])))
+    print("\nUNMATCHED lane by band x (LIRF / not) -- the cross-airport contamination check:")
+    ju = jb.filter(pl.col("unm")).with_columns((pl.col("ADEP_mvt") == "LIRF").alias("is_lirf"))
+    print(band_sort(agg(ju, ["is_lirf", "band"]).filter(pl.col("n") >= 10), ["is_lirf"]))
+    print("\nMATCHED lane by band -- bias only:")
+    print(band_sort(agg(jb.filter(~pl.col("unm")), ["band"])))
+    print("\ntop-20 single rows by SSE within ms>=1800:")
+    print(jb.sort("sse", descending=True).head(20).select(
+        "ADEP_mvt", "FLIGHT_mvt", "band", "kind", "unm", "ms", "bs", "y", "oof", "sse"))
     print("\nschedfill rows in OOF, per airport:")
     print(agg(jb.filter(pl.col("kind") == "schedfill"), ["ADEP_mvt"]).sort("SSE", descending=True))
 
