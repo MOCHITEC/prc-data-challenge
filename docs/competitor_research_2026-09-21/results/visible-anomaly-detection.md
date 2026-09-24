@@ -3,10 +3,15 @@
 **Script (read-only; no training run, no submission, nothing written outside `/tmp`):**
 `docs/competitor_research_2026-09-21/scripts/visible-anomaly-detection.py`, run stage by stage as
 `POLARS_MAX_THREADS=<1-3> .venv/bin/python docs/competitor_research_2026-09-21/scripts/visible-anomaly-detection.py <stage>`
-with `<stage>` in `counts | marginal | cats | combo | widen | part2 | price | hardcase | lobt`.
+with `<stage>` in `counts | marginal | cats | combo | widen | part2 | part2b | price | hardcase | lobt`.
+Every stage here was run except `part2`, which was killed by its own 40-minute guard on a
+four-core box shared with three other CPU-bound jobs; `part2b` (a 250,000-row subsample, smaller
+trees) produced the §6.3 numbers instead, and §6.1-6.2 come from the part of `part2` that
+completed before the guard fired. Run order: `counts, marginal, cats, price, hardcase, lobt,
+combo, widen, part2b`.
 Artefacts land in a scratch directory; nothing in `src/`, `configs/` or `outputs/` was touched.
 Fits were kept small and, where the text says so, subsampled; a few one-off checks were run
-inline from the shell and are marked **(inline)** with the query given in full.
+inline from the shell and are marked **(inline)**, with the query described where it is used.
 
 **Inputs (read, never written).** `data/work/feat_train.parquet` (2,085,047 rows, all
 `PHASE_mvt == "DEP"`, 137 columns), `data/work/feat_rank.parquet` (344,841 scored 2026 departure
@@ -40,8 +45,9 @@ which equals `ms − y` identically and is therefore a re-expression of the labe
    The 2026 frame contains **exactly one** such row, and the shipped v13 prediction for it is
    84,866 s — the production `lobt_bound` already acts on it. §2.1, §5.2. [S]
 2. **Mostly yes for the unmatched lane too, and the claim that "visible information points the
-   wrong way" is wrong as a general statement.** Of the 15 unmatched corrupted rows, **12 sit above
-   the 95th percentile of `ms` in their own lane and 11 above the 99.8th**; `ms` alone scores
+   wrong way" is wrong as a general statement.** Of the 15 unmatched corrupted rows, **13 sit above
+   the 95th percentile of `ms` in their own lane and 12 above the 99.8th** (the same 12 are
+   exactly the rows with `ms ≥ 50,400 s`); `ms` alone scores
    **AUC 0.8896** over the 22,424-row lane and **0.9895** inside LIRF's 1,487. The two rows the
    earlier claim cited (LSZH `ms` 939, LFPG `ms` 1,740) are percentile 15.6 and 24.6 — they are
    the exceptions, quoted as if they were the rule. §2.2, §2.3. [S]
@@ -60,10 +66,19 @@ which equals `ms − y` identically and is therefore a re-expression of the labe
 5. **Combination does not rescue it at this class size.** A leave-one-month-out LightGBM over the
    full visible feature set scores **below `ms` alone** on the unmatched lane. With 15 positives
    the permutation control is the point of the exercise, not a footnote. §4. [S]
-6. **Part 2 (heteroscedasticity) is the part with a real, reusable answer**, and it is not a lever
-   either: visible features predict *error magnitude* well, but almost all of that is the two
-   things the model already conditions on — lane and airport. §6.
-7. **The "well under one expected corrupt row in 2026" estimate is wrong.** Every stratification
+6. **Separation appears at the wider definitions, and it is a statement about long taxis, not
+   about corruption.** The same pipeline scores AUC 0.9877-0.9893 for `y ≥ 7,200` / `≥ 14,400` /
+   `≥ 43,200` and its 50 top-ranked unmatched rows of the year are **all** genuinely `y ≥ 7,200`
+   (precision 1.000) — but at `y > 72,000` it falls to 0.8609 with top-100 precision 0.09. The
+   mechanism is LIRF's `BLOCK := SCHED` fill (48.5 % of its unmatched rows against 3.4 %
+   elsewhere), on which `y ≡ ms` by arithmetic. §4b. [S]
+7. **Part 2 (heteroscedasticity) does have a real, reusable answer, and it is still not a lever.**
+   Visible features rank error magnitude well — the top predicted decile holds **61.5 %** of the
+   squared error, 6.2× its share — and the strongest contributor is `STAND_mvt`, which is new.
+   But the gain over the model's own prediction plus lane disappears above the top 1 %, and under
+   squared loss a variance estimate does not change the optimal point prediction. Its value is in
+   deciding which measurements to believe. §6. [S]/[X]
+8. **The "well under one expected corrupt row in 2026" estimate is wrong.** Every stratification
    gives **2.6 to 7.0** expected, with Poisson 95 % lower bounds of 1.5 to 2.8. §7.1. [S]
 
 ---
@@ -111,13 +126,13 @@ lane**.
 
 [S]. `mvt_minus_lobt` is **computable without the label**: `LOBT_flt` and `MVT_TIME_UTC_mvt` are
 both populated on 98.47 % of 2026 scored rows. The bound is not a statistic — it is the identity
-already derived in `src/prc/train.py:118-130` and exploited by `lobt_bound: true` in
+already derived in `src/prc/train.py:133-145` and exploited by `lobt_bound: true` in
 `configs/main_reparam.yaml`. On the matched lane the answer to the brief's question is therefore
 an unqualified **yes**, with zero false positives in 2.06 M rows, and the lever is already pulled.
 
 ### 2.2 The unmatched lane: `ms` separates, and it is the only thing that does
 
-`marginal` stage. Query: for each of the 118 numeric visible columns, Mann-Whitney AUC of the
+`marginal` stage. Query: for each of the 106 numeric visible columns, Mann-Whitney AUC of the
 column over the 22,424-row unmatched lane with the 15 corrupted rows as positives, plus the
 percentile position of each positive inside the 22,409 negatives.
 
@@ -136,7 +151,7 @@ percentile position of each positive inside the 22,409 negatives.
 
 * **`ms` is the separator, and `queue_ahead` is `ms` wearing a hat.** `queue_ahead` counts the
   departures that left between this flight's `SCHED` and its own take-off
-  (`src/prc/features.py:374-399`), so it is a monotone-ish function of `ms` by construction. Its
+  (`src/prc/features.py:374-402`), so it is a monotone-ish function of `ms` by construction. Its
   AUC is lower than `ms`'s in both populations; it adds nothing. Both are label-free. [X]
 * **The "arrivals" block points the other way and it is not a detector.** `arr_land_prev_60m`,
   `arr_inblock_prev_30m` and friends run AUC 0.21-0.33, i.e. the corrupted rows are in *quiet*
@@ -173,9 +188,13 @@ table the earlier claim should have produced.
 | LIRF | ITY332 | 87,168 | 11,694 | **95.47** | 0.5 | 74.6 | 0.1 | 7.95 | 96.3 | 53.8 |
 | LFPG | EJU983W | 84,240 | 1,740 | **24.58** | 80.6 | null | 27.5 | 19.62 | 76.7 | 28.8 |
 
-[S]. **12 of 15 are at or above the 95th percentile of `ms` and 11 above the 99.8th.** The two
-rows offered as evidence that visible information "points the wrong way" are rows 9 and 15 of this
-table. They do point the wrong way — and they are 2 of 15. `hour_utc`, `dow`, `month`,
+[S]. **13 of 15 are at or above the 95th percentile of `ms`, and 12 above the 99.8th** — the
+same 12 are exactly the rows with `ms ≥ 50,400 s`, which is the operating point of §5.3. One of the two rows offered as
+evidence that visible information "points the wrong way" is row 15 here (LFPG `EJU983W`,
+`ms` 1,740, percentile 24.6); **the other (`ms` 2,043) is not in this table at all**, because its
+label is 58,206 and the corruption class is `y > 72,000` — it appears in §3 and in the `y ≥ 43,200`
+class of §4b. Inside the class as defined, the rows that point the wrong way are row 9 (LSZH,
+percentile 15.6) and row 15, i.e. **2 of 15**. `hour_utc`, `dow`, `month`,
 `stand_arrival_gap`, `dep_tko_prev_60m`, `rwy_headway_prev_s` and `dest_distance_km` are all
 scattered across their ranges with no pattern, which is the expected picture for 15 draws.
 
@@ -209,7 +228,7 @@ flagging the whole level.
 [S]. Reading: **nothing categorical is a detector.** `ADES_mvt == SAEZ` and the `NOS`/`ITY` flight
 prefixes have big lifts on 2-4 rows and 0.025-0.083 precision — at n = 15, two rows landing in a
 0.1 %-of-the-lane level is a coin-flip event you will find in *some* column if you look at
-enough of them, and 12 columns × dozens of levels were looked at. `ADEP_mvt == LIRF`,
+enough of them, and 29 columns × their levels were looked at with no multiplicity correction. `ADEP_mvt == LIRF`,
 `AIRCRAFT_TYPE_mvt` null and `RUNWAY_mvt == 25` are the same fact three times (LIRF's unmatched
 rows carry no aircraft type and mostly use 25) and are already model categoricals. The operator
 block is **entirely null on the unmatched lane** — all four `_flt` categoricals are 100 % null
@@ -243,12 +262,16 @@ worst 1,000 rows 47.00 %. (Confirms the brief's figures.)
 | 9 | LIRF | NBT40H | **842** | **12,936** | 15,361 | 0.27 % |
 | 10 | LIRF | RYR68SF | **723** | **12,209** | 15,301 | 0.25 % |
 
-All ten corrupted rows present in this OOF together carry **19.64 %** of its SSE, and **13.0 of
-those 19.6 points are the single LFPG row**. The nine LIRF corrupted rows carry 6.68 %, because
-the model already predicts 57,514 to 91,813 on them. Rows 7, 9 and 10 (and 9 more of the top 25)
-are the *opposite* error: LIRF unmatched rows with a large `ms` and a perfectly ordinary label,
-over-predicted by 10,000-19,000 s. **That is the ms detector already firing, and already paying
-its false-positive bill.**
+All ten `y > 72,000` rows present in this OOF together carry **19.64 %** of its SSE, and **13.0 of
+those 19.6 points are the single LFPG row**. (Separately, and confusingly similar: the *two* LFPG
+rows of the table above — `EJU983W` at `y = 84,240` and `EJU42AY` at `y = 58,206`, the second of
+which is below the `y > 72,000` threshold — carry **19.10 %** between them. The two figures are
+different sets that happen to land within half a point of each other.) The nine LIRF corrupted rows carry 6.68 %, because
+the model already predicts 57,514 to 91,813 on them. Rows 7, 9 and 10 are the *opposite* error, and they are not
+alone: **14 of the top 25** are LIRF unmatched rows with a large `ms`, a perfectly ordinary label
+(`y < 7,200`) and an over-prediction of **8,522 to 19,316 s**, together 3.27 % of the OOF SSE
+against the 6 corrupted rows' share of the same top-25 [S] (inline). **That is the `ms` detector
+already firing, and already paying its false-positive bill.**
 
 **Where the LIRF unmatched SSE sits, by `ms` band** (`hardcase`; OOF rows only):
 
@@ -267,7 +290,7 @@ that 9.3 %.
 
 **The two LFPG rows against their own peers.** `hardcase` stage. Query: percentile position of
 each of the two LFPG rows with `y ≥ 43,200` inside the other 3,763 LFPG unmatched training rows,
-over all 118 numeric visible columns, ranked by the larger of the two deviations from the median.
+over all 106 numeric visible columns, ranked by the larger of the two deviations from the median.
 
 | feature | row A (EJU983W) value / pct | row B (EJU42AY) value / pct |
 |---|---|---|
@@ -282,12 +305,12 @@ over all 118 numeric visible columns, ranked by the larger of the two deviations
 | `dow` | 7 / 92.3 | 4 / 44.6 |
 
 [S]. **No feature places both rows on the same side of the distribution except the clock features,
-and those place them both LOW.** The largest deviation from the median anywhere in the 118 columns
+and those place them both LOW.** The largest deviation from the median anywhere in the 106 columns
 is 48.9 percentile points, on `wind_ms_prev1h`, where the two rows disagree by 87 points. The best
 single-feature AUC for `y ≥ 43,200` inside LFPG unmatched is 0.028 (`month`: both rows are
 January) — with 2 positives in 3,765 rows, an AUC of 0.028 or 0.972 is what one draw looks like.
 The only thing the two share besides the small `ms` is a null `stand_arrival_gap` (lane base rate
-13.5 %, so `P ≈ 0.018` for both — one uncorrected coincidence out of 118 columns tested).
+13.5 %, so `P ≈ 0.018` for both — one uncorrected coincidence out of 106 columns tested).
 
 **Verdict for §3: for the two rows that carry a fifth of our squared error, nothing visible
 separates them, and this is now demonstrated at each feature rather than asserted.** The reason it
@@ -298,7 +321,7 @@ not that the answer is no. [X]
 
 ## 4. Combination, and what chance looks like at n = 15 (task item 1.2)
 
-`combo` stage. **Fitted on the unmatched lane only** — see §9.1 for why. 22,424 rows, 15
+`combo` stage. **Fitted on the unmatched lane only** — see §9 item 1 for why. 22,424 rows, 15
 positives, 117 visible features (every numeric visible column except `month`, plus the 12
 categoricals), LightGBM binary objective, `num_leaves 15`, `min_data_in_leaf 5`, 80 rounds,
 `is_unbalance`, **leave-one-month-out over the 12 training months** so no fold sees a positive
@@ -338,6 +361,45 @@ model is worse than the single feature it contains.** With 15 positives spread o
 fold trains on 13-14 of them; LightGBM spends its capacity on the other 116 columns and loses
 0.029 of AUC doing so. That is the expected outcome, and it is the reason this section does not
 end in a model.
+
+---
+
+## 4b. Widening the positive class (task item 1.3) — and this is where the answer changes
+
+`widen` stage. Identical pipeline to §4 (unmatched lane, 117 visible features, leave-one-month-out,
+`num_leaves 15`, 80 rounds), four nested definitions of "positive", 8 permutations each.
+
+| positive class | positives (unmatched) | **LOMO AUC** | `ms` alone | permutation mean / max |
+|---|---:|---:|---:|---|
+| `y > 72,000` (**corruption**) | 15 | **0.8609** | **0.8896** | 0.498 / 0.690 |
+| `y ≥ 43,200` | 33 | **0.9893** | 0.9267 | 0.501 / 0.568 |
+| `y ≥ 14,400` | 119 | **0.9882** | 0.9545 | 0.488 / 0.521 |
+| `y ≥ 7,200` | 481 | **0.9877** | 0.8805 | 0.496 / 0.547 |
+
+Precision at the top of the held-out ranking:
+
+| positive class | k=5 | k=20 | k=50 | k=100 | k=200 |
+|---|---:|---:|---:|---:|---:|
+| `y > 72,000` | 0.20 | 0.10 | 0.10 | 0.09 | 0.055 |
+| `y ≥ 43,200` | 0.60 | 0.65 | 0.38 | 0.28 | 0.145 |
+| `y ≥ 14,400` | 0.80 | 0.80 | 0.90 | 0.79 | 0.55 |
+| `y ≥ 7,200` | **1.00** | **1.00** | **1.00** | 0.97 | 0.90 |
+
+[S]. **This is the sharpest result in the file, and the brief anticipated it exactly.** Visible
+features predict *that the label will be long* almost perfectly — AUC 0.988, and the 50
+highest-scoring unmatched rows in the whole year are all genuinely `y ≥ 7,200`. They do **not**
+predict *that the label is corrupt*: at `y > 72,000` the fitted model drops to 0.861, is beaten by
+one raw column, and its top-100 precision is 0.09.
+
+[X] **So the separation that exists is a finding about long taxi labels, not about corruption.**
+The mechanism is known and already documented: LIRF fills `BLOCK_TIME` with `SCHED_TIME` on 48.5 %
+of its unmatched rows (against 3.4 % elsewhere) [S] (inline: `|y − ms| ≤ 60` share by
+`ADEP == LIRF` on the unmatched lane), and on a filled row `y ≡ ms` identically, so a large
+visible `ms` *is* a large label by arithmetic, not by prediction. That is why
+`LIRF ∧ ms ≥ 43,200` selects 29 training rows of which **29 have `y ≥ 43,200`** (precision 1.000)
+but only **12 have `y > 72,000`** (precision 0.414) [S] (inline). The cell separates long from
+short; inside it, corrupt and filled are indistinguishable, and the model already predicts
+long there.
 
 ---
 
@@ -434,6 +496,123 @@ month: [S] (inline)
 [X] **Do not ship this.** The sign of the effect flips with the threshold (+1.18 at 4 h, −3.55 at
 14 h), at least one fold is positive in every row of the table, and the folds carry 1-9 rows each.
 The threshold that looks best is the one with the fewest rows. This is the shape of an artefact.
+
+---
+
+## 6. Part 2 — does visible information predict that a row will be *badly* predicted?
+
+**Note on the fit actually run.** The full-frame version (`part2` stage, all 672,428 OOF rows,
+63 leaves, 300 rounds) was killed by its own 40-minute guard while four CPU-bound jobs shared four
+cores; the reported model is the `part2b` stage: a **250,000-row uniform subsample** of the same
+OOF, 31 leaves, 150 rounds, leave-one-month-out over the four OOF months. The subsample's RMSE is
+**271.66** against the full frame's 281.84 — it missed the very largest rows, which is itself a
+statement about how few of them there are — so everything in this section describes the **bulk**
+of the error, not the extreme tail that §3 covers. [S]
+
+**Target.** `SE = (oof − y)²`, modelled as `log1p(SE)`. The target is label-derived; the
+*features* are not. That is the same arrangement as any supervised model and is legitimate, but it
+means the output is an **uncertainty estimate**, never a correction.
+
+### 6.1 Marginal association
+
+`part2` stage (this part completed before the timeout). Spearman rank correlation of each visible
+numeric feature with `|oof − y|` over all 672,428 OOF rows:
+
+| feature | Spearman with `\|resid\|` | n | label-free? |
+|---|---:|---:|---|
+| `mvt_minus_eobt1` | **0.3107** | 664,050 | yes |
+| `mvt_minus_iobt` | 0.2943 | 664,050 | yes |
+| `mvt_minus_lobt` | 0.2935 | 664,050 | yes |
+| `mvt_minus_sched` | 0.2632 | 672,428 | yes |
+| `queue_ahead` | 0.2241 | 666,870 | yes |
+| `aobt3_minus_eobt1` | 0.2238 | 664,050 | yes |
+| `delay_neighbor_deviation` | 0.1746 | 661,389 | yes |
+| `mvt_minus_aobt3` | 0.1637 | 664,050 | yes |
+| `nbr_mvt_minus_aobt_mean_30m` | 0.1432 | 669,707 | yes |
+| `arr_taxi_in_mean_60m` | 0.1013 | 671,321 | yes |
+| `dest_distance_km` | 0.0865 | 669,477 | yes |
+| `stand_arrival_gap` | 0.0612 | 548,277 | yes |
+| `dep_tko_prev_30m` | 0.0584 | 672,428 | yes |
+| `bank_position` | 0.0401 | 672,214 | yes |
+| `wind_ms` | 0.0362 | 672,334 | yes |
+| `dow` | 0.0105 | 672,428 | yes |
+| **`hour_utc`** | **0.0026** | 672,428 | yes |
+| `stand_rwy_share` | −0.0011 | 672,416 | yes |
+
+[S]. **Delay is the uncertainty variable.** Every one of the top eight is a measure of how late the
+flight is against one clock or another. Congestion, weather, distance, stand turnaround and the
+calendar are all below 0.10, and `hour_utc` is 0.003 — the hour of day carries essentially **no**
+information about how wrong we will be, which is worth knowing because it is a natural thing to
+assume.
+
+### 6.2 Grouped concentration (`part2` stage, full 672,428 rows)
+
+| group | n | RMSE | share of SSE |
+|---|---:|---:|---:|
+| unmatched lane | 8,358 (1.24 %) | 1,634.5 | **41.8 %** |
+| matched lane | 664,070 | 216.4 | 58.2 % |
+| LFPG unmatched | 1,562 (0.23 %) | 2,625.4 | **20.2 %** |
+| LIRF unmatched | 537 (0.08 %) | 4,232.2 | **18.0 %** |
+| LIRF matched | 49,387 | 347.2 | 11.1 % |
+| LEMD unmatched | 414 | 281.6 | 0.06 % |
+| `stand_null == 1` | 12 | 1,044.6 | 0.02 % |
+
+[S]. **0.31 % of the rows (LFPG + LIRF unmatched) carry 38.2 % of the squared error.** Both group
+keys are visible and both are already model inputs. This is the single most reusable fact in the
+file: any future comparison of two configurations should be reported separately on these 2,099
+rows and on the other 670,329, because a pooled RMSE difference is dominated by the former.
+
+### 6.3 A fitted uncertainty model, and whether it beats what the model already knows
+
+`part2b` stage, LOMO over the four OOF months on the 250,000-row subsample.
+
+| | Spearman(pred, SE) | SSE in top 0.1 % | top 1 % | top 5 % | top 10 % | top 25 % |
+|---|---:|---:|---:|---:|---:|---:|
+| **all visible features** | **0.357** | 8.8 % | 22.3 % | 35.5 % | **61.5 %** | 75.4 % |
+| control: model's own prediction + lane only | 0.296 | **14.8 %** | **22.9 %** | 33.1 % | 40.1 % | 70.5 % |
+| oracle (rank by true SE) | — | 39.8 % | 56.7 % | — | 80.0 % | — |
+| chance | 0 | 0.1 % | 1 % | 5 % | 10 % | 25 % |
+
+RMSE inside vs outside the flagged set, all-visible model: top 1 % → **1,282.1** inside / 240.7
+outside; top 10 % → **674.0** inside / 177.6 outside. [S]
+
+Top gain in the last fold (all label-free): `STAND_mvt` (425,042), `mvt_minus_eobt1` (242,845),
+`ADES_mvt` (222,409), `AIRCRAFT_OPERATOR_flt` (63,103), `RUNWAY_mvt` (48,724), `ADEP_mvt`
+(46,056), `mvt_minus_iobt` (24,462), `mvt_minus_aobt3` (20,254), `mvt_minus_sched` (19,133). [S]
+
+**Reading.** (a) Visible information genuinely predicts error magnitude: the top predicted decile
+holds **6.2× its share** of the squared error. (b) **It only partly survives the control.** At the
+decile level the visible model beats prediction-plus-lane comfortably (61.5 % vs 40.1 %); at the
+top 1 % and above it does **not** (22.3 % vs 22.9 %, 8.8 % vs 14.8 %) — for the very worst rows,
+the model's own prediction is already the better uncertainty signal, and the extra 115 features
+add nothing. (c) The strongest single contributor is **`STAND_mvt`**, which is a genuinely new
+statement: taxi-time variance is stand-specific to a degree the delay clocks do not capture. It is
+label-free and already a model categorical, but it is a *mean* input, not a *variance* input.
+
+### 6.4 What this is worth under RMSE, stated so nobody mistakes it for a lever
+
+[X] **Under squared error the optimal point prediction is the conditional mean, whatever the
+conditional variance is.** Knowing that a row is uncertain does not, by itself, change what we
+should predict for it, and therefore does not by itself move the board by one second. Anyone
+proposing to "use" the uncertainty model must say which of these three things they mean:
+
+1. **Sample weighting or a robust objective in training** — legitimate, and testable by the §6
+   decision rule. Not tested here.
+2. **Shrinking the prediction toward a group mean where predicted variance is high** — this
+   changes the conditional mean and is therefore a bet that the conditional mean is currently
+   biased, not merely noisy. §5.4 tests the cleanest version of that bet on the cell where it
+   should work best, and it fails out-of-fold.
+3. **Deciding which measurements to believe** — this is the real value and it costs nothing:
+   with 0.31 % of rows carrying 38.2 % of the SSE and the top predicted decile carrying 61.5 %,
+   a pooled RMSE difference of a few seconds between two configurations is, with high probability,
+   a statement about a few dozen rows. That is the same conclusion `docs/README` §6 reaches, now
+   with a visible, prediction-time criterion for choosing the subset to report on.
+
+**Trap check for every candidate in this section** — each is computable on a 2026 scored row with
+no label: `mvt_minus_eobt1`, `mvt_minus_iobt`, `mvt_minus_lobt`, `mvt_minus_sched`, `queue_ahead`,
+`STAND_mvt`, `ADES_mvt`, `AIRCRAFT_OPERATOR_flt`, `RUNWAY_mvt`, `ADEP_mvt`, `nm_matched`, and the
+model's own prediction. **Yes** for all of them (§8). The *target* `SE` is not, which is why the
+output is an uncertainty estimate fitted on training months, not a per-row correction.
 
 ---
 
@@ -543,3 +722,47 @@ AUC 0.8954 — marginally better than `ms` (0.8896) and, since 13 of the 16 corr
 coarser lens. `daydiff ≥ 1 ∧ LIRF` gives precision 0.179 at recall 0.80 — worse than
 `ms ≥ 43,200 ∧ LIRF` (0.414). The 2026 frame has **65** unmatched rows with `daydiff ≥ 1`, 25 of
 them at LIRF. It adds nothing over `ms` and is priced the same way.
+
+---
+
+## 11. Verdict on the disputed claim
+
+The claim on file was that visible information "points the wrong way", evidenced by two LFPG rows
+whose `ms` is small. **That claim is true of those two rows and false of the class.**
+
+Measured over all 16 corrupted rows: one is in the matched lane and is detected *exactly*, with
+zero false positives in 2,062,623 rows, by an identity the production config already applies
+(§2.1). Of the fifteen in the unmatched lane, **thirteen sit above the 95th percentile of `ms`
+in that lane and twelve above the 99.8th**, which gives `ms` alone an AUC of 0.8896 against a
+random-label null whose 99th percentile is 0.679 (§2.3, §4). The two that do *not* are LSZH
+`NJE389D` (percentile 15.6) and LFPG `EJU983W` (24.6).
+
+The second row the claim quoted, LFPG `EJU42AY` with `ms` 2,043, is **not in the corruption class
+at all** — its label is 58,206, below the 72,000 threshold. It is, however, the #2 error row in the
+OOF, and together with `EJU983W` it accounts for **19.1 %** of our entire out-of-fold squared
+error (§3). That is why the impression formed: the two rows that were looked at are the two that
+hurt, and they are the two the visible signal misses.
+
+**The correct statement is that visible information separates this corruption well, that the model
+already exploits it in full, and that the residual damage is concentrated in the minority of cases
+the signal does not reach.** The practical consequence is the opposite of what the original claim
+implied. There is no unexploited detector to build: acting on the best visible cell measures
+**+16.2 s of OOF RMSE**, i.e. it makes the model worse (§5.3), and the honest out-of-fold version
+of the softer action flips sign with the threshold (§5.4). The open problem is the two
+LFPG-shaped rows, and on those n = 2, so no test run here has any power — that is a statement
+about the evidence available, not a verdict that nothing is there.
+
+## 12. Reproduction
+
+```
+POLARS_MAX_THREADS=2 .venv/bin/python \
+  docs/competitor_research_2026-09-21/scripts/visible-anomaly-detection.py counts
+#   ... then marginal, cats, price, hardcase, lobt, combo, widen, part2b
+```
+
+Wall clock on an idle four-core box, approximate: `counts` 30 s, `marginal` 90 s, `cats` 60 s,
+`price` 30 s, `hardcase` 90 s, `lobt` 30 s, `combo` 12 min (30 permutations × 12 folds),
+`widen` 15 min (4 classes × 12 folds × 9 fits), `part2b` 8 min. `part2` (the full-frame version)
+needs more than 40 min under contention and is kept in the script for a quiet machine.
+Artefacts are written to a scratch directory only. Nothing in `src/`, `configs/` or `outputs/`
+was modified, and no submission was produced.
