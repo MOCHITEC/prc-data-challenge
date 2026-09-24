@@ -599,7 +599,6 @@ def run_cv(
             # number hides which one moved. Always report both, never one alone.
             **_lane_metrics(joined, y, pv),
         }
-        fold_of.append(p.select("MVT_ID_mvt").with_columns(pl.lit(f.name).alias("fold")))
         # A four-fold run is ~45 min and used to print nothing until it finished, so a run that died partway
         # was indistinguishable from one still working. Print each fold as it lands, with both lanes.
         lm, lu = fold_metrics[f.name]["matched"], fold_metrics[f.name]["unmatched"]
@@ -622,6 +621,15 @@ def run_cv(
         oof = merged.with_columns(pl.coalesce([pl.col("oof"), pl.col("_p")]).alias("oof")).drop("_p")
         fold_metrics[f.name]["n_into_overall"] = n_new
         (pooled if n_new else shadowed).append(f.name)
+        # `pooled` marks the entry `overall` actually kept, so a reader can join on it and get one row per
+        # id without knowing the coalesce order. Without it the file is a trap: `jul` and `jul_fwd` list the
+        # same 190,713 ids, and a naive join double-counts every July row and reports 288.66 against the
+        # true 281.84.
+        fold_of.append(
+            p.select("MVT_ID_mvt").with_columns(
+                pl.lit(f.name).alias("fold"), pl.lit(bool(n_new), dtype=pl.Boolean).alias("pooled")
+            )
+        )
     scored = (
         feats.select(["MVT_ID_mvt", LABEL, "ADEP_mvt", PROXY])
         .join(oof, on="MVT_ID_mvt", how="inner")

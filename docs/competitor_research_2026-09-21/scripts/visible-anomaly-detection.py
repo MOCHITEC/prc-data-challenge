@@ -339,7 +339,7 @@ def stage_widen():
         rng = np.random.default_rng(11)
         neg = np.flatnonzero(y == 0)
         keep = np.zeros(t.height, bool)
-        keep[rng.choice(neg, 300000, replace=False)] = True
+        keep[rng.choice(neg, 150000, replace=False)] = True
         keep[y == 1] = True
         s2 = t.filter(pl.Series(keep))
         y2 = (s2[LABEL] >= thr).to_numpy().astype(int)
@@ -489,8 +489,105 @@ def stage_price():
     (OUT / "price.json").write_text(json.dumps(res, indent=1, default=float))
 
 
+# ------------------------------------------------------------------ stage: hardcase
+def stage_hardcase():
+    """The two rows that dominate the OOF SSE are LFPG rows with a SMALL ms. Where do they sit?"""
+    t = load_train()
+    oofd = pl.read_parquet(OOF).drop_nulls()
+    j = t.join(oofd, on="MVT_ID_mvt", how="inner").with_columns(
+        ((pl.col("oof") - pl.col(LABEL)) ** 2).alias("se"))
+    S = float(j["se"].sum())
+
+    # 1. cost accounting of the ms signal the model ALREADY acts on (LIRF unmatched lane)
+    lir = j.filter((pl.col("nm_matched") == 0) & (pl.col("ADEP_mvt") == "LIRF"))
+    rows = []
+    for lo, hi in [(-1e9, 3600), (3600, 7200), (7200, 14400), (14400, 43200), (43200, 1e9)]:
+        b = lir.filter((pl.col("mvt_minus_sched") >= lo) & (pl.col("mvt_minus_sched") < hi))
+        over = b.filter((pl.col("oof") - pl.col(LABEL)) > 0)
+        under = b.filter((pl.col("oof") - pl.col(LABEL)) <= 0)
+        rows.append(dict(ms_lo=lo, ms_hi=hi, n=b.height, n_rollover=int((b[LABEL] > 72000).sum()),
+                         sse=float(b["se"].sum()), sse_share=float(b["se"].sum()) / S,
+                         sse_overpredict=float(over["se"].sum()) / S,
+                         sse_underpredict=float(under["se"].sum()) / S))
+    log("\n=== LIRF unmatched OOF rows by ms band: where the SSE sits, over- vs under-prediction ===")
+    log(pl.DataFrame(rows).to_pandas().to_string(index=False))
+
+    # 2. the LFPG hard rows
+    hard = j.filter((pl.col("ADEP_mvt") == "LFPG") & (pl.col(LABEL) >= 43200))
+    log("\n=== LFPG rows with y >= 12 h in the OOF ===")
+    log(hard.select(["FLIGHT_mvt", LABEL, "oof", "mvt_minus_sched", "month", "se"]).to_pandas().to_string(index=False))
+
+    # percentiles of those rows inside LFPG unmatched
+    pop = t.filter((pl.col("ADEP_mvt") == "LFPG") & (pl.col("nm_matched") == 0))
+    posid = set(t.filter((pl.col("ADEP_mvt") == "LFPG") & (pl.col(LABEL) >= 43200))["MVT_ID_mvt"].to_list())
+    num = numeric_visible(t.schema)
+    base = pop.filter(~pl.col("MVT_ID_mvt").is_in(list(posid)))
+    pr = t.filter(pl.col("MVT_ID_mvt").is_in(list(posid)))
+    recs = []
+    for c in num:
+        bv = base[c].to_numpy().astype(float)
+        if np.isfinite(bv).sum() < 50:
+            continue
+        pv = pr[c].to_numpy().astype(float)
+        recs.append(dict(feature=c, n_base=int(np.isfinite(bv).sum()),
+                         **{f"row{i}_val": (float(x) if np.isfinite(x) else None) for i, x in enumerate(pv)},
+                         **{f"row{i}_pct": round(pct_of(bv, x), 2) for i, x in enumerate(pv)}))
+    d = pl.DataFrame(recs, strict=False)
+    pcols = [c for c in d.columns if c.endswith("_pct")]
+    d = d.with_columns(pl.max_horizontal([(pl.col(c) - 50).abs() for c in pcols]).alias("extremeness")).sort(
+        "extremeness", descending=True)
+    log(f"\n=== percentile of the {pr.height} LFPG y>=12h rows inside {base.height} other LFPG unmatched rows (top 30) ===")
+    log(d.head(30).to_pandas().to_string(index=False))
+    d.write_parquet(OUT / "hardcase_lfpg.parquet")
+
+    # 3. a detector aimed at the wide class among LFPG-like rows: leave-one-out at that size
+    log("\n=== LFPG unmatched: any single visible feature with |AUC-0.5| > 0.25 for y>=12h? ===")
+    y = pop[LABEL].to_numpy() >= 43200
+    out = []
+    for c in num:
+        a = auc(pop[c].to_numpy().astype(float), y)
+        if np.isfinite(a):
+            out.append((c, a))
+    out.sort(key=lambda z: -abs(z[1] - 0.5))
+    log(pl.DataFrame(out, schema=["feature", "auc"], orient="row").head(20).to_pandas().to_string(index=False))
+
+
+# ------------------------------------------------------------------ stage: lobt
+def stage_lobt():
+    """The matched lane has an EXACT visible bound on the label: |y - mvt_minus_lobt| <= 3606."""
+    t = load_train(["ADEP_mvt", "FLIGHT_mvt", LABEL, "mvt_minus_lobt", "mvt_minus_aobt3", "nm_matched", "month"])
+    m = t.filter(pl.col("nm_matched") == 1)
+    y = m[LABEL].to_numpy().astype(float)
+    l = m["mvt_minus_lobt"].to_numpy().astype(float)
+    a = m["mvt_minus_aobt3"].to_numpy().astype(float)
+    res = {"matched_n": int(m.height), "matched_pos": int((y > 72000).sum()),
+           "identity_violations_abs_y_minus_lobt_gt_3606": int((np.abs(y - l) > 3606).sum())}
+    for thr in (7200, 14400, 43200, 68394, 72000):
+        f = l > thr
+        res[f"lobt_gt_{thr}"] = dict(flagged=int(f.sum()), tp=int((y[f] > 72000).sum()),
+                                     y_min=float(y[f].min()) if f.sum() else None,
+                                     y_max=float(y[f].max()) if f.sum() else None)
+    for thr in (43200, 72000):
+        f = a > thr
+        res[f"aobt3_gt_{thr}"] = dict(flagged=int(f.sum()), tp=int((y[f] > 72000).sum()))
+    r = pl.scan_parquet(RANK).select(["MVT_ID_mvt", "ADEP_mvt", "FLIGHT_mvt", "month", "nm_matched",
+                                      "mvt_minus_lobt", "mvt_minus_aobt3", "mvt_minus_sched"]).collect()
+    sub = pl.read_parquet(ROOT / "outputs/main.parquet").rename({LABEL: "pred_v13"})
+    j = r.join(sub, on="MVT_ID_mvt", how="left")
+    res["rank_matched_lobt_gt_68394"] = int(((j["nm_matched"] == 1) & (j["mvt_minus_lobt"] > 68394)).sum())
+    log(json.dumps(res, indent=1, default=float))
+    log("\n=== 2026 matched rows with mvt_minus_lobt > 14400, with the shipped v13 prediction ===")
+    log(j.filter((pl.col("nm_matched") == 1) & (pl.col("mvt_minus_lobt") > 14400))
+        .sort("mvt_minus_lobt", descending=True).to_pandas().to_string(index=False))
+    log("\n=== 2026 unmatched rows with ms >= 43200, with the shipped v13 prediction ===")
+    log(j.filter((pl.col("nm_matched") == 0) & (pl.col("mvt_minus_sched") >= 43200))
+        .select(["ADEP_mvt", "month", "mvt_minus_sched", "pred_v13"])
+        .sort("mvt_minus_sched", descending=True).to_pandas().to_string(index=False))
+    (OUT / "lobt.json").write_text(json.dumps(res, indent=1, default=float))
+
+
 STAGES = dict(counts=stage_counts, marginal=stage_marginal, cats=stage_cats, combo=stage_combo,
-              widen=stage_widen, part2=stage_part2, price=stage_price)
+              widen=stage_widen, part2=stage_part2, price=stage_price, hardcase=stage_hardcase, lobt=stage_lobt)
 
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "all"

@@ -420,7 +420,11 @@ def test_run_cv_writes_a_fold_sidecar_that_keeps_the_rows_overall_coalesced_away
     cfg = TrainConfig(name="sidecar", num_rounds=30, early_stopping=10)
     rec = run_cv(feats, cfg, out_dir=tmp_path, log_name="t.jsonl")
     side = pl.read_parquet(tmp_path / f"oof_{rec['exp_id']}_folds.parquet")
-    assert side.columns == ["MVT_ID_mvt", "fold"]
+    assert side.columns == ["MVT_ID_mvt", "fold", "pooled"]
+    # `pooled` is what makes the file safe to join: filtering on it gives exactly one row per id, which a
+    # naive join on the long file does not - jul and jul_fwd list the same ids and would double-count July.
+    prim = side.filter(pl.col("pooled"))
+    assert prim["MVT_ID_mvt"].n_unique() == prim.height == rec["overall"]["n"], (prim.height, rec["overall"]["n"])
     # one entry per (row, fold) actually predicted - so the total matches the fold table, not `overall`
     assert side.height == sum(rec["folds"][name]["n"] for name in rec["folds"])
     assert set(side["fold"].unique()) == set(rec["folds"])
