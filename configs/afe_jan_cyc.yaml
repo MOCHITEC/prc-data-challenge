@@ -1,0 +1,20 @@
+# Article-FE screen, fold jan, arm cyc -- candidate C: sin/cos of the local minute of day (Aru: polar transform of time).
+# Pre-registered in docs/article_fe_2026-09-24/plan.md; every arm is configs/main_gap.yaml + folds + one flag.
+name: afe_jan_cyc
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [jan]
+fe_cyclic: true

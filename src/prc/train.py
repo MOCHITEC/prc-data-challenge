@@ -176,6 +176,20 @@ class TrainConfig:
     # five or more, so it is a floor, not a selector - it decides nothing about which airports are used.
     airport_min_group_rows: int = 20_000
     airport_group_seed: int = 20_260_924  # only read by the `shuffled` control
+    # ---- fold-time candidate families from two general feature-engineering articles, pre-registered in
+    # docs/article_fe_2026-09-24/plan.md. All off by default: with every flag off `predict_fold` runs exactly the
+    # code it ran before these fields existed. They are built inside the fold, after the encodings, so the
+    # feature cache - and therefore the base arm - is untouched.
+    #   fe_freq       label-free frequency encodings (share within airport, counted over train + target rows)
+    #   fe_aggdiff    group aggregate minus the row's own value, and the group's label spread
+    #   fe_cyclic     sin/cos of the local minute of day
+    #   fe_meta_prior an out-of-fold "taxi prior" from a no-NM model fitted on every labelled row, as a feature
+    #   fe_noise_cols this many hashed-id columns, the column-count control for the families above
+    fe_freq: bool = False
+    fe_aggdiff: bool = False
+    fe_cyclic: bool = False
+    fe_meta_prior: bool = False
+    fe_noise_cols: int = 0
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -266,6 +280,202 @@ def attach_encodings(df: pl.DataFrame, enc: dict[str, pl.DataFrame]) -> pl.DataF
             pl.col("ref_n").is_null().cast(pl.Int8).alias("ref_missing"),
         ]
     )
+
+
+# ---------- fold-time candidate families (docs/article_fe_2026-09-24/plan.md) ----------
+
+# Frequency-encoding keys, each counted within the departure airport.
+FREQ_KEYS: dict[str, tuple[str, ...]] = {
+    "freq_stand": ("STAND_mvt",),
+    "freq_stand_rwy": ("STAND_mvt", "RUNWAY_mvt"),
+    "freq_operator": ("AIRCRAFT_OPERATOR_flt",),
+    "freq_actype": ("AIRCRAFT_TYPE_mvt",),
+    "freq_ades": ("ADES_mvt",),
+    "freq_rwy_hour": ("RUNWAY_mvt", "hour_local"),
+}
+_CELL = ["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"]
+# Built from the NM off-block proxy, so null on every row model B sees; kept out of model B's column set.
+LANE_A_ONLY_PREFIXES = ("agg_proxy_", "meta_prior_minus_proxy")
+# Model B's exclusions: every column derived from an NM clock, which is null on its rows.
+_NM_CLOCK_PREFIXES = ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
+# The meta prior must not read a label-derived column: those tables are fitted on every training row, including
+# the rows the prior is predicting out of fold, and would carry their labels back in.
+_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_")
+META_ROUNDS = 300
+META_NOISE_SEED = 20_260_924
+
+
+def unmatched_columns(num_cols: list[str]) -> list[str]:
+    """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones."""
+    return [c for c in num_cols if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES)]
+
+
+def _check_same_rows(before: pl.DataFrame, after: pl.DataFrame, what: str) -> None:
+    if after.height != before.height or not after["MVT_ID_mvt"].equals(before["MVT_ID_mvt"]):
+        raise AssertionError(f"{what} changed the row count or order")
+
+
+def frequency_features(tr: pl.DataFrame, tg: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Share of the airport's departures that carry this row's key, counted over the training AND target rows.
+
+    No label is read, so counting the target rows is legitimate: at scoring time the ranking rows' stands,
+    operators and runways are all known. A share rather than a count because the pool is 12 months in CV and
+    12 + 2 in production. A row whose key is null gets null (a null key is not a category)."""
+    keys = sorted({"ADEP_mvt", *(k for ks in FREQ_KEYS.values() for k in ks)})
+    both = pl.concat([tr.select(keys), tg.select(keys)], how="vertical_relaxed")
+    apt_n = both.drop_nulls("ADEP_mvt").group_by("ADEP_mvt").len().rename({"len": "_apt_n"})
+    out = []
+    for f in (tr, tg):
+        g = f
+        for name, ks in FREQ_KEYS.items():
+            k = ["ADEP_mvt", *ks]
+            tab = (
+                both.drop_nulls(k)
+                .group_by(k)
+                .len()
+                .join(apt_n, on="ADEP_mvt")
+                .with_columns((pl.col("len") / pl.col("_apt_n")).cast(pl.Float32).alias(name))
+                .select([*k, name])
+            )
+            g = g.join(tab, on=k, how="left", maintain_order="left")
+        _check_same_rows(f, g, "frequency_features")
+        out.append(g)
+    return out[0], out[1]
+
+
+def aggdiff_features(tr: pl.DataFrame, tg: pl.DataFrame, min_count: int) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """A group statistic minus the row's own value, and the group's label spread.
+
+    Needs the encodings attached first (ref_med, ref_p10, arh_med). A tree approximates `a - b` only with a
+    staircase of axis-parallel splits, and model A is data-limited, so handing it the difference is the one
+    thing a group encoding alone cannot do. `agg_ref_iqr` is fitted on the training side's labels, with the same
+    label window and minimum count as `reference_table`; `agg_proxy_cell_dev` reads no label and pools both
+    sides, like the frequency encodings."""
+    lab = tr.filter(pl.col(LABEL).is_not_null() & (pl.col(LABEL) > 0) & (pl.col(LABEL) < 7200))
+    iqr = (
+        lab.group_by(_CELL)
+        .agg(
+            (pl.col(LABEL).quantile(0.75) - pl.col(LABEL).quantile(0.25)).alias("agg_ref_iqr"),
+            pl.len().alias("_n"),
+        )
+        .filter(pl.col("_n") >= min_count)
+        .drop("_n")
+    )
+    both = pl.concat([tr.select([*_CELL, PROXY]), tg.select([*_CELL, PROXY])], how="vertical_relaxed")
+    cell_proxy = (
+        both.drop_nulls(PROXY)
+        .group_by(_CELL)
+        .agg(pl.col(PROXY).median().alias("_proxy_cell_med"), pl.len().alias("_n"))
+        .filter(pl.col("_n") >= min_count)
+        .drop("_n")
+    )
+    out = []
+    for f in (tr, tg):
+        g = f.join(iqr, on=_CELL, how="left", maintain_order="left").join(
+            cell_proxy, on=_CELL, how="left", maintain_order="left"
+        )
+        g = g.with_columns(
+            (pl.col(PROXY) - pl.col("ref_med")).alias("agg_proxy_minus_ref_med"),
+            (pl.col(PROXY) - pl.col("ref_p10")).alias("agg_proxy_minus_ref_p10"),
+            (pl.col(PROXY) - pl.col("arh_med")).alias("agg_proxy_minus_arh_med"),
+            (pl.col(PROXY) - pl.col("_proxy_cell_med")).alias("agg_proxy_cell_dev"),
+            (pl.col(SCHED_OFFSET) - pl.col("ref_med")).alias("agg_sched_minus_ref_med"),
+            pl.col("agg_ref_iqr").cast(pl.Float64),
+        ).drop("_proxy_cell_med")
+        _check_same_rows(f, g, "aggdiff_features")
+        out.append(g)
+    return out[0], out[1]
+
+
+def cyclic_features(df: pl.DataFrame) -> pl.DataFrame:
+    """sin/cos of the local minute of day, so 23:59 and 00:00 are neighbours. None of the ten airports has a
+    half-hour offset, so the UTC minute is the local minute."""
+    minute = pl.col("hour_local").cast(pl.Float64) * 60.0 + pl.col("MVT_TIME_UTC_mvt").dt.minute().cast(pl.Float64)
+    angle = minute * (2.0 * np.pi / 1440.0)
+    return df.with_columns(angle.sin().alias("cyc_sin"), angle.cos().alias("cyc_cos"))
+
+
+def noise_features(df: pl.DataFrame, n: int) -> pl.DataFrame:
+    """`n` hashed-id columns that cannot carry signal: the price of adding n columns to the model."""
+    return df.with_columns(
+        [
+            (pl.col("MVT_ID_mvt").hash(seed=META_NOISE_SEED + k) % 1_000_000).cast(pl.Float64).alias(f"noise_{k}")
+            for k in range(1, n + 1)
+        ]
+    )
+
+
+def meta_prior_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, num_cols: list[str], cat_cols: list[str], info: dict
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """An out-of-fold taxi prior from a model that never sees an NM clock, fitted on every labelled row.
+
+    Model B has 22k training rows; this prior is fitted on all ~2M, on model B's own columns, so what it adds
+    is the matched rows' evidence about taxi times that model B cannot see. On the training side the prior is
+    cross-fitted by calendar month mod 3, so a row's prior never comes from a model that saw its label; the
+    target side gets the model fitted on every training row. Label-derived columns are excluded from its input
+    (see _LABEL_DERIVED_PREFIXES) - with them in, the training-side prior would not be out of fold."""
+    cols = [c for c in unmatched_columns(num_cols) if not c.startswith(_LABEL_DERIVED_PREFIXES)]
+    stacked = pl.concat([tr.select(cols + cat_cols), tg.select(cols + cat_cols)], how="vertical_relaxed")
+    X, names = _matrix(stacked, cols, cat_cols)
+    del stacked
+    ntr = tr.height
+    y = tr[LABEL].to_numpy().astype(float)
+    grp = tr["MVT_TIME_UTC_mvt"].dt.month().to_numpy() % 3
+    cat_idx = [names.index(c) for c in cat_cols]
+    params = dict(
+        cfg.params,
+        num_leaves=63,
+        learning_rate=0.1,
+        seed=cfg.seed,
+        bagging_seed=cfg.seed,
+        feature_fraction_seed=cfg.seed,
+    )
+    groups = np.unique(grp)
+    info["meta_prior_input_cols"] = len(cols) + len(cat_cols)
+    if len(groups) < 2:
+        # one calendar-month group cannot be cross-fitted; a prior filled on one side only would break parity
+        info["meta_prior_warning"] = "fewer than two month groups; prior left null on both sides"
+        prior_tr, prior_tg = np.full(ntr, np.nan), np.full(tg.height, np.nan)
+    else:
+        prior_tr = np.full(ntr, np.nan)
+        Xtr = X[:ntr]
+        for gk in groups:
+            m = grp == gk
+            d = lgb.Dataset(Xtr[~m], label=y[~m], categorical_feature=cat_idx, params=params)
+            booster = lgb.train(params, d, num_boost_round=META_ROUNDS, callbacks=[lgb.log_evaluation(0)])
+            prior_tr[m] = booster.predict(Xtr[m])
+            del d, booster
+        d = lgb.Dataset(Xtr, label=y, categorical_feature=cat_idx, params=params)
+        booster = lgb.train(params, d, num_boost_round=META_ROUNDS, callbacks=[lgb.log_evaluation(0)])
+        prior_tg = booster.predict(X[ntr:])
+        del d, booster, Xtr
+    del X
+    out = []
+    for f, p in ((tr, prior_tr), (tg, prior_tg)):
+        g = f.with_columns(pl.Series("meta_prior", p, dtype=pl.Float64)).with_columns(
+            (pl.col("meta_prior") - pl.col(PROXY)).alias("meta_prior_minus_proxy")
+        )
+        out.append(g)
+    return out[0], out[1]
+
+
+def add_fold_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, info: dict
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """The label-free and encoding-derived families; the meta prior is added separately, after the column set
+    is known. Records which columns it added, because a silent no-op here would read as a null result."""
+    before = set(tr.columns)
+    if cfg.fe_freq:
+        tr, tg = frequency_features(tr, tg)
+    if cfg.fe_aggdiff:
+        tr, tg = aggdiff_features(tr, tg, cfg.reference_min_count)
+    if cfg.fe_cyclic:
+        tr, tg = cyclic_features(tr), cyclic_features(tg)
+    if cfg.fe_noise_cols:
+        tr, tg = noise_features(tr, cfg.fe_noise_cols), noise_features(tg, cfg.fe_noise_cols)
+    info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
+    return tr, tg
 
 
 def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
@@ -537,6 +747,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
+    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols:
+        tr, tg = add_fold_features(tr, tg, cfg, info)
 
     num_cols = visible_numeric_columns(tr, cfg)
     cat_cols = (
@@ -544,6 +756,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         if cfg.use_categoricals
         else []
     )
+    if cfg.fe_meta_prior:
+        tr, tg = meta_prior_features(tr, tg, cfg, num_cols, cat_cols, info)
+        info.setdefault("fold_feature_cols", [])
+        info["fold_feature_cols"] += ["meta_prior", "meta_prior_minus_proxy"]
+        num_cols = visible_numeric_columns(tr, cfg)
     parts = []
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
@@ -568,13 +785,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
-        cols_b = [
-            c
-            for c in num_cols
-            if not c.startswith(
-                ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
-            )
-        ]
+        cols_b = unmatched_columns(num_cols)
         # Model A's and model B's visible column counts have differed by one in past records without the
         # record saying which, so log both rather than inferring them from the config.
         info["n_features_unmatched"] = len(cols_b)
