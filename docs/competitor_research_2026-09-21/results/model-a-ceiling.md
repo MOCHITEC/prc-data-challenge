@@ -3,8 +3,9 @@
 **Script (read-only; nothing written to `src/`, `configs/`, `outputs/` or `data/`; no submission made):**
 `docs/competitor_research_2026-09-21/scripts/model_a_ceiling.py`, run as
 `POLARS_MAX_THREADS=2 .venv/bin/python docs/competitor_research_2026-09-21/scripts/model_a_ceiling.py [S1 … S7]`.
-Every number below carries the section (`S1`…`S7`) that prints it. `S5` fits models and is about
-70 minutes on an idle 4-CPU box; `S2`, `S3`, `S4` are 6–9 minutes each; `S1`, `S6`, `S7` are seconds.
+Every number below carries the section (`S1`…`S7`) that prints it. Measured wall clock on a 4-CPU box
+that was **not** idle (§10): `S1` 0 s, `S6` 13 s, `S7` 2 s, `S3` 124 s, `S2` 135 s, `S4` 243 s, `S5`
+327 s — about 14 minutes for the whole file. `S5` is the only section that fits models.
 
 **Inputs.** `data/work/feat_train.parquet` (2,085,047 departures, of which **2,062,577** are matched and
 labelled), `experiments/oof_main_gap-62dd7c6e88.parquet` + its `_folds` sidecar (672,428 pooled OOF rows
@@ -34,20 +35,24 @@ assuming anything. [S] `S1`
 
 ---
 
-## 0. The answer in eight sentences
+## 0. The answer in nine sentences
 
 1. **The floor is 187 – 205 s, best estimate 201, and it is nowhere near 150.** The best-instrumented
    route (twin-residual covariance, §4) measures the *systematic* — recoverable — share of lane A's
    squared error at **ρ = 0.110 [0.074, 0.146]**, putting the floor at **213.13 × √(1−ρ) = 201.0,
    CI 197.0 – 205.0**. An independent route (learning curve, §5) puts ten times the training data at a
-   pooled-equivalent **201.1** and its `n → ∞` extrapolation at **187.4**. The bottom of the range is
-   that extrapolation and I do not believe it; the two routes agree to within a second everywhere both
-   are interpolating. [S] `S4`, `S5`
+   pooled-equivalent **200.9** and its `n → ∞` extrapolation at **186.9**. On the forward fold, where the
+   two can be compared with no rescaling at all, they read **187.1** and **187.53**. The bottom of the
+   range is the `n → ∞` extrapolation and I do not defend it; everywhere both routes are interpolating
+   they agree to under half a second. [S] `S4`, `S5`
 2. **148.9 and 141.7 are below the floor and are not reachable by working on lane A.** To land lane A at
    148.9 the systematic share would have to be **ρ ≥ 0.512**; at 141.7, **ρ ≥ 0.558**. Measured ρ is
    0.110, and the *positive control* — a deliberately crippled predictor that knows only airport ×
    operator and scores 355.7 — measures ρ = 0.484. **A board score in the 230s would require model A to be
-   about as systematically wrong as a model that has never seen a clock.** [S] `S4`, `S7`
+   about as systematically wrong as a model that has never seen a clock.** The measurement survives every
+   robustness check run against it: ρ is 0.115 on a 21-column matching metric instead of 0.110 on the
+   12-column one (§4.5), and it is flat from twins minutes apart to twins four months apart (§4.7), so it
+   is neither an artefact of which columns define a twin nor a shared operational shock. [S] `S4`, `S7`
 3. **The routes agree once they are compared on the same rows, and the one place they appeared to
    disagree was a selection effect, not a disagreement.** The 1-NN semivariance route reads 140 s at
    `d ≤ 0.25`, which looks like a floor of 140 until you notice model A already scores **139.1 on exactly
@@ -56,25 +61,28 @@ assuming anything. [S] `S1`
 4. **Model A's error tracks the local twin spread at every density, and is slightly below it
    everywhere** — ratio 0.99 at `d ≤ 0.25`, 0.93 at `d ≈ 1`, 0.72 beyond `d = 3`. The model is not leaving
    a resolvable pattern behind; it is at the spread of its own near-twins. [S] `S3`
-4b. **Capacity is saturated; rows are not.** At a fixed 435,263 training rows, 31 / 127 / 511 leaves give
+5. **Capacity is saturated; rows are not.** At a fixed 435,263 training rows, 31 / 127 / 511 leaves give
    213.23 / 213.13 / 213.38 — a 16× capacity range worth 0.25 s. Doubling the rows at fixed capacity is
    worth 5.8 s, and the last available doubling is still worth 4.6 s. **Model A is data-limited, and 2025
    is all the data there is** — so part of §4's recoverable 11.3 s is estimation variance that no feature
    can reach. [S] `S5`
-5. **Nothing of the form "a better encoding of airport / operator / stand / runway / destination / hour /
+6. **Nothing of the form "a better encoding of airport / operator / stand / runway / destination / hour /
    aircraft type / NM-delay band" is left.** An *oracle* out-of-fold cell-mean correction over ten such
    partitions — up to 543,181 cells — moves lane A from 213.127 to at best **212.86**, against a shuffled
    control at 213.03. That is **0.27 s**, and it is the ceiling on every target encoding, per-group
    specialist and per-group offset column over those variables. [S] `S6`
-6. **Per airport, the recoverable gap is concentrated, and it is concentrated where the error already
+7. **Per airport, the recoverable gap is concentrated, and it is concentrated where the error already
    is.** LIRF (ρ 0.186, 345.1 → 311.4) and LFPG (ρ 0.130, 241.5 → 225.2) are **53.6 %** of all the
    recoverable squared error between them; LSZH is 1.8 % and EGLL 7.5 %. It is neither "a floor of 150
    that is entirely LFPG" nor a gap spread evenly over ten airports. [S] `S1`, `S4`
-7. **The +1.98 s OOF-to-board gap is not a constant and no target should be computed through it.** It is
-   a single observation, and it is an artefact of which folds happen to be pooled: on the board's own
-   months (jan + jul) the same OOF reads 323.12 and the gap is **−43.60**; on forward alone it reads
-   219.72 and the gap is **+59.80**. Lane A itself moves 198.5 → 243.3 across folds. [S] `S7`
-8. **[X] The honest headline: lane A's error is about 90 % irreducible at this feature set. The whole
+8. **The +1.98 s OOF-to-board gap is the larger of two observations (+0.896 for v13, +1.984 for v14),
+   and its level is an artefact of the pooling** — on the board's own months (jan + jul) the same
+   predictions read 323.12 and the implied gap is **−43.60**; on forward alone, **+59.80**. More
+   importantly, the targets do not need the gap's level, they need its *derivative*, and the one paired
+   delta available measures **ΔBoard / ΔOOF = 0.747, not 1.000**. At that ratio board 234.5 needs lane A
+   at **123.4**, not 148.9. **The instability moves the targets further out of reach, not closer.**
+   [S] `S7`
+9. **[X] The honest headline: lane A's error is about 90 % irreducible at this feature set. The whole
    recoverable amount is 11.3 s of lane-A RMSE (213.13 → 201.78) — worth −8.5 s of board if every second
    of it were taken — and the 230s are out of reach from lane A alone.** What is *not* ruled out is a
    column carrying genuinely new information (an external off-block observation, in the sense of
@@ -107,7 +115,7 @@ quantity with a control on both sides.
 | 1 matched-twin ladder | 2 | exact cells of visible categoricals, plus a within-cell fit on 15 visible continuous columns | over-states the floor (cells are coarser than `x`) | 214.0 |
 | 2 1-NN semivariance | 3 | nearest visible twin inside the same stand | over-states, by `(μ_i−μ_j)²/2`, which vanishes as `d → 0` | 203.6 at 94 % coverage |
 | 3 twin-residual covariance | 4 | same, but measures the *covariance of the two residuals* | under-states ρ at `d > 0`, hence over-states the floor | **201.0** |
-| 4 learning curve | 5 | nothing — varies rows and capacity | gives this recipe's `n → ∞` limit, itself ≥ floor | 201.1 at 10× rows, 187.4 at `n → ∞` |
+| 4 learning curve | 5 | nothing — varies rows and capacity | gives this recipe's `n → ∞` limit, itself ≥ floor | 200.9 at 10× rows, 186.9 at `n → ∞` |
 
 Route 3 is the load-bearing one; routes 1, 2 and 4 are there because a single estimator with a single
 failure mode is what this project has twice shipped a silent bug through.
@@ -190,18 +198,18 @@ column at a time. Two arms and one control:
 | level | plain sd | +covar | **control** | rows | cells | coverage |
 |---|---:|---:|---:|---:|---:|---:|
 | L1 ADEP | 364.35 | 259.44 | **364.36** | 2,062,577 | 10 | 1.000 |
-| L2 +operator | 354.86 | 249.72 | **364.36** | 2,062,062 | 2,608 | 1.000 |
-| L3 +stand | 345.94 | 240.70 | **364.44** | 2,048,825 | 28,564 | 0.993 |
-| L4 +runway | 339.43 | 231.54 | **364.34** | 2,029,477 | 55,477 | 0.984 |
-| L5 +dest | 330.96 | 226.09 | **364.23** | 1,896,596 | 206,668 | 0.920 |
-| L6 +3 h block | 319.67 | 219.53 | **363.32** | 1,713,816 | 311,816 | 0.831 |
-| L7 +aircraft type | 315.47 | 218.70 | **362.24** | 1,506,880 | 334,341 | 0.731 |
-| L8 +NM-delay quintile | 275.61 | **213.97** | 358.58 | 985,304 | 315,801 | 0.478 |
+| L2 +operator | 354.86 | 249.72 | **364.37** | 2,062,062 | 2,608 | 1.000 |
+| L3 +stand | 345.94 | 240.70 | **364.52** | 2,048,825 | 28,564 | 0.993 |
+| L4 +runway | 339.43 | 231.54 | **364.41** | 2,029,477 | 55,477 | 0.984 |
+| L5 +dest | 330.96 | 226.09 | **363.68** | 1,896,596 | 206,668 | 0.920 |
+| L6 +3 h block | 319.67 | 219.53 | **363.50** | 1,713,816 | 311,816 | 0.831 |
+| L7 +aircraft type | 315.47 | 218.70 | **362.01** | 1,506,880 | 334,341 | 0.731 |
+| L8 +NM-delay quintile | 275.61 | **213.97** | 359.25 | 985,306 | 315,802 | 0.478 |
 
 **[S] The control holds at 364.3–364.4 for seven levels and 358.6 at the eighth**, against a within-ADEP
 sd of `g` of 364.35. The instrument is not manufacturing a drop out of small cells: the degrees-of-freedom
 arithmetic `nrow − ncells − rank` is right, and a key carrying no information returns the raw spread no
-matter how many cells it has. The 1.6 % slip at L8 is the one place to watch — at 47.8 % coverage the
+matter how many cells it has. The 1.4 % slip at L8 is the one place to watch — at 47.8 % coverage the
 control is measuring a different population from L1's, since both arms drop the same singleton cells —
 and it is the reason L8's 213.97 is quoted as "about 214" and not to two decimals.
 
@@ -254,24 +262,25 @@ rows in the same distance bin*.
 
 ### 3.2 The result, and why the apparent 140 s floor is not one
 
-`S3`. 1-NN distance quantiles over 2,062,064 paired rows: p5 0.34, p25 0.83, p50 1.16, p75 1.53, p95 2.29.
+`S3`. 2,061,650 of the 2,062,577 matched rows are paired; the 927 that are not sit in stand blocks with
+fewer than eight rows. 1-NN distance quantiles: p5 0.32, p10 0.44, p25 0.75, p50 1.10, p75 1.43, p90 1.79,
+p95 2.07.
 
 | `d` bin | rows | rows in OOF | γ(d)^½ | **model RMSE, same rows** | ratio |
 |---|---:|---:|---:|---:|---:|
 | (0.00, 0.25] | 58,919 | 17,478 | 140.32 | **139.11** | 0.991 |
 | (0.25, 0.50] | 202,215 | 60,485 | 152.50 | 149.45 | 0.980 |
 | (0.50, 0.75] | 252,497 | 77,055 | 165.23 | 158.38 | 0.959 |
-| (0.75, 1.00] | 245,012 | 75,691 | 178.94 | 166.63 | 0.931 |
-| (1.00, 1.25] | 574,600 | 182,875 | 184.01 | 171.80 | 0.934 |
-| (1.25, 1.50] | 306,939 | 100,072 | 221.76 | 206.29 | 0.930 |
-| (1.50, 2.00] | 299,488 | 103,100 | 281.45 | 257.08 | 0.913 |
-| (2.00, 3.00] | 101,561 | 38,328 | 404.96 | 356.98 | 0.881 |
-| (> 3.00) | 20,796 | 8,778 | 822.27 | 590.38 | 0.718 |
-| whole lane A † | 2,062,064 | 664,050 | — | **213.07** | — |
+| (0.75, 1.00] | 245,008 | 75,689 | 178.94 | 166.62 | 0.931 |
+| (1.00, 1.25] | 574,590 | 182,872 | 184.01 | 171.80 | 0.934 |
+| (1.25, 1.50] | 306,926 | 100,070 | 221.76 | 206.29 | 0.930 |
+| (1.50, 2.00] | 299,407 | 103,070 | 281.47 | 257.08 | 0.913 |
+| (2.00, 3.00] | 101,393 | 38,275 | 404.91 | 357.07 | 0.882 |
+| (> 3.00) | 20,658 | 8,738 | 823.62 | 591.34 | 0.718 |
+| whole lane A | 2,061,650 | 663,742 | — | **213.05** | — |
 
-**†** 2,062,064 of the 2,062,577 matched rows are paired; the 513 that are not sit in stand blocks with
-fewer than eight rows. Model A's RMSE over the paired subset is 213.066 against 213.1266 over the whole
-lane, so the pairing is not selecting on difficulty at the level of the lane.
+Model A's RMSE over the paired subset is 213.050 against 213.1266 over the whole lane, so the pairing is
+not selecting on difficulty at the level of the lane.
 
 **[X] This is the trap this route sets, and it is worth recording because the number it produces is
 exactly the "board 230s is reachable" number.** Read the second column alone and the floor looks like
@@ -296,11 +305,11 @@ model is materially *above* the spread of its own near-twins.
 | 0.75 | 0.249 | 171.06 | 168.18 | −2.88 |
 | 1.00 | 0.368 | 175.58 | 169.35 | −6.23 |
 | 1.25 | 0.647 | 180.76 | 172.63 | −8.13 |
-| 1.50 | 0.795 | 188.24 | 179.02 | −9.21 |
-| **2.00** | **0.941** | **203.55** | **192.24** | −11.31 |
+| 1.50 | 0.796 | 188.23 | 179.02 | −9.21 |
+| **2.00** | **0.941** | **203.55** | **192.23** | −11.32 |
 
-**Control.** `S3`, with `g` permuted within airport, γ^½ reads 360.8 overall and 361.6 at `d ≤ 1.0`
-against a within-ADEP sd of `g` of 364.35. The neighbour search is not inventing structure.
+**Control.** `S3`, with `g` permuted within airport, γ^½ reads **364.48** overall and 356.48 at
+`d ≤ 1.0`, against a within-ADEP sd of `g` of 364.35. The neighbour search is not inventing structure.
 
 **[X] At 94 % row coverage this route reads 203.6, which is the same neighbourhood as §4's 201.0.** The
 residual selection — within a stratum, rows with close twins are still the denser ones — is why it is not
@@ -393,13 +402,13 @@ twins, so its ρ is under-stated more — the expected direction.)
 | EDDM | 8,949 | 0.1024 | [0.0704, 0.1343] | 175.73 | 166.49 | 9.24 |
 | EGLL | 14,008 | 0.0601 | [0.0423, 0.0773] | 222.07 | 215.29 | 6.78 |
 | EHAM | 13,725 | 0.0904 | [0.0699, 0.1090] | 161.46 | 153.99 | 7.47 |
-| LEBL | 17,662 | 0.0622 | [0.0430, 0.0829] | 195.33 | 189.16 | 6.17 |
+| LEBL | 17,662 | 0.0622 | [0.0430, 0.0829] | 195.33 | 189.15 | 6.17 |
 | LEMD | 19,779 | 0.0737 | [0.0572, 0.0921] | 171.62 | 165.17 | 6.45 |
 | **LFPG** | 14,049 | **0.1304** | [0.1010, 0.1613] | 241.53 | **225.23** | **16.30** |
-| **LIRF** | 15,718 | **0.1858** | [0.1595, 0.2171] | 345.14 | **311.43** | **33.71** |
+| **LIRF** | 15,718 | **0.1858** | [0.1595, 0.2171] | 345.14 | **311.42** | **33.72** |
 | LSZH | 8,975 | 0.0472 | [0.0213, 0.0749] | 167.20 | 163.21 | 3.99 |
-| LTFM | 7,335 | 0.0803 | [0.0538, 0.1065] | 229.20 | 219.81 | 9.39 |
-| **pooled** (SSE-weighted, and it reproduces 213.126) | | | | **213.13** | **201.78** | **11.34** |
+| LTFM | 7,335 | 0.0803 | [0.0538, 0.1065] | 229.20 | 219.80 | 9.40 |
+| **pooled** (SSE-weighted, and it reproduces 213.126) | | | | **213.13** | **201.78** | **11.35** |
 
 **[X] The recoverable gap is concentrated, and it is concentrated on the airports that are already the
 expensive ones.** LIRF alone is 33.7 s of its own RMSE and **35.0 %** of the total recoverable squared
@@ -410,6 +419,64 @@ error; LIRF + LFPG together are **53.6 %** of it, and LSZH is **1.8 %**. A proje
 It is a floor of ~201 s, of which just over half the remaining slack sits at two airports — and those two
 are the ones where the error is already largest, so the work is concentrated but it is also the work
 nobody has managed yet.**
+
+### 4.5 Does the narrow metric hide systematic error? — no
+
+`S4`. The narrow metric matches on twelve columns carrying 85 % of the gain, so two rows at `d = 0` can
+still differ on the other ~90 visible columns. If model A is systematically wrong *along* those columns,
+that error never enters `Cov(e_i, e_j)`, ρ is under-stated and the floor is over-stated — **the one bias
+in this note that flatters its own conclusion** (§10). Re-running the entire estimator on a **21-column**
+metric, adding the congestion block (`dep_tko_prev_30m/60m`, `rwy_headway_prev/next_s`, `queue_ahead`,
+`nbr_mvt_minus_aobt_mean_30m`, `arr_taxi_in_mean_30m`), the weather block (`temp_c`, `wind_ms`, `vis_km`)
+and `hour_local`:
+
+| `d` bin (wide metric) | pairs | MSE^½ | ρ | ρ 95 % CI | floor applied to the lane |
+|---|---:|---:|---:|---:|---:|
+| (0.50, 1.00] | 2,708 | 141.57 | **0.1152** | [0.0682, 0.1564] | **200.47** |
+| (1.00, 1.50] | 31,670 | 144.74 | 0.1063 | [0.0915, 0.1225] | 201.48 |
+| (1.50, 2.00] | 191,747 | 149.03 | 0.0572 | [0.0506, 0.0643] | 206.94 |
+
+**[S] ρ = 0.115 on the wide metric against 0.110 on the narrow one, and the implied floor is 200.5
+against 201.0.** Adding thirteen columns to the definition of "twin" does not find systematic error that
+the narrow metric missed. **[X] The bias is bounded and it is small; the conclusion does not rest on
+the metric.** (The decay to 0.057 by `d = 2` is the expected under-statement at distance, not a finding.)
+
+### 4.6 Per fold — and the bridge to §5
+
+`S4`. The pooled 213.13 averages three folds that differ by 45 s, and §5's learning curve is measured on
+the forward fold alone. ρ per fold lets the two be compared without assuming the folds behave alike:
+
+| fold | pairs | ρ | ρ 95 % CI | lane-A RMSE | floor |
+|---|---:|---:|---:|---:|---:|
+| jan | 22,654 | 0.1140 | [0.0949, 0.1355] | 203.40 | 191.45 |
+| jul | 21,789 | 0.0777 | [0.0531, 0.0988] | 243.28 | 233.63 |
+| **forward** | 96,077 | **0.1077** | [0.0976, 0.1189] | **198.53** | **187.53** |
+
+**[X] jul is the outlier on both axes** — the worst lane-A RMSE and the lowest ρ, i.e. its extra 45 s over
+forward is almost entirely irreducible rather than recoverable. That is consistent with jul being a
+seasonal-composition problem rather than a modelling one, and it means a project that improved lane A
+uniformly would still not close the fold spread.
+
+### 4.7 Could the twins be sharing an operational shock rather than a model error?
+
+`S4`. Two rows minutes apart on the same stand can share a real event — a closed taxiway, a de-icing
+queue — that is **not** a function of `x`. That puts a genuine `Cov(g_i, g_j | x)` into the estimator,
+inflating ρ and pushing the floor **down**. If the covariance were a shared shock it would decay with the
+time between the two flights:
+
+| \|t_i − t_j\| | pairs | MSE^½ | ρ | ρ 95 % CI | floor applied to the lane |
+|---|---:|---:|---:|---:|---:|
+| < 1 day | 6,798 | 149.25 | 0.1178 | [0.0825, 0.1482] | 200.18 |
+| 1–7 days | 38,569 | 152.20 | 0.1139 | [0.0987, 0.1311] | 200.62 |
+| 7–30 days | 76,176 | 150.62 | 0.0940 | [0.0836, 0.1059] | 202.87 |
+| 30–120 days | 18,977 | 146.57 | 0.1093 | [0.0841, 0.1336] | 201.15 |
+
+**[S] ρ is flat from minutes apart to four months apart.** The covariance is not a shared shock; it is a
+repeatable error the model makes on that kind of flight, which is what the estimator is supposed to
+measure. **[X] And it answers the brief's "adjacent days" replicate idea directly: twins a day apart and
+twins a season apart give the same answer.**
+
+---
 
 ---
 
@@ -499,38 +566,51 @@ larger. **[X] One caveat: the 31-leaf arm hit the 400-round cap, so it is round-
 capacity-limited and its 213.23 is if anything pessimistic — which only strengthens the reading that the
 three are indistinguishable.**
 
-### 5.4 What route 4 says about the floor, and where it disagrees with route 3
+### 5.4 Route 4 against route 3, on the same fold, with no rescaling
 
-This curve is on the **forward fold**, where lane A measures 198.53 at production settings, not on the
-pooled three folds, where it measures 213.13. Scaling each point by the same ratio
-(`213.1266 / 202.7011`) puts route 4 on route 3's axis. **[X] That rescaling is an inference — it assumes
-the folds' curves have the same shape — and everything in this subsection inherits it.**
+§4.6 gives route 3's floor **on the forward fold specifically**: lane A 198.53, ρ 0.1077, floor
+**187.53**. §5.2's curve is on that same fold. The only adjustment needed is the cheapening, which the
+`frac = 1.0` point measures directly: 202.70 here against 198.53 at production settings, i.e. **−4.17 s**
+applied to every point.
 
-| route 4 point | forward-fold RMSE | pooled-equivalent lane A |
+| | forward-fold RMSE, cheapened | production-equivalent (−4.17) |
 |---|---:|---:|
-| today (100 % of the rows) | 202.70 | 213.13 |
-| 2× the rows | 198.46 | 208.7 |
-| 4× the rows | 195.01 | 205.0 |
-| **10× the rows** | **191.31** | **201.1** |
-| `n → ∞` | 178.24 | **187.4** |
+| today (100 % of the rows) | 202.70 | **198.53** (measured, `configs/main_gap.yaml`) |
+| 2× the rows | 198.46 | 194.3 |
+| 4× the rows | 195.01 | 190.8 |
+| **10× the rows** | **191.31** | **187.1** |
+| `n → ∞` | 178.24 | 174.1 |
+| **route 3's floor on this fold (§4.6)** | — | **187.53** |
 
-> **[S] Ten times the 2025 training data, on exactly these features, lands pooled lane A at 201.1 — which
-> is route 3's floor of 201.8 to within a second, reached by a method that shares no machinery with it.**
+> **[S] Route 4 at ten times the training data lands at 187.1. Route 3's floor on the same fold is
+> 187.53. The two agree to 0.4 s, by methods that share no machinery: one counts how much a twin's
+> residual predicts this row's, the other fits models on 6.25 % to 100 % of the rows and extrapolates.**
 
-**And here is the one place the routes disagree, reported rather than averaged.** Route 3 says the floor
-is 201.0 [197.0, 205.0]; route 4's `n → ∞` extrapolation says 187.4 pooled-equivalent, which is *below*
-route 3's floor — and an `n → ∞` limit cannot be below the floor. One of the two is wrong by about 14 s:
+**And here is the one place they disagree, reported rather than averaged.** Route 4's `n → ∞`
+extrapolation is 174.1, which is **13.4 s below** route 3's floor — and an `n → ∞` limit cannot be below
+the floor. One of the two is wrong:
 
-* the `α = 0.283` power law is fitted over one order of magnitude in `n` and then extrapolated to
-  infinity, which is the least reliable thing in this note. Its 2× and 4× points are interpolation-grade;
-  its `∞` point is not. **[X] My own weight is on this being the wrong one.**
-* or ρ is under-stated, which §10 records as the one bias in the note pointing the wrong way, and §4.5
-  bounds.
+* the `α = 0.283` power law is fitted over one order of magnitude in `n` and then pushed to infinity.
+  Its 2× and 4× points are interpolation-grade; its `∞` point is an extrapolation of a curve that is
+  still falling, and the fitted `α` is the least constrained parameter in this note. **[X] My weight is
+  on this being the wrong one, and I would not defend 174.**
+* or ρ is under-stated, which §4.5 bounds at about 0.5 s and §10 records.
 
-**[X] So the honest floor is a range, 187 – 205, with route 3 at the top of it and route 4's asymptote at
-the bottom, and the two agreeing exactly at the only point where both are interpolating (10× rows,
-201.1 against 201.8). Nothing in the range is within 38 s of 148.9, which is why the §7 conclusion does
-not depend on resolving it.**
+**[X] So the floor is a range, and the honest way to state it is: 187 – 205 s pooled, with route 3 at
+201.0 [197.0, 205.0], route 4's usable (interpolated) end agreeing with route 3 exactly, and route 4's
+extrapolated end 13 s lower and not defended. The range's own width — 18 s — is less than a third of the
+44 s that separates today from a board of 234.5, which is why nothing in §7 turns on resolving it.**
+
+Pooled-equivalents, for readers who want the numbers on §1.1's axis, by scaling each forward-fold point
+by `213.1266 / 198.526`. **[X] This rescaling assumes the three folds' curves have the same shape and is
+an inference, not a measurement:**
+
+| route 4 point | forward (production-equiv.) | pooled-equivalent lane A |
+|---|---:|---:|
+| today | 198.53 | 213.13 |
+| 2× the rows | 194.3 | 208.6 |
+| **10× the rows** | **187.1** | **200.9** |
+| `n → ∞` | 174.1 | 186.9 |
 
 ---
 
@@ -594,11 +674,15 @@ turns on. From `experiments/experiments.jsonl`:
 `S7`. Holding lane B fixed at its measured SSE of 2.1633e10 on 8,378 rows, and passing through the
 brief's +1.98 s OOF-to-board gap (whose instability is §8's subject):
 
-| board target | implied pooled OOF | lane A must reach | vs 213.13 |
-|---:|---:|---:|---:|
-| 234.5000 | 232.5164 | **148.89** | −30.1 % |
-| 230.0000 | 228.0164 | **141.67** | −33.5 % |
-| 279.5234 (v14, today) | 277.5398 | 213.13 | — |
+| board target | implied pooled OOF | lane A must reach | vs 213.13 | and at §8.2's measured ratio 0.747 |
+|---:|---:|---:|---:|---:|
+| 234.5000 | 232.5164 | **148.89** | −30.1 % | **123.40** |
+| 230.0000 | 228.0164 | **141.67** | −33.5 % | **112.32** |
+| 279.5234 (v14, today) | 277.5398 | 213.13 | — | 213.13 |
+
+The last column is what the same targets become once the board's response to a CV improvement is taken
+from the one place it has been measured rather than assumed to be one-for-one (§8.2). **Everything below
+uses the brief's own, more generous, column.**
 
 Restated as a systematic share, which is the quantity §4 actually measures:
 
@@ -608,31 +692,43 @@ Restated as a systematic share, which is the quantity §4 actually measures:
 | 141.7 (board 230.0) | **≥ 0.5580** | 0.1104 | 0.4839 |
 | 201.0 (§4's floor) | 0.1106 | 0.1104 | — |
 
-> **[X] In one sentence, as asked: 148.9 and 141.7 both sit below every floor estimate in this note, and
-> reaching them would require model A to be *more* systematically wrong than a predictor that knows only
-> the airport and the operator — so lane A cannot get there alone, and a board score in the 230s is not a
-> lane-A project.**
+> **[X] In one sentence, as asked: 148.9 and 141.7 both sit below every floor estimate in this note — the
+> nearest is 38 s away — and reaching them would require model A to be *more* systematically wrong than a
+> predictor that knows only the airport and the operator, so lane A cannot get there alone and a board
+> score in the 230s is not a lane-A project.**
 
-What lane A *is* worth. Recovering all 11.34 s of §4.4's gap takes lane A to 201.78, the pooled OOF to
-**269.04**, and the board — through the same +1.98 gap, for comparability only — to **271.02**: a
-**−8.50 s** move, and that is the *whole* prize for a perfect model A. [S] `S4`, `S7`
+What lane A *is* worth. Recovering all 11.34 s of §4.4's gap takes lane A to 201.78 and the pooled OOF to
+**269.04**: a **−8.50 s** move of the CV statistic, and that is the *whole* prize for a perfect model A.
+On the board that is −8.50 s at a transfer ratio of 1.000 and **−6.35 s** at §8.2's measured 0.747 — i.e.
+**279.52 → 271.0 to 273.2**. [S] `S4`, `S7`
 
 The realistic fraction of that, given §6's 0.3 s for the whole cell-mean family and §6.1's record — one
 adopted feature in the campaign, worth −2.89 s of lane A and −3.62 s of board — is **−1 to −3 s of board**
-over two weeks. **[X] That last range is an inference from the project's own return curve, not a
+over two weeks, i.e. a board somewhere in **276.5 – 278.5**. **[X] That last range is an inference from the project's own return curve, not a
 measurement.**
 
 ---
 
-## 8. Is the +1.98 s OOF-to-board gap stable? — no, and it is the shakiest number in the brief
+## 8. Is the +1.98 s OOF-to-board gap stable? — the level is not, the derivative is worse, and neither rescues the targets
 
-`S7`. **It is one observation.** v14 (`main_gap-62dd7c6e88`, board 279.5234, pooled OOF 277.5398) is the
-only submission whose board score can be paired with a pooled three-fold OOF from the same single config:
-v10–v13 were hand-assembled from two model lineages and v13's own CV is forward-fold only
-(`experiments/submissions.jsonl`). There is no second pair, so there is no spread to quote.
+`S7`. **There are exactly two submissions whose board score can be paired with a pooled three-fold OOF
+from the same single config**, not one. v13's file was built from the `submit_v10_reparam` full-data
+refit with the LOBT bound applied, and `configs/main_reparam.yaml` **is** `configs/submit_v10_reparam.yaml`
+plus `lobt_bound` — so `oof_main_reparam-bc60017878` is v13's OOF. v1–v12 were hand-assembled from two
+model lineages and have no comparable pooled OOF (`experiments/submissions.jsonl`).
 
-Worse, the number moves with the pooling. The board is Jan + Jul **2026**; the pooled OOF is
-jan + jul + forward **2025**. `S7`, same predictions, different fold subsets:
+| version | exp_id | pooled OOF | lane A | board | gap |
+|---|---|---:|---:|---:|---:|
+| v13 | `main_reparam-bc60017878` | 281.8411 | 216.3393 | 282.7371 | **+0.8960** |
+| v14 | `main_gap-62dd7c6e88` | 277.5398 | 213.1266 | 279.5234 | **+1.9836** |
+
+**[S] The two gaps differ by 1.09 s on a quantity that is about 1.5 s.** The brief's +1.98 is the larger
+of two observations, not a constant.
+
+### 8.1 The level moves with the pooling, by 125 seconds
+
+`S7`, same predictions, different fold subsets. The board is Jan + Jul **2026**; the pooled OOF is
+jan + jul + forward **2025**, and **49 % of its rows come from months the board does not contain**:
 
 | fold subset | n | pooled OOF | lane A | implied gap to board 279.5234 |
 |---|---:|---:|---:|---:|
@@ -642,29 +738,60 @@ jan + jul + forward **2025**. `S7`, same predictions, different fold subsets:
 | jan only | 153,706 | 344.7506 | 203.40 | −65.23 |
 | jul only | 190,713 | 304.5749 | 243.28 | −25.05 |
 
-**[X] +1.98 is a coincidence of the three-fold average, not a transfer constant.** The gap ranges over
-125 seconds depending on which folds are pooled, and lane A alone ranges 198.5 to 243.3. Two consequences
-for the brief:
+**[X] +1.98 is a coincidence of the three-fold average.** The implied gap ranges over 125 s and lane A
+alone ranges 198.5 to 243.3, so "the pooled OOF" is not a single well-defined estimate of board
+performance — it is an average over months that behave nothing alike, half of which the board does not
+contain.
 
-1. **Every board target computed through +1.98 carries an uncertainty far larger than the difference
-   between 234.5 and 230.0.** The 148.9 / 141.7 pair should be read as "roughly 140–150", and this note's
-   conclusion does not depend on which, because both are far below 197.
-2. **The conclusion in §7 is nevertheless robust to the gap**, because it is stated as a required ρ, and ρ
-   is measured on OOF rows without passing through the board at all. Even at the most generous gap in the
-   table (+59.80, forward-only), a board of 234.5 needs a pooled OOF of 174.7, which with lane B fixed is
-   arithmetically impossible: lane B alone contributes √(2.1633e10 / 672,428) = 179.4 s to the pooled
-   RMSE. **[S] `S7`** — i.e. **with model B as it stands, board 234.5 is unreachable at any lane-A error
-   whatsoever, under the most favourable gap the data offers.**
+### 8.2 But the level is not what the targets need — the derivative is, and it is 0.75
+
+**[X] An important correction to how the brief uses the gap.** A *constant* gap cancels when you compute
+an improvement: board −45.02 s would need pooled OOF −45.02 s whatever the gap's level. So §8.1 alone
+does not invalidate the targets. What does is the **transfer ratio** `ΔBoard / ΔOOF`, and the two pairs
+give exactly one measurement of it:
+
+| | pooled OOF | board | lane A |
+|---|---:|---:|---:|
+| v13 → v14 | **−4.3013** | **−3.2137** | −3.2127 |
+| **transfer ratio `ΔBoard / ΔOOF`** | | **0.747** | |
+
+**[X] n = 1, and both terms are differences of noisy quantities, so 0.747 carries no error bar and must
+not be treated as calibrated.** It is, however, the only measurement of the thing every target in the
+brief silently assumes to be 1.000. `S7`, targets under both:
+
+| assumed ratio | board target | pooled OOF needed | **lane A needed** |
+|---|---:|---:|---:|
+| 1.000 (the brief's) | 234.50 | 232.52 | **148.89** |
+| 1.000 | 230.00 | 228.02 | **141.67** |
+| **0.747 (measured)** | 234.50 | 217.28 | **123.40** |
+| **0.747 (measured)** | 230.00 | 211.26 | **112.32** |
+
+**[S] The instability does not rescue the targets; it moves them further away.** At the only transfer
+ratio anyone has measured, board 234.5 needs lane A at **123.4** — against a floor of 187–205 and a
+current 213.1.
+
+### 8.3 What should be done with the gap
+
+**[X] Three things, stated as recommendations and marked as opinion.**
+
+1. **Stop computing board targets through a single additive gap.** Report the pooled OOF and the board
+   score side by side, and quote *deltas*, which is what every decision actually turns on.
+2. **The third OOF↔board pair is cheap and worth a slot.** Two points give a ratio with no error bar;
+   three give a spread. Any future submission whose OOF comes from one config adds one.
+3. **Consider reporting `jan + jul` as a second headline CV number.** It is the board's own season and it
+   is 45.6 s away from the three-fold pool, so the two disagree about how good the model is by more than
+   the entire improvement this project is trying to find.
 
 ---
 
 ## 9. What this leaves
 
 * **The floor on lane A is 187 – 205 s, best estimate 201**, from the twin-residual covariance route
-  (§4, 201.0 [197.0, 205.0]) and the learning curve (§5, 201.1 at 10× rows, 187.4 extrapolated to `n → ∞`).
+  (§4, 201.0 [197.0, 205.0]) and the learning curve (§5, 200.9 at 10× rows, 186.9 extrapolated to `n → ∞`;
+  187.1 against 187.53 when the two are compared on the forward fold with no rescaling).
   The 1-NN semivariance route reads 203.6 at 94 % coverage (§3) and the matched-twin ladder reads 214.0
   and cannot go lower (§2). §3's apparent 140 is a selection effect that §3.2's third column resolves;
-  §5's 187.4 is a power-law extrapolation I do not trust, and §5.4 says why rather than averaging it away.
+  §5's 186.9 is a power-law extrapolation I do not defend, and §5.4 says why rather than averaging it away.
 * **Recoverable: 11.3 s of lane-A RMSE, 213.13 → 201.78, ≈ −8.5 s of board if every second of it were
   taken.** LIRF and LFPG are 53.6 % of it; LSZH is 1.8 %.
 * **Closed at 0.3 s:** every re-encoding, target encoding, per-group specialist and per-group offset over
@@ -678,41 +805,53 @@ for the brief:
 
 ## 10. Caveats on the instrument, recorded rather than buried
 
-* **Every route bounds the floor from ABOVE.** No estimator here can prove a target is unreachable in the
-  logical sense; §7's argument is that the *required* ρ is 4.6× the measured one and larger than a
-  deliberately crippled model's, which is evidence, not proof. **[X] Anyone who wants the other direction
-  should know it does not exist: a lower bound on conditional variance is not estimable from data.**
-* **§4's central assumption is that ρ is the same on rows with no close twin as on rows with one.**
-  The evidence for it is the flatness of ρ across `d` bins (0.098 – 0.112 over `d ≤ 1`, and 0.084 – 0.128
-  out to `d > 3` on the 1-NN version) and the fact that the two hardest airports have the *highest* ρ, so
-  the assumption is not obviously optimistic. **This is the biggest weakness of the estimate.** If ρ on
-  the sparse half of the lane were double the measured value, the floor would be ≈ 189 rather than 201 —
-  still 40 s above 148.9, which is why the §7 conclusion survives it.
-* **The matching metric is a choice.** Eight continuous and four categorical columns inside a stand block,
-  chosen by LightGBM gain share on `g`: `aobt3_minus_eobt1` 23.61 %, `mvt_minus_aobt3` 14.75 %,
-  `STAND_mvt` 12.21 %, `RUNWAY_mvt` 7.22 %, `ADES_mvt` 5.76 %, `AIRCRAFT_OPERATOR_flt` 4.34 %,
-  `mvt_minus_aobt3_slog` 4.13 %, `ADEP_mvt` 3.36 %, `aobt3_minus_eobt1_slog` 3.34 %, `aobt3_minus_sched`
-  3.30 % — 85 % of the gain in twelve columns (400 rounds, 300k-row subsample, seed 1). Rows at `d = 0`
-  may still differ on the ~90 other visible columns. For §2 and §3 that inflates the estimate, which is
-  the harmless direction. **For §4 it is the harmful one:** systematic error lying *along* the omitted
-  columns never enters `Cov(e_i, e_j)`, so ρ is under-stated, the floor is over-stated, and §7's
-  conclusion is flattered. **[X] This is the one bias in the note that points the wrong way, and §4.5
-  exists to bound it** — re-running the whole estimator on a 21-column metric that adds the congestion
-  block, the weather block and time-of-day.
-* **`g` is heavy-tailed and every number here is an L2 quantity dominated by that tail.** ρ's bootstrap CI
-  at the tightest bin rests on 5,091 pairs and is correspondingly wide ([0.074, 0.146]). The three wider
-  bins, on 26k–60k pairs, agree with it and are what make the point estimate credible; a reader who
-  trusts only the tightest bin should read the floor as 197–205 and nothing narrower.
-* **One OOF, one production recipe, three folds.** Everything is measured on
-  `oof_main_gap-62dd7c6e88`. Fold-to-fold spread on lane A is 198.5 / 203.4 / 243.3 (`S1`), so the pooled
-  213.13 is not a tight quantity either, and §8 is the direct consequence.
-* **The cell-mean correction of §6 uses labels of other rows.** That is legitimate as a diagnostic of
-  whether structure exists, and it is implementable at prediction time *only* for keys that recur across
-  time — which is why no date or week enters any key in this note. A same-day key would have measured
-  something real and unusable, since the scored rows' neighbours are also unlabelled.
+* **Every route bounds the floor from ABOVE, and no route can do otherwise.** §7's argument is not "the
+  floor is 201, therefore 148.9 is impossible"; it is "the systematic share would have to be 0.512 and it
+  measures 0.110, with a deliberately crippled model at 0.484". That is evidence, not proof.
+  **[X] Anyone who wants a real lower bound on conditional variance should know it is not estimable from
+  data at all.**
+* **§4's central assumption is that ρ carries from rows with a close twin to rows without one.** It is
+  the biggest weakness of the estimate. Four things support it and none of them is conclusive: ρ is flat
+  across `d` (0.098 – 0.112 over `d ≤ 1`, 0.084 – 0.128 out to `d > 3`); flat across time separation
+  (§4.7); stable on a 21-column metric (§4.5); and the two hardest airports have the *highest* ρ, so the
+  assumption is not obviously optimistic. **If ρ on the sparse half of the lane were double the measured
+  value the floor would be ≈ 188, which is still 39 s above 148.9.**
+* **The matching metric is a choice, and the one bias in this note points the wrong way.** The narrow
+  metric is eight continuous and four categorical columns inside a stand block, chosen by LightGBM gain
+  share on `g`: `aobt3_minus_eobt1` 23.61 %, `mvt_minus_aobt3` 14.75 %, `STAND_mvt` 12.21 %,
+  `RUNWAY_mvt` 7.22 %, `ADES_mvt` 5.76 %, `AIRCRAFT_OPERATOR_flt` 4.34 %, `mvt_minus_aobt3_slog` 4.13 %,
+  `ADEP_mvt` 3.36 %, `aobt3_minus_eobt1_slog` 3.34 %, `aobt3_minus_sched` 3.30 % — 85 % of the gain in
+  twelve columns (400 rounds, 300k-row subsample, seed 1). Systematic error lying along the ~90 omitted
+  columns would not enter `Cov(e_i, e_j)`, so ρ would be under-stated and §7 flattered. **§4.5 bounds
+  that at about half a second** by re-running everything on 21 columns.
+* **`g` is heavy-tailed and every number here is an L2 quantity dominated by that tail.** ρ's CI at the
+  tightest narrow-metric bin rests on 5,091 pairs and is wide, [0.074, 0.146]. The three wider bins, on
+  27k–60k pairs, agree with it; a reader who trusts only the tightest bin should read the floor as
+  197 – 205 and nothing narrower.
+* **`S5` is a cheapened recipe and its absolute level must not be quoted.** `lr` 0.15 not 0.05, ≤ 400
+  rounds not 2000, one seed not three, `deterministic`/`force_row_wise` off. The cost is measured, not
+  assumed: 202.70 against production's 198.53 on the same fold. **The `α = 0.283` asymptote is the least
+  defensible number in the note** (§5.4).
+* **The box was not idle.** A stray `pytest tests/test_train.py` held roughly one of the four CPUs for
+  much of the session, and the first attempt at `S5` was abandoned after a 400-round fit on 109k rows
+  failed to finish in eight minutes. The cause was measured, not guessed: with the production
+  `deterministic: True` + `force_row_wise: True`, LightGBM on this data costs about 5.6 s/round at 110k
+  rows (`bench_lgb.py`, 60 rounds, > 120 s) against 0.1 s/round with them off. **[X] Worth recording
+  independently of this note: the determinism flags are costing this project roughly an order of
+  magnitude of wall clock on every training run, in exchange for bit-reproducibility of deltas that are
+  then judged with a ±1 s noise control anyway.**
+* **One OOF, one production recipe, three folds.** Everything is measured on `oof_main_gap-62dd7c6e88`.
+  Fold-to-fold spread on lane A is 198.5 / 203.4 / 243.3 (`S1`), so the pooled 213.13 is not a tight
+  quantity either, and §8 is the direct consequence.
+* **§8.2's transfer ratio is n = 1.** 0.747 is a ratio of two differences of noisy quantities, with no
+  error bar. It is quoted because 1.000 is the alternative and 1.000 has never been measured at all.
+* **The cell-mean correction of §6 uses labels of other rows.** Legitimate as a diagnostic of whether
+  structure exists, and implementable at prediction time *only* for keys that recur across time — which
+  is why no date or week enters any key in this note. A same-day key would have measured something real
+  and unusable, since the scored rows' neighbours are also unlabelled.
 * **No control was added after the fact.** §2's shuffled-cell arm, §3's permuted-label arm and §4's
   permuted-partner and crippled-predictor arms were part of the design before any headline number was
-  read, on the explicit instruction of `missing-clock.md` §7 and `P1-stage2-gate-FAILED.md`. The one
-  number that would have signalled the same class of bug — several routes returning *identical* figures,
-  or a floor near zero — did not occur: the routes return 214.0, 203.6 and 201.0, which is agreement
-  without being suspicious identity.
+  read, on the explicit instruction of `missing-clock.md` §7 and `P1-stage2-gate-FAILED.md`. The failure
+  signature those documents name — several feature sets returning *identical* numbers, or a floor near
+  zero — did not occur: the routes return 214.0, 203.6, 201.0 and 200.5, which is agreement without being
+  suspicious identity, and the negative controls return 364.4, 364.5 and −0.002 exactly where they should.

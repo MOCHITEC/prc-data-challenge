@@ -6,14 +6,16 @@ own tag (S1..S7) and the document cites the tag beside each figure.
 
     POLARS_MAX_THREADS=2 .venv/bin/python docs/competitor_research_2026-09-21/scripts/model_a_ceiling.py [S1 S2 ...]
 
-Sections (wall clock on an otherwise idle 4-CPU box):
-  S1  reproduce the lane split; restate model A's error in the space it is actually fitted in   ~40 s
-  S2  route 1  matched-twin ladder: within-cell spread of g, plain and covariate-adjusted       ~6 min
-  S3  route 2  1-NN semivariance against the model's error ON THE SAME ROWS, post-stratified    ~9 min
-  S4  route 3  twin-residual covariance -> the systematic share rho -> the floor                ~9 min
-  S5  route 4  learning curve in training rows and in capacity                                  ~70 min  fits
-  S6  what an oracle cell-mean correction of the OOF residual could recover                     ~2 min
-  S7  the targets, and whether the +1.98 s OOF-to-board gap is stable                           ~30 s
+Sections (measured wall clock on a 4-CPU box that was NOT idle - a stray pytest held about one core):
+  S1  reproduce the lane split; restate model A's error in the space it is actually fitted in     0 s
+  S6  what an oracle cell-mean correction of the OOF residual could recover                      13 s
+  S7  the targets, the two OOF<->board pairs, and whether the gap is stable                       2 s
+  S3  route 2  1-NN semivariance against the model's error ON THE SAME ROWS, post-stratified    124 s
+  S2  route 1  matched-twin ladder: within-cell spread of g, plain and covariate-adjusted       135 s
+  S4  route 3  twin-residual covariance -> the systematic share rho -> the floor                243 s
+  S5  route 4  learning curve in training rows and in capacity                                  327 s  fits
+
+S4 depends on S1's per-airport table and prepends it automatically if it is missing.
 
 Definitions used throughout.
   y      = TAXITIME_SEC_mvt = MVT_TIME - BLOCK_TIME                  (the label)
@@ -793,18 +795,45 @@ def s7_targets() -> None:
     for t in (148.9, 141.7, 201.0):
         print(f"  target lane-A RMSE {t:7.1f}  ->  rho must be at least {1 - (t / 213.1266) ** 2:.4f}")
 
-    print("\nThe OOF-to-board gap. It is ONE observation: v14 is the only submission whose board score can be")
-    print("paired with a pooled three-fold OOF from the same single config (v10..v13 were hand-assembled from")
-    print("two lineages; see experiments/submissions.jsonl).")
-    rows = []
-    for line in open(SUBMISSIONS):
-        r = json.loads(line)
-        if r.get("leaderboard_score"):
-            rows.append((r["version"], r["exp_id"], r["leaderboard_score"]))
-    for v, e_, s in rows:
-        print(f"  v{v:<3d} {e_:38s} board {s:9.4f}")
-    print(f"  v14  main_gap-62dd7c6e88                   board {BOARD_V14:9.4f}   pooled OOF {OOF_V14:9.4f}"
-          f"   gap {BOARD_V14 - OOF_V14:+.4f}")
+    print("""
+The OOF-to-board gap. There are exactly TWO submissions whose board score can be paired with a pooled
+three-fold OOF from the same single config. v13's file was built from the submit_v10_reparam full-data
+refit with the LOBT bound applied, and configs/main_reparam.yaml IS configs/submit_v10_reparam.yaml plus
+lobt_bound - so oof_main_reparam-bc60017878 is v13's OOF. v1..v12 were hand-assembled from two model
+lineages and have no comparable pooled OOF (experiments/submissions.jsonl).""")
+    pairs = [("v13", "main_reparam-bc60017878", "experiments/oof_main_reparam-bc60017878.parquet",
+              "experiments/oof_main_reparam-bc60017878_folds.parquet", 282.7371),
+             ("v14", "main_gap-62dd7c6e88", str(OOF), str(OOF_FOLDS), BOARD_V14)]
+    got = []
+    print(f"  {'ver':5s} {'exp_id':26s} {'pooled OOF':>11s} {'lane A':>9s} {'board':>10s} {'gap':>9s}")
+    for ver, exp, op, fp, board in pairs:
+        f2 = pl.read_parquet(ROOT / fp)
+        f2 = f2.filter(pl.col("pooled")) if "pooled" in f2.columns else f2.filter(pl.col("fold") != "jul_fwd")
+        dd = (f2.select("MVT_ID_mvt").join(pl.read_parquet(ROOT / op), on="MVT_ID_mvt")
+              .join(ft, on="MVT_ID_mvt")
+              .with_columns([(pl.col("oof") - pl.col("TAXITIME_SEC_mvt")).alias("e"),
+                             pl.col("mvt_minus_aobt3").is_not_null().alias("A")]))
+        ee = dd["e"].to_numpy()
+        aa = dd.filter(pl.col("A"))["e"].to_numpy()
+        po, la = float(np.sqrt((ee**2).mean())), float(np.sqrt((aa**2).mean()))
+        got.append((ver, po, la, board))
+        print(f"  {ver:5s} {exp:26s} {po:11.4f} {la:9.4f} {board:10.4f} {board - po:+9.4f}")
+    (_, o13, a13, b13), (_, o14, a14, b14) = got
+    dO, dB, dA = o14 - o13, b14 - b13, a14 - a13
+    print(f"\n  the two gaps are {b13 - o13:+.4f} and {b14 - o14:+.4f}: spread {abs((b14 - o14) - (b13 - o13)):.4f} s"
+          f" on a quantity of about 1.5 s")
+    print(f"  the ONE paired delta:  pooled OOF {dO:+.4f}   board {dB:+.4f}   -> transfer ratio {dB / dO:.3f}"
+          f"   (lane A moved {dA:+.4f})")
+    print("  [X] n = 1. A ratio of 1.000 is what the brief's targets assume; 0.75 is what the only")
+    print("      measurement says. Targets below are shown under both.")
+    for ratio in (1.0, dB / dO):
+        for board in (234.5, 230.0):
+            need_oof = o14 + (board - b14) / ratio
+            v = ((need_oof**2) * (nA + nB) - sseB) / nA
+            lane = np.sqrt(v) if v > 0 else float("nan")
+            print(f"    ratio {ratio:.3f}: board {board:7.2f} needs pooled OOF {need_oof:8.2f} "
+                  f"-> lane A {lane:7.2f}" + ("  <- ARITHMETICALLY IMPOSSIBLE, lane B alone exceeds it"
+                                              if not np.isfinite(lane) else ""))
 
     print("\nHow much does that gap move if the pooling changes? The board is Jan+Jul 2026; the pooled OOF is")
     print("jan + jul + forward 2025. Recomputing the OOF on the fold subsets the board actually resembles:")
