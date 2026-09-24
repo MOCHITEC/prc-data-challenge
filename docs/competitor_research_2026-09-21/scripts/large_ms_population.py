@@ -425,6 +425,95 @@ def main() -> None:
     print(f"  n(ms>=1800, matched)={r2.height}; aobt3>=1800 -> {int((r2['mvt_minus_aobt3']>=1800).sum())}; "
           f"aobt3>=3600 -> {int((r2['mvt_minus_aobt3']>=3600).sum())}")
 
+    hr("S8  the LIRF fill: is it stable, and is the CALLSIGN PREFIX a visible handle?")
+    # FLIGHT_mvt is present on scored rows; AIRCRAFT_OPERATOR_flt (a model categorical)
+    # is 100 % null in the unmatched lane, so the operator is invisible to model B today.
+    print("FLIGHT_mvt null count: train %d / %d, rank %d / %d"
+          % (int(tr["FLIGHT_mvt"].is_null().sum()), tr.height,
+             int(rk["FLIGHT_mvt"].is_null().sum()), rk.height))
+    lirf = big.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))
+    print("\nLIRF unmatched ms>=1800 fill rate by month:")
+    print(lirf.group_by("month").agg(pl.len().alias("n"),
+        (pl.col("kind") == "schedfill").mean().alias("fill_rate"),
+        pl.col("y").mean().alias("y_mean")).sort("month"))
+    print("\nrank frame months:", rk.group_by("month").len().sort("month").to_dicts())
+    print("LIRF unmatched ALL ms (incl <30m) fill rate by month:")
+    la = tr.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))
+    print(la.group_by("month").agg(pl.len().alias("n"),
+        (pl.col("bs").abs() <= 10).mean().alias("fill_rate")).sort("month"))
+
+    # out-of-time test of the prefix handle: fit the prefix fill-rate on months 1-6,
+    # score months 7-12 (and the reverse).
+    for tr_months, te_months, name in [([1,2,3,4,5,6], [7,8,9,10,11,12], "H1->H2"),
+                                       ([7,8,9,10,11,12], [1,2,3,4,5,6], "H2->H1")]:
+        A = lirf.filter(pl.col("month").is_in(tr_months))
+        Bt = lirf.filter(pl.col("month").is_in(te_months))
+        tab = (A.group_by("prefix").agg(pl.len().alias("n"),
+               (pl.col("kind") == "schedfill").mean().alias("r")).filter(pl.col("n") >= 5))
+        prior = float((A["kind"] == "schedfill").mean())
+        sc = (Bt.join(tab, on="prefix", how="left")
+                .with_columns(pl.col("r").fill_null(prior).alias("score")))
+        lab = (sc["kind"] == "schedfill").to_numpy().astype(int)
+        cov = float(sc["r"].is_not_null().mean())
+        print(f"\n  {name}: fit n={A.height} ({len(tab)} prefixes n>=5), test n={Bt.height}, "
+              f"prefix known on {cov:.3f}; AUC(prefix rate)={auc(sc['score'].to_numpy(), lab):.4f} "
+              f"base={lab.mean():.4f}")
+        # compare with ADES (a categorical the model already has) and with ms
+        tab2 = (A.group_by("ADES_mvt").agg(pl.len().alias("n"),
+                (pl.col("kind") == "schedfill").mean().alias("r2")).filter(pl.col("n") >= 5))
+        sc2 = (Bt.join(tab2, on="ADES_mvt", how="left")
+                 .with_columns(pl.col("r2").fill_null(prior).alias("s2")))
+        print(f"       AUC(ADES rate)={auc(sc2['s2'].to_numpy(), lab):.4f}  "
+              f"AUC(ms)={auc(Bt['ms'].to_numpy().astype(float), lab):.4f}  "
+              f"AUC(hour)={auc(Bt['hour_utc'].to_numpy().astype(float), lab):.4f}")
+        # what a prefix-conditional mixture prediction would give vs the model's own
+        # (label-free at prediction time apart from the fitted table)
+        q3 = sc.with_columns(pl.when(pl.col("score") >= 0.5).then(pl.col("ms"))
+                             .otherwise(pl.lit(1000.0)).alias("mix"))
+        e_mix = (q3["mix"] - q3["y"]).to_numpy()
+        print(f"       hard-assign RMSE (ms if rate>=.5 else 1000s) = {np.sqrt((e_mix**2).mean()):.0f} "
+              f"on {len(e_mix)} rows;  sd(y) = {float(q3['y'].std()):.0f}")
+
+    print("\n  prefix table fitted on the WHOLE year, LIRF unmatched ms>=1800, n>=8:")
+    print(lirf.group_by("prefix").agg(pl.len().alias("n"),
+          (pl.col("kind") == "schedfill").mean().round(3).alias("fill_rate"),
+          pl.col("y").median().alias("y_p50"), pl.col("ms").median().alias("ms_p50"))
+          .filter(pl.col("n") >= 8).sort("n", descending=True))
+
+    hr("S8b  is the model already at the mixture optimum on the LIRF unmatched cells?")
+    ju2 = jb.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF"))
+    out = []
+    for band in LABELS:
+        c = ju2.filter(pl.col("band") == band)
+        if c.height < 10:
+            continue
+        ybar = float(c["y"].mean())
+        out.append(dict(band=band, n=c.height,
+                        model_RMSE=float(np.sqrt((c["resid"] ** 2).mean())),
+                        cellmean_RMSE=float(np.sqrt(((c["y"] - ybar) ** 2).mean())),
+                        bias=float(c["resid"].mean()),
+                        model_SSE=float(c["sse"].sum()),
+                        cellmean_SSE=float(((c["y"] - ybar) ** 2).sum())))
+    print(band_sort(pl.DataFrame(out)))
+    print("NB cellmean uses the cell's own realised mean -- an in-sample oracle, a LOWER bound on SSE.")
+
+    hr("S8c  rank-frame population of the identifiable cells")
+    rl = rk.filter(pl.col("unm") & (pl.col("ADEP_mvt") == "LIRF") & (pl.col("ms") >= 1800))
+    print(f"rank LIRF unmatched ms>=1800: n={rl.height}")
+    tab = (lirf.group_by("prefix").agg(pl.len().alias("n_tr"),
+           (pl.col("kind") == "schedfill").mean().alias("fill_rate")))
+    jr = rl.join(tab, on="prefix", how="left")
+    print(f"  prefix seen in training LIRF-unmatched table: {int(jr['fill_rate'].is_not_null().sum())} of {rl.height}")
+    print(jr.group_by(pl.when(pl.col("fill_rate").is_null()).then(pl.lit("unseen"))
+                      .when(pl.col("fill_rate") >= 0.8).then(pl.lit("fill>=0.8"))
+                      .when(pl.col("fill_rate") >= 0.5).then(pl.lit("fill 0.5-0.8"))
+                      .when(pl.col("fill_rate") >= 0.2).then(pl.lit("fill 0.2-0.5"))
+                      .otherwise(pl.lit("fill<0.2")).alias("cls"))
+          .agg(pl.len().alias("n"), pl.col("ms").median().alias("ms_p50")).sort("n", descending=True))
+    print("\nrank unmatched non-LIRF ms>=1800 by band:")
+    print(band_sort(rk.filter(pl.col("unm") & (pl.col("ADEP_mvt") != "LIRF") & (pl.col("ms") >= 1800))
+                    .group_by("band").agg(pl.len().alias("n"))))
+
     # ------------------------------------------------------------ S7 pricing
     hr("S7  pricing")
     NB, RB = 344841, 282.7371
