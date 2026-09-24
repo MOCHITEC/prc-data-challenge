@@ -10,6 +10,9 @@ import polars as pl
 from operator_aircraft_route_common import INTERIM, load_dep, md, paired_boot
 
 
+ARMS_FWD = ["turn", "te", "te_turn", "rates_turn", "all"]
+
+
 def main() -> None:
     logs = [json.loads(line) for line in open(os.path.join(INTERIM, "oar_ablation.jsonl"))]
     print("## A. fold 別（固定ラウンド・学習行 50% サブサンプル・同一行）\n")
@@ -50,6 +53,27 @@ def main() -> None:
     print("\n## B. arm − base（jan+jul プール, 行ブートストラップ 400 回）\n")
     print(md(pl.DataFrame(rows, schema=["arm", "segment", "n", "rmse_base", "rmse_arm", "delta", "ci_lo", "ci_hi"], orient="row"),
              "{:,.2f}"))
+    fb = os.path.join(INTERIM, "oar_oof_base_fwd.parquet")
+    if os.path.exists(fb):
+        print("\n## B2. 厳密な前方 fold（1〜10 月で fit → 11〜12 月で評価、TE も過去のみ）: arm − base\n")
+        b2 = pl.read_parquet(fb).join(meta, on="MVT_ID_mvt", how="left")
+        y2, p2 = b2["y"].to_numpy(), b2["pred"].to_numpy()
+        segs2 = {"全体": np.ones(len(y2), bool), "clean (y<7200)": y2 < 7200,
+                 "NM 未マッチ": b2["FLIGHT_ID_mvt"].is_null().to_numpy(), "LIRF": (b2["ADEP_mvt"] == "LIRF").to_numpy(),
+                 "clean LIRF 以外": (y2 < 7200) & (b2["ADEP_mvt"] != "LIRF").to_numpy()}
+        rows = []
+        for a in ARMS_FWD:
+            f = os.path.join(INTERIM, f"oar_oof_{a}_fwd.parquet")
+            if not os.path.exists(f):
+                continue
+            o = b2.select("MVT_ID_mvt").join(pl.read_parquet(f), on="MVT_ID_mvt", how="left", maintain_order="left")
+            pa = o["pred"].to_numpy()
+            for sname, m in segs2.items():
+                d, lo, hi = paired_boot(y2[m], p2[m], pa[m], n=400)
+                rows.append((a, sname, int(m.sum()), float(np.sqrt(np.mean((y2[m] - p2[m]) ** 2))),
+                             float(np.sqrt(np.mean((y2[m] - pa[m]) ** 2))), d, lo, hi))
+        print(md(pl.DataFrame(rows, schema=["arm", "segment", "n", "rmse_base", "rmse_arm", "delta", "ci_lo", "ci_hi"],
+                              orient="row"), "{:,.2f}"))
     print("\n## C. 新特徴量の gain 比率（%、fold 平均）\n")
     rows = []
     for r in logs:

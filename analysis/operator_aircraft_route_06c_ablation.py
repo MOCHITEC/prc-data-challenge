@@ -49,6 +49,9 @@ ARMS = {
     "turn": ([], TURN_COLS),
     "route": ([], ROUTE_COLS),
     "all": (IDENT_CATS, TE_COLS + TURN_COLS + ROUTE_COLS),
+    "te_turn": ([], TE_COLS + TURN_COLS),
+    # label-rate encodings only (no residual TE te_fl_r / te_al_r) + stand features
+    "rates_turn": ([], [c for c in TE_COLS if c not in ("te_fl_r", "te_al_r")] + TURN_COLS),
 }
 # window counts at 5/10 min duplicate the 15/30/60 ones; dropped to keep the matrix within the memory budget
 DROP_BASE = ("dep_tko_prev_5m", "dep_tko_prev_10m", "arr_land_prev_5m", "arr_land_prev_10m", "arr_inblock_prev_5m",
