@@ -107,6 +107,23 @@ def main(argv: list[str]) -> int:
         cats = [c for c in cats if c in tr.columns]
         tr, va = meta_prior_features(tr, va, cfg, num, cats, {})
         CANDIDATES["M"] = ["meta_prior", "meta_prior_minus_proxy"]
+        # Train/serve skew of the prior itself: the training side is cross-fitted on two thirds of the months,
+        # the validation side comes from a fit on all of them. If the two sides differ in accuracy, model A
+        # learns how far to trust a prior that is not the prior it is later handed.
+        print("meta prior accuracy, by side and lane (RMSE of y against the prior; corr of prior - proxy with g):")
+        for side, f in (("train (OOF, month mod 3)", tr), ("validation (full-train fit)", va)):
+            lab = f.filter(pl.col(LABEL).is_not_null())
+            for lane, m in (("A", lab[PROXY].is_not_null()), ("B", lab[PROXY].is_null())):
+                s = lab.filter(m)
+                yy, pp = s[LABEL].to_numpy().astype(float), s["meta_prior"].to_numpy().astype(float)
+                ok = np.isfinite(pp)
+                line = f"  {side:28s} lane {lane}: n={s.height:,} rmse(y, prior)={np.sqrt(np.mean((yy[ok] - pp[ok]) ** 2)):.1f}"
+                if lane == "A":
+                    g = (s[LABEL] - s[PROXY]).to_numpy().astype(float)
+                    d = s["meta_prior_minus_proxy"].to_numpy().astype(float)
+                    k = np.isfinite(g) & np.isfinite(d)
+                    line += f"  corr(prior - proxy, g)={np.corrcoef(d[k], g[k])[0, 1]:+.4f}"
+                print(line)
     del tr
     oof = pl.read_parquet(f"experiments/oof_{base_id}.parquet").drop_nulls("oof")
     va = va.join(oof, on="MVT_ID_mvt", how="inner").drop_nulls([LABEL])
