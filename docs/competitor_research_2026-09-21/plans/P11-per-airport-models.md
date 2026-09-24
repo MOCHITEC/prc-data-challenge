@@ -747,3 +747,37 @@ a different quantity on a different phase.
 a pass: airport-qualified categorical levels and a larger global model both capture the mechanisms of
 §4.2 **without** giving any model a private 2025 memory of one airport. If the honest gain is in (e) or
 (f), those are the versions that survive the year boundary.
+
+---
+
+## WITHDRAWN before execution (2026-09-24)
+
+**Status: withdrawn. Do not run the gate. The configs and the `airport_models`
+flag stay in the tree; the flag defaults off and nothing in production reads it.**
+
+`results/model-a-ceiling.md` §6 measured this plan's mechanism independently and
+from the other side, and it came back at **0.3 s** — closing *every* target
+encoding, per-group specialist and per-group offset over airport, operator,
+stand, runway, destination, hour, aircraft type and NM-delay band in one pass.
+An **oracle** out-of-fold cell-mean correction over 543,181 cells moves lane A
+213.127 → **212.86**, against a shuffled control at 213.03. An oracle is the
+most any grouped correction can achieve, so a fitted one is worth less.
+
+That sits below this plan's own pre-registered point of −0.7 s and inside its
+declared failure band, and it was obtained without spending the 2.5–4.0 h of
+exclusive compute the gate would have cost.
+
+`results/airport-qualified-levels.md` independently closed §7.4's first
+prerequisite control at −0.11 s, for the same underlying reason both notes
+reach: **all four label-derived encoding tables are already keyed on
+`ADEP_mvt`**, so the per-airport partition is already delivered through the
+label rather than through the code. This plan predicted exactly that as the
+reason for its own pessimism (§price); the measurement confirmed it.
+
+Two independent routes agreeing at ≤0.3 s against a −0.7 s prior is a stop, not
+a reason for a tie-breaker run.
+
+**What would reopen it.** A second year of data (which would also make the
+calendar-month estimator gateable, per `P1B-lirf-seasonal-bias-REJECT.md`), or
+evidence that the recoverable share ρ differs by airport far more than the
+0.047–0.186 measured in `model-a-ceiling.md` §4.4. Neither is in hand.
