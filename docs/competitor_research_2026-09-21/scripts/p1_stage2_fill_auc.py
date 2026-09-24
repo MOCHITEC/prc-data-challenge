@@ -71,6 +71,12 @@ def logloss(y: np.ndarray, p: np.ndarray) -> float:
 
 def main() -> int:
     feats = pl.read_parquet(ROOT / "data/work/feat_train.parquet")
+    # The feature list must be taken BEFORE the label and the helper columns are attached:
+    # numeric_feature_columns() reads whatever numeric columns the frame happens to carry, so
+    # attaching f10 first puts the LABEL in the feature set. That is what the first run of this
+    # script did, and it reported AUC 1.0000 on every recipe including the permuted-feature
+    # negative control - which is the signature of a leak, not of a good classifier.
+    _num_all = numeric_feature_columns(feats)
     lirf = feats.filter(pl.col("ADEP_mvt") == "LIRF").with_columns(
         [
             ((pl.col("BLOCK_TIME_UTC_mvt") - pl.col("SCHED_TIME_UTC_mvt")).dt.total_seconds().abs() <= 10)
@@ -86,10 +92,13 @@ def main() -> int:
     print(f"flight_prefix null rate on unmatched: {u['flight_prefix'].null_count() / u.height:.4%}\n")
 
     # model B's feature set: the same exclusion predict_fold applies
+    helpers = {"f10", "unm", "ym", "flight_prefix", "flight_identity"}
     num = [
-        c for c in numeric_feature_columns(lirf)
-        if not c.startswith(("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt"))
+        c for c in _num_all
+        if c not in helpers
+        and not c.startswith(("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt"))
     ]
+    assert "f10" not in num and LABEL not in num, "label leaked into the feature set"
     base_cats = [c for c in CATEGORICALS if c in lirf.columns]
     months = sorted(lirf["ym"].unique().to_list())
     print(f"{len(num)} numeric + {len(base_cats)} categorical features, {len(months)} months\n")
