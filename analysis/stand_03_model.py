@@ -41,6 +41,8 @@ VARIANTS: dict[str, list[str]] = {
     "nbr": NBR,
     "geo": GEO,
     "all": OCC + NBR + SUCC + GEO,
+    "grp": ["grp_p10", "grp_med", "grp_n", "stand_num"],
+    "occ_grp": OCC + ["grp_p10", "grp_med", "grp_n", "stand_num"],
 }
 PARAMS = dict(objective="regression", learning_rate=float(os.environ.get("LGB_LR", "0.06")), num_leaves=127, min_data_in_leaf=50,
               feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, verbose=-1,
@@ -65,10 +67,15 @@ def load() -> pl.DataFrame:
         (pl.col("MVT_TIME_UTC_mvt").dt.month()).alias("_month"),
         pl.col("ADEP_mvt").alias("APT_s"),
         (pl.col("ADEP_mvt") + "|" + pl.col("STAND_mvt").fill_null("NA")).alias("STAND_mvt"),
+        # stand group = airport | letter prefix | number // 10  (docs/analysis/stand.md section 1 and 5)
+        (pl.col("ADEP_mvt") + "|" + pl.col("STAND_mvt").fill_null("").str.extract(r"^([A-Za-z]*)", 1).fill_null("")
+         + "|" + (pl.col("STAND_mvt").str.extract(r"(\d+)", 1).cast(pl.Int64, strict=False) // 10).cast(pl.String)
+         .fill_null("x")).cast(pl.Categorical).to_physical().cast(pl.Int32).alias("STAND_GRP"),
+        pl.col("STAND_mvt").str.extract(r"(\d+)", 1).cast(pl.Float32, strict=False).alias("stand_num"),
     )
     for c in CATS:
         df = df.with_columns(pl.col(c).cast(pl.Categorical).to_physical().cast(pl.Int32).alias(c))
-    df = df.with_columns([pl.col(c).cast(pl.Float32) for c, t in df.schema.items() if t == pl.Float64 and c != LABEL])
+    df = df.with_columns([pl.col(c).cast(pl.Float32) for c, t in df.schema.items() if t == pl.Float64 and c not in (LABEL, "MVT_ID_mvt")])
     # the Datetime columns are only needed for the month; the NM clocks are already encoded as deltas
     df = df.drop([c for c, t in df.schema.items() if isinstance(t, pl.Datetime)])
     return df
@@ -91,12 +98,19 @@ TRAIN_FRAC = float(os.environ.get("TRAIN_FRAC", "0.6"))
 TAG = os.environ.get("RUN_TAG", "")  # e.g. '_fast' for the cheaper ablation config
 
 
+def grp_table(tr: pl.DataFrame) -> pl.DataFrame:
+    return (
+        tr.group_by(["ADEP_mvt", "STAND_GRP", "RUNWAY_mvt"])
+        .agg(pl.col(LABEL).quantile(0.10).alias("grp_p10"), pl.col(LABEL).median().alias("grp_med"),
+             pl.len().alias("grp_n"))
+        .filter(pl.col("grp_n") >= 30)
+    )
+
+
 def fit_predict(tr: pl.DataFrame, va: pl.DataFrame, cols: list[str], target_fn) -> tuple[np.ndarray, int]:
     inner_m = tr["_inner"][0]
     cat_idx = [i for i, c in enumerate(cols) if c in CATS]
-    fit = tr.filter(pl.col("_month") != inner_m)
-    if TRAIN_FRAC < 1 and fit.height > 200_000:
-        fit = fit.sample(fraction=TRAIN_FRAC, seed=7)
+    fit = tr.filter(pl.col("_month") != inner_m)  # already subsampled in run_variant
     hold = tr.filter(pl.col("_month") == inner_m)
     dtr = lgb.Dataset(fit.select(cols).to_numpy(), target_fn(fit), categorical_feature=cat_idx,
                       free_raw_data=True, params={"max_bin": 127})
@@ -116,18 +130,30 @@ def run_variant(df: pl.DataFrame, name: str) -> pl.DataFrame:
         c for c in df.columns
         if c not in (LABEL, "MVT_ID_mvt", "MVT_TIME_UTC_mvt", "APT_s", "BLOCK_TIME_UTC_mvt", "SCHED_TIME_UTC_mvt",
                      "AOBT_3_flt", "EOBT_1_flt", "LOBT_flt", "month", "_month", "_inner")
-        and c not in OCC + NBR + SUCC + GEO and df.schema[c] != pl.Datetime
+        and c not in OCC + NBR + SUCC + GEO + ["STAND_GRP", "stand_num"] and df.schema[c] != pl.Datetime
         and df.schema[c].is_numeric()
     ]
     cols_all = base_cols + ["ref_p10", "ref_p20", "ref_med", "ref_n"] + extra
+    needed_extra = [c for c in extra if c in df.columns]
     outs = []
     for fold, inner in (("jan", 12), ("jul", 6)):
         m = 1 if fold == "jan" else 7
-        tr = df.filter(pl.col("_month") != m).with_columns(pl.lit(inner).alias("_inner"))
-        va = df.filter(pl.col("_month") == m)
+        needed = list(dict.fromkeys([c for c in cols_all if c in df.columns] + [
+            "MVT_ID_mvt", "APT_s", LABEL, PROXY, "_month", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "STAND_GRP"]))
+        tr = df.filter(pl.col("_month") != m).select(needed)
+        va = df.filter(pl.col("_month") == m).select(needed)
         ref = ref_table(tr.filter(pl.col("_month") != inner))
+        grp = grp_table(tr.filter(pl.col("_month") != inner))
+        # subsample the NM-matched fitting rows (memory/time budget); keep the inner month and unmatched rows whole
+        fit_m = (pl.col("_month") != inner) & pl.col(PROXY).is_not_null()
+        if TRAIN_FRAC < 1:
+            tr = pl.concat([tr.filter(~fit_m), tr.filter(fit_m).sample(fraction=TRAIN_FRAC, seed=7)])
+        tr = tr.with_columns(pl.lit(inner).alias("_inner"))
         tr = tr.join(ref, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left")
         va = va.join(ref, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left")
+        if any(c.startswith("grp_") for c in extra):
+            tr = tr.join(grp, on=["ADEP_mvt", "STAND_GRP", "RUNWAY_mvt"], how="left")
+            va = va.join(grp, on=["ADEP_mvt", "STAND_GRP", "RUNWAY_mvt"], how="left")
         pred = np.zeros(va.height)
         for matched in (True, False):
             sel_tr = tr.filter(pl.col(PROXY).is_not_null() == matched)
