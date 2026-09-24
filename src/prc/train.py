@@ -123,6 +123,17 @@ class TrainConfig:
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/README). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
+    # Whether `params["deterministic"]` and `params["force_row_wise"]` are passed to LightGBM at all.
+    # True - the default, and what every archived record was produced under - keeps them, so two runs of the
+    # same config in different processes give a bit-identical model. False drops BOTH (never one: `deterministic`
+    # without a forced histogram direction is the half-measure the params comment above already rejects) and
+    # lets LightGBM order its floating-point sums by thread arrival, which is reproducible only in
+    # distribution. Measured cost of keeping them on this box, at the production row count (1,737,573 matched
+    # rows, 108 features, 4 threads): 0.310 s/round against 0.316 s/round with them off - i.e. nothing. See
+    # docs/competitor_research_2026-09-21/results/determinism-cost.md. Do not flip the default: the byte
+    # comparison in configs/determinism_check.yaml, configs/p11_base.yaml and the no-op detector used
+    # throughout docs/ all assume it.
+    lgb_deterministic: bool = True
     # Which folds to run. All three is the honest answer for a final number, but a screening run does not need
     # them: the matched rows of the forward fold alone are 324k, giving that statistic a resolution of about
     # 1.1 s - the same as the full three-fold set - at a third of the wall clock. forward is also the only fold
@@ -194,6 +205,12 @@ class TrainConfig:
 
     def lgb_params(self) -> dict:
         p = dict(self.params, seed=self.seed)
+        if not self.lgb_deterministic:
+            # Both or neither. Only the two keys this dataclass owns are dropped: a config that sets its own
+            # `force_col_wise` keeps it, because that is a choice the config made and not the default this
+            # flag exists to undo.
+            p.pop("deterministic", None)
+            p.pop("force_row_wise", None)
         if self.use_linear_tree:
             p["linear_tree"] = True
             p["linear_lambda"] = self.linear_lambda
