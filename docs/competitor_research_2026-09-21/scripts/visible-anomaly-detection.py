@@ -263,55 +263,60 @@ def pr_at(score, y, ks=(1, 2, 5, 10, 20, 50, 100, 200, 500)):
 
 # ------------------------------------------------------------------ stage: combo
 def stage_combo():
+    """Leave-one-month-out classifier on the unmatched lane, with a permutation control.
+
+    Only the unmatched lane is fitted. 15 of the 16 positives are in it; on the full frame the
+    task degenerates to "is this row unmatched", which is already a model feature (nm_matched)
+    and the routing key, so an all-rows AUC would measure the lane, not the corruption.
+    Rounds and leaves are kept small because other CPU-bound jobs share the four cores.
+    """
     t = load_train()
-    feats = [c for c in numeric_visible(t.schema) if c not in ("month",)] + CATS
+    feats = [c for c in numeric_visible(t.schema) if c != "month"] + CATS
     feats = [c for c in feats if c in t.columns]
-    res = {}
-    for lane_name, sel in [("unmatched", (t["nm_matched"] == 0).to_numpy()),
-                           ("all_subsampled", None)]:
-        if sel is None:
-            rng = np.random.default_rng(7)
-            pos = (t[LABEL] > 72000).to_numpy()
-            neg = np.flatnonzero(~pos)
-            keep = np.zeros(t.height, bool)
-            keep[rng.choice(neg, size=150000, replace=False)] = True
-            keep[pos] = True
-            sel = keep
-        sub = t.filter(pl.Series(sel))
-        y = (sub[LABEL] > 72000).to_numpy().astype(int)
-        sc, _ = lomo_scores(sub, feats, y)
-        a = auc(sc, y.astype(bool))
-        rec = {"n": int(sub.height), "n_pos": int(y.sum()), "auc": a, "pr": pr_at(sc, y)}
-        # permutation control
-        perm = []
-        nperm = 25 if lane_name == "unmatched" else 10
-        for s in range(nperm):
-            sp, ys = lomo_scores(sub, feats, y, seed=100 + s, shuffle=True)
-            perm.append(auc(sp, ys.astype(bool)))
-        rec["perm_auc"] = {"mean": float(np.mean(perm)), "sd": float(np.std(perm)),
-                           "q05": float(np.quantile(perm, 0.05)), "q50": float(np.quantile(perm, 0.5)),
-                           "q95": float(np.quantile(perm, 0.95)), "max": float(np.max(perm)), "n": len(perm)}
-        rec["perm_p_one_sided"] = float((np.sum(np.array(perm) >= a) + 1) / (len(perm) + 1))
-        res[lane_name] = rec
-        log(f"\n=== combo lane={lane_name} ===")
-        log(json.dumps(rec, indent=1))
-        np.save(OUT / f"combo_score_{lane_name}.npy", sc)
-    # single-feature baseline on the unmatched lane
     sub = t.filter(t["nm_matched"] == 0)
-    y = (sub[LABEL] > 72000).to_numpy().astype(bool)
+    y = (sub[LABEL] > 72000).to_numpy().astype(int)
+    sc, _ = lomo_scores(sub, feats, y, n_leaves=15, rounds=80)
+    a_real = auc(sc, y.astype(bool))
+    res = {"lane": "unmatched", "n": int(sub.height), "n_pos": int(y.sum()),
+           "n_features": len(feats), "lomo_auc": a_real, "pr": pr_at(sc, y)}
+    perm = []
+    for s_ in range(30):
+        sp, ys = lomo_scores(sub, feats, y, seed=100 + s_, n_leaves=15, rounds=80, shuffle=True)
+        perm.append(auc(sp, ys.astype(bool)))
+        log(f"  perm {s_}: {perm[-1]:.4f}")
+    res["perm_auc"] = {"n": len(perm), "mean": float(np.mean(perm)), "sd": float(np.std(perm)),
+                       "q05": float(np.quantile(perm, 0.05)), "q50": float(np.quantile(perm, 0.5)),
+                       "q95": float(np.quantile(perm, 0.95)), "min": float(np.min(perm)),
+                       "max": float(np.max(perm))}
+    res["perm_p_one_sided"] = float((np.sum(np.array(perm) >= a_real) + 1) / (len(perm) + 1))
+
     ms = sub["mvt_minus_sched"].to_numpy().astype(float)
-    res["ms_alone_unmatched"] = {"auc": auc(ms, y), "pr": pr_at(np.nan_to_num(ms, nan=-1e12), y.astype(int))}
-    log("\n=== ms alone, unmatched lane ===")
-    log(json.dumps(res["ms_alone_unmatched"], indent=1))
-    # ms threshold table
+    res["ms_alone"] = {"auc": auc(ms, y.astype(bool)), "pr": pr_at(np.nan_to_num(ms, nan=-1e12), y)}
+    rng = np.random.default_rng(0)
+    idx = np.arange(len(y))
+    null = []
+    for _ in range(5000):
+        pick = np.zeros(len(y), bool)
+        pick[rng.choice(idx, 15, replace=False)] = True
+        null.append(auc(ms, pick))
+    null = np.array(null)
+    res["ms_random_label_null"] = {"n": int(len(null)), "mean": float(null.mean()),
+                                   "q95": float(np.quantile(null, 0.95)),
+                                   "q99": float(np.quantile(null, 0.99)),
+                                   "max": float(null.max()),
+                                   "p_one_sided": float((np.sum(null >= res["ms_alone"]["auc"]) + 1) / (len(null) + 1))}
     tab = []
+    yb = y.astype(bool)
     for thr in [7200, 14400, 21600, 28800, 36000, 43200, 50400, 57600, 64800, 72000, 86400]:
         f = np.isfinite(ms) & (ms >= thr)
-        tab.append(dict(thr=thr, flagged=int(f.sum()), tp=int((f & y).sum()),
-                        precision=float((f & y).sum() / max(f.sum(), 1)), recall=float((f & y).sum() / y.sum())))
-    res["ms_threshold_table_unmatched"] = tab
+        tab.append(dict(thr=thr, flagged=int(f.sum()), tp=int((f & yb).sum()),
+                        precision=float((f & yb).sum() / max(f.sum(), 1)),
+                        recall=float((f & yb).sum() / yb.sum())))
+    res["ms_threshold_table"] = tab
+    log(json.dumps(res, indent=1, default=float))
     log(pl.DataFrame(tab).to_pandas().to_string(index=False))
     (OUT / "combo.json").write_text(json.dumps(res, indent=1, default=float))
+    np.save(OUT / "combo_score_unmatched.npy", sc)
 
 
 # ------------------------------------------------------------------ stage: widen
@@ -323,31 +328,17 @@ def stage_widen():
     res = {}
     for name, thr in [("gt72000", 72000), ("ge43200", 43200), ("ge14400", 14400), ("ge7200", 7200)]:
         y = ((sub[LABEL] > thr) if thr == 72000 else (sub[LABEL] >= thr)).to_numpy().astype(int)
-        sc, _ = lomo_scores(sub, feats, y)
+        sc, _ = lomo_scores(sub, feats, y, n_leaves=15, rounds=80)
         a = auc(sc, y.astype(bool))
-        perm = [auc(*(lambda r: (r[0], r[1].astype(bool)))(lomo_scores(sub, feats, y, seed=200 + s, shuffle=True)))
-                for s in range(10)]
+        perm = [auc(*(lambda r: (r[0], r[1].astype(bool)))(lomo_scores(sub, feats, y, seed=200 + s, n_leaves=15, rounds=80, shuffle=True)))
+                for s in range(8)]
         res[name] = {"n_pos_unmatched": int(y.sum()), "lomo_auc": a,
                      "ms_alone_auc": auc(ms, y.astype(bool)),
                      "perm_auc_mean": float(np.mean(perm)), "perm_auc_max": float(np.max(perm)),
                      "pr": pr_at(sc, y)}
         log(f"\n=== widen {name} ===")
         log(json.dumps(res[name], indent=1))
-    # same on all rows for the wider classes (they are not unmatched-only)
-    for name, thr in [("ge14400_allrows", 14400), ("ge7200_allrows", 7200)]:
-        y = (t[LABEL] >= thr).to_numpy().astype(int)
-        rng = np.random.default_rng(11)
-        neg = np.flatnonzero(y == 0)
-        keep = np.zeros(t.height, bool)
-        keep[rng.choice(neg, 150000, replace=False)] = True
-        keep[y == 1] = True
-        s2 = t.filter(pl.Series(keep))
-        y2 = (s2[LABEL] >= thr).to_numpy().astype(int)
-        sc, _ = lomo_scores(s2, feats, y2)
-        res[name] = {"n": int(s2.height), "n_pos": int(y2.sum()), "lomo_auc": auc(sc, y2.astype(bool)),
-                     "pr": pr_at(sc, y2)}
-        log(f"\n=== widen {name} ===")
-        log(json.dumps(res[name], indent=1))
+    # The all-rows variants are deliberately not fitted: see stage_combo's docstring.
     (OUT / "widen.json").write_text(json.dumps(res, indent=1, default=float))
 
 
@@ -586,8 +577,63 @@ def stage_lobt():
     (OUT / "lobt.json").write_text(json.dumps(res, indent=1, default=float))
 
 
+# ------------------------------------------------------------------ stage: part2b
+def stage_part2b():
+    """Light version of the part2 heteroscedasticity fit: 250k-row subsample, 31 leaves, 150 rounds.
+
+    Use when the full fit does not fit in the CPU budget. Reports the same statistics.
+    """
+    import lightgbm as lgb
+    import scipy.stats as st
+    oofd = pl.read_parquet(OOF).drop_nulls()
+    t = load_train()
+    j = t.join(oofd, on="MVT_ID_mvt", how="inner")
+    rng = np.random.default_rng(5)
+    keep = np.zeros(j.height, bool)
+    keep[rng.choice(j.height, 250000, replace=False)] = True
+    j = j.filter(pl.Series(keep))
+    resid = (j["oof"] - j[LABEL]).to_numpy().astype(float)
+    se = resid ** 2
+    tgt = np.log1p(se)
+    feats = [c for c in numeric_visible(t.schema) if c != "month"] + CATS
+    X = build_xy(j, feats)
+    months = j["month"].to_numpy()
+    params = dict(objective="regression", learning_rate=0.1, num_leaves=31, min_data_in_leaf=200,
+                  feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0,
+                  verbose=-1, num_threads=2, deterministic=True, force_row_wise=True, seed=3)
+    res = {"n": int(len(se)), "rmse_subsample": float(np.sqrt(se.mean())), "subsampled": True}
+    for tag, cols in [("visible_all", None), ("pred_and_lane_only", ["oof_pred", "nm_matched"])]:
+        if cols is None:
+            XX = X
+        else:
+            XX = X[["nm_matched"]].copy()
+            XX["oof_pred"] = j["oof"].to_numpy()
+        pred = np.full(len(tgt), np.nan)
+        for m in np.unique(months):
+            tr, te = months != m, months == m
+            b = lgb.train(params, lgb.Dataset(XX[tr], label=tgt[tr]), num_boost_round=150)
+            pred[te] = b.predict(XX[te])
+        o = np.argsort(-pred)
+        r = {"spearman_pred_vs_se": float(st.spearmanr(pred, se).statistic)}
+        for frac in (0.001, 0.01, 0.05, 0.10, 0.25):
+            k = int(len(se) * frac)
+            r[f"sse_share_top_{frac}"] = float(se[o[:k]].sum() / se.sum())
+            r[f"rmse_in_top_{frac}"] = float(np.sqrt(se[o[:k]].mean()))
+            r[f"rmse_outside_top_{frac}"] = float(np.sqrt(se[o[k:]].mean()))
+        if cols is None:
+            r["top_gain_last_fold"] = [(a, float(v)) for a, v in
+                                       sorted(zip(XX.columns, b.feature_importance("gain")), key=lambda z: -z[1])[:20]]
+        res[tag] = r
+    oo = np.argsort(-se)
+    for frac in (0.001, 0.01, 0.10):
+        k = int(len(se) * frac)
+        res[f"oracle_sse_share_top_{frac}"] = float(se[oo[:k]].sum() / se.sum())
+    log(json.dumps(res, indent=1))
+    (OUT / "part2b.json").write_text(json.dumps(res, indent=1, default=float))
+
+
 STAGES = dict(counts=stage_counts, marginal=stage_marginal, cats=stage_cats, combo=stage_combo,
-              widen=stage_widen, part2=stage_part2, price=stage_price, hardcase=stage_hardcase, lobt=stage_lobt)
+              widen=stage_widen, part2=stage_part2, price=stage_price, hardcase=stage_hardcase, part2b=stage_part2b, lobt=stage_lobt)
 
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
