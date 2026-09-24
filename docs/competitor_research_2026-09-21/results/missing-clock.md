@@ -282,25 +282,35 @@ either.
 
 | candidate | vs `proxy` | vs `y` | vs `g` | vs `proxy`, late rows only |
 |---|---:|---:|---:|---:|
-| **`nbr_mvt_minus_aobt_mean_30m`** | **+0.6584** | +0.4423 | −0.1886 | **+0.5682** |
-| **`nbr_mvt_minus_aobt_mean_60m`** | **+0.6540** | +0.4392 | −0.1872 | **+0.5707** |
+| **`witness_med`** *(new to us)* | **+0.6860** | +0.4611 | −0.1966 | **+0.6068** |
+| **`nbr_mvt_minus_aobt_mean_30m`** | **+0.6584** | +0.4423 | −0.1886 | +0.5682 |
+| **`nbr_mvt_minus_aobt_mean_60m`** | **+0.6540** | +0.4392 | −0.1872 | +0.5707 |
+| `witness_p90` *(new to us)* | +0.5737 | +0.4365 | −0.1126 | +0.4975 |
+| **`surface_occ`** *(new)* | **+0.4141** | +0.2864 | −0.1202 | +0.3428 |
 | `arr_taxi_in_mean_60m` | +0.2932 | +0.1218 | −0.1571 | +0.2018 |
 | `arr_taxi_in_mean_30m` | +0.2781 | +0.1138 | −0.1513 | +0.1932 |
 | `queue_ahead` | +0.2362 | +0.3426 | +0.1399 | +0.2240 |
+| `witness_n` *(new to us)* | +0.2135 | +0.1253 | −0.0910 | +0.1667 |
 | `dep_tko_prev_30m` | +0.2030 | +0.1299 | −0.0722 | +0.1380 |
 | `mvt_minus_sched` | +0.1946 | +0.3883 | +0.2409 | +0.1877 |
 | `nbr_aobt_delay_mean_30m` | −0.1902 | +0.0668 | **+0.2746** | −0.1798 |
 | `stand_arrival_gap` | +0.1384 | +0.1280 | +0.0054 | +0.0902 |
 | `nbr_aobt_minus_sched_60m` *(new)* | −0.1049 | +0.0433 | +0.1606 | −0.1455 |
-| `stand_prev_dep_gap` *(new)* | +0.0698 | +0.0618 | −0.0032 | +0.0949 |
 | `nbr_unmatched_rate_60m` *(new)* | +0.0704 | −0.0013 | −0.0948 | −0.0063 |
-| `surface_occ` *(new)* | −0.0426 | +0.0597 | +0.1038 | +0.0063 |
+| `stand_prev_dep_gap` *(new)* | +0.0698 | +0.0618 | −0.0032 | +0.0949 |
 | `congestion_vs_usual_30m` | +0.0082 | +0.0401 | +0.0404 | −0.0024 |
 
-**[S] One family stands out and it is already in the model.** The neighbour off-block clocks reach
-+0.658 against the lost clock and hold +0.57 on the delay-selected rows; nothing else exceeds +0.30.
-Note also that no candidate correlates with `g` above +0.28, which supports §3.1: `g` is bookkeeping,
-not physics.
+**[S] One family stands out, and it is the same family three times over.** Everything above +0.40 is
+some aggregate of *other flights'* measured off-block clock: the hour-bucket median (+0.6860, the best
+single number in this note), our rolling means (+0.6584 / +0.6540), the hour-bucket p90 (+0.5737) and
+the count of aircraft currently between off-block and take-off (+0.4141). Nothing that is *not* built
+from other flights' `AOBT_3_flt` exceeds +0.30. Note also that no candidate correlates with `g` above
++0.28, which supports §3.1: `g` is bookkeeping, not physics.
+
+**[X] And the caution that the rest of this note turns on: `surface_occ` correlates +0.41 with the
+lost clock and is worth −0.07 s as a feature (§4.1).** Correlation with the missing quantity is a
+screen, not a test — the neighbour clocks and the congestion block already carry what it carries. The
+same is most of the reason the witness, at +0.6860, buys only −1.78.
 
 ---
 
@@ -441,6 +451,9 @@ conditioned (§4.2), the ranking is:
   ever tried, the honest expectation to pre-register is −0.05 s, not merry-quicksand's −3.15 s.
 * `surface_occ`, `nbr_aobt_minus_sched_60m`, `nbr_unmatched_rate_60m`, `stand_prev_dep_gap` — all
   computable, all inside or barely outside the noise floor, none surviving conditioning. **Closed.**
+  `surface_occ` is the instructive one: **+0.4141 Spearman with the very clock that is missing, and
+  −0.07 s as a feature.** It is a genuine measurement of the same physical situation and it is
+  entirely absorbed by the neighbour clocks and the congestion counts that are already there.
   This includes `lfpg-unmatched-lane.md` §4.2's unmatched-density idea, which is hereby measured:
   +0.46 / +1.45, worse than the noise control.
 
