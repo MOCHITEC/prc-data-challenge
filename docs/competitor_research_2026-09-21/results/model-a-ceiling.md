@@ -36,10 +36,13 @@ assuming anything. [S] `S1`
 
 ## 0. The answer in eight sentences
 
-1. **The floor is about 200 s, not about 150 s.** The best-instrumented route measures the *systematic*
-   (recoverable) share of lane A's squared error at **ρ = 0.110 [0.074, 0.146]**, which puts the floor at
-   **213.13 × √(1−ρ) = 201.0 s, range 197.0 – 205.0**. The other three routes bracket it from above and
-   none of them reaches below it. [S] `S4`
+1. **The floor is 187 – 205 s, best estimate 201, and it is nowhere near 150.** The best-instrumented
+   route (twin-residual covariance, §4) measures the *systematic* — recoverable — share of lane A's
+   squared error at **ρ = 0.110 [0.074, 0.146]**, putting the floor at **213.13 × √(1−ρ) = 201.0,
+   CI 197.0 – 205.0**. An independent route (learning curve, §5) puts ten times the training data at a
+   pooled-equivalent **201.1** and its `n → ∞` extrapolation at **187.4**. The bottom of the range is
+   that extrapolation and I do not believe it; the two routes agree to within a second everywhere both
+   are interpolating. [S] `S4`, `S5`
 2. **148.9 and 141.7 are below the floor and are not reachable by working on lane A.** To land lane A at
    148.9 the systematic share would have to be **ρ ≥ 0.512**; at 141.7, **ρ ≥ 0.558**. Measured ρ is
    0.110, and the *positive control* — a deliberately crippled predictor that knows only airport ×
@@ -53,9 +56,14 @@ assuming anything. [S] `S1`
 4. **Model A's error tracks the local twin spread at every density, and is slightly below it
    everywhere** — ratio 0.99 at `d ≤ 0.25`, 0.93 at `d ≈ 1`, 0.72 beyond `d = 3`. The model is not leaving
    a resolvable pattern behind; it is at the spread of its own near-twins. [S] `S3`
+4b. **Capacity is saturated; rows are not.** At a fixed 435,263 training rows, 31 / 127 / 511 leaves give
+   213.23 / 213.13 / 213.38 — a 16× capacity range worth 0.25 s. Doubling the rows at fixed capacity is
+   worth 5.8 s, and the last available doubling is still worth 4.6 s. **Model A is data-limited, and 2025
+   is all the data there is** — so part of §4's recoverable 11.3 s is estimation variance that no feature
+   can reach. [S] `S5`
 5. **Nothing of the form "a better encoding of airport / operator / stand / runway / destination / hour /
    aircraft type / NM-delay band" is left.** An *oracle* out-of-fold cell-mean correction over ten such
-   partitions — up to 543,456 cells — moves lane A from 213.127 to at best **212.86**, against a shuffled
+   partitions — up to 543,181 cells — moves lane A from 213.127 to at best **212.86**, against a shuffled
    control at 213.03. That is **0.27 s**, and it is the ceiling on every target encoding, per-group
    specialist and per-group offset column over those variables. [S] `S6`
 6. **Per airport, the recoverable gap is concentrated, and it is concentrated where the error already
@@ -99,7 +107,7 @@ quantity with a control on both sides.
 | 1 matched-twin ladder | 2 | exact cells of visible categoricals, plus a within-cell fit on 15 visible continuous columns | over-states the floor (cells are coarser than `x`) | 214.0 |
 | 2 1-NN semivariance | 3 | nearest visible twin inside the same stand | over-states, by `(μ_i−μ_j)²/2`, which vanishes as `d → 0` | 203.6 at 94 % coverage |
 | 3 twin-residual covariance | 4 | same, but measures the *covariance of the two residuals* | under-states ρ at `d > 0`, hence over-states the floor | **201.0** |
-| 4 learning curve | 5 | nothing — varies rows and capacity | gives this recipe's `n → ∞` limit, itself ≥ floor | see §5 |
+| 4 learning curve | 5 | nothing — varies rows and capacity | gives this recipe's `n → ∞` limit, itself ≥ floor | 201.1 at 10× rows, 187.4 at `n → ∞` |
 
 Route 3 is the load-bearing one; routes 1, 2 and 4 are there because a single estimator with a single
 failure mode is what this project has twice shipped a silent bug through.
@@ -191,7 +199,11 @@ column at a time. Two arms and one control:
 | L8 +NM-delay quintile | 275.61 | **213.97** | 358.58 | 985,304 | 315,801 | 0.478 |
 
 **[S] The control holds at 364.3–364.4 for seven levels and 358.6 at the eighth**, against a within-ADEP
-sd of `g` of 364.35. The instrument is not manufacturing a drop out of small cells.
+sd of `g` of 364.35. The instrument is not manufacturing a drop out of small cells: the degrees-of-freedom
+arithmetic `nrow − ncells − rank` is right, and a key carrying no information returns the raw spread no
+matter how many cells it has. The 1.6 % slip at L8 is the one place to watch — at 47.8 % coverage the
+control is measuring a different population from L1's, since both arms drop the same singleton cells —
+and it is the reason L8's 213.97 is quoted as "about 214" and not to two decimals.
 
 **[X] Route 1 reaches 214.0 and stops, which is model A's own error, so on its own it establishes
 nothing.** Two rows that agree on airport, operator, stand, runway, destination, three-hour block,
@@ -443,7 +455,82 @@ asymptote implied by those two points is **215.2** at `α = 1`, **211.2** at `α
 
 ### 5.2 Measured here
 
-<!--S5-->
+`S5`. Forward fold, **matched rows only** (validation 325,004; training pool 1,737,573 matched labelled
+rows from Jan–Oct). The recipe is `configs/main_gap.yaml` cheapened identically at every point — `lr`
+0.15 instead of 0.05, at most 400 rounds instead of 2000, one seed instead of three, and
+`deterministic`/`force_row_wise` **off**, which on this box costs about 30× in wall clock for a
+bit-reproducibility nothing here needs. Early stopping is kept, so no point is handicapped by a fixed
+round budget. **The level is therefore about 4 s worse than production: the `frac = 1.0` point measures
+202.70 where `configs/main_gap.yaml` measures 198.53 on the same fold with three seeds. Only the shape
+is read.**
+
+| training rows | fraction | rounds | matched-lane RMSE | Δ per doubling |
+|---:|---:|---:|---:|---:|
+| 108,699 | 6.25 % | 144 | 228.087 | — |
+| 217,630 | 12.5 % | 198 | 220.342 | −7.74 |
+| 435,263 | 25 % | 195 | 213.125 | −7.22 |
+| 870,233 | 50 % | 281 | 207.293 | −5.83 |
+| **1,737,573** | **100 %** | 290 | **202.701** | **−4.59** |
+
+**[S] Model A is still data-limited at 1.74 M rows.** The last doubling is still worth 4.6 s and the
+deltas are decaying slowly (ratio ≈ 0.79 per doubling). A least-squares fit of `MSE = a + b·n^−α` over
+the five points gives **α = 0.283** and an `n → ∞` asymptote of **178.24**, with
+
+| counterfactual | rows | RMSE | Δ vs today |
+|---|---:|---:|---:|
+| 2× the training data | 3,475,146 | 198.46 | −4.24 |
+| 4× | 6,950,292 | 195.01 | −7.69 |
+| 10× | 17,375,730 | 191.31 | −11.39 |
+| `n → ∞` | — | 178.24 | −24.46 |
+
+### 5.3 Capacity is saturated; rows are not
+
+`S5`, all three at 435,263 rows so that only capacity moves:
+
+| `num_leaves` | rounds | matched-lane RMSE |
+|---:|---:|---:|
+| 31 | 400 (hit the cap) | 213.229 |
+| **127** (production) | 195 | **213.125** |
+| 511 | 87 | 213.376 |
+
+**[S] A 16× range of model capacity moves the answer by 0.25 s, while a 2× range of training rows moves
+it by 5.8 s.** Production's 127 leaves is not leaving anything on the table, and neither is anything
+larger. **[X] One caveat: the 31-leaf arm hit the 400-round cap, so it is round-limited rather than
+capacity-limited and its 213.23 is if anything pessimistic — which only strengthens the reading that the
+three are indistinguishable.**
+
+### 5.4 What route 4 says about the floor, and where it disagrees with route 3
+
+This curve is on the **forward fold**, where lane A measures 198.53 at production settings, not on the
+pooled three folds, where it measures 213.13. Scaling each point by the same ratio
+(`213.1266 / 202.7011`) puts route 4 on route 3's axis. **[X] That rescaling is an inference — it assumes
+the folds' curves have the same shape — and everything in this subsection inherits it.**
+
+| route 4 point | forward-fold RMSE | pooled-equivalent lane A |
+|---|---:|---:|
+| today (100 % of the rows) | 202.70 | 213.13 |
+| 2× the rows | 198.46 | 208.7 |
+| 4× the rows | 195.01 | 205.0 |
+| **10× the rows** | **191.31** | **201.1** |
+| `n → ∞` | 178.24 | **187.4** |
+
+> **[S] Ten times the 2025 training data, on exactly these features, lands pooled lane A at 201.1 — which
+> is route 3's floor of 201.8 to within a second, reached by a method that shares no machinery with it.**
+
+**And here is the one place the routes disagree, reported rather than averaged.** Route 3 says the floor
+is 201.0 [197.0, 205.0]; route 4's `n → ∞` extrapolation says 187.4 pooled-equivalent, which is *below*
+route 3's floor — and an `n → ∞` limit cannot be below the floor. One of the two is wrong by about 14 s:
+
+* the `α = 0.283` power law is fitted over one order of magnitude in `n` and then extrapolated to
+  infinity, which is the least reliable thing in this note. Its 2× and 4× points are interpolation-grade;
+  its `∞` point is not. **[X] My own weight is on this being the wrong one.**
+* or ρ is under-stated, which §10 records as the one bias in the note pointing the wrong way, and §4.5
+  bounds.
+
+**[X] So the honest floor is a range, 187 – 205, with route 3 at the top of it and route 4's asymptote at
+the bottom, and the two agreeing exactly at the only point where both are interpolating (10× rows,
+201.1 against 201.8). Nothing in the range is within 38 s of 148.9, which is why the §7 conclusion does
+not depend on resolving it.**
 
 ---
 
@@ -464,13 +551,13 @@ labels, so its best column is what a key carrying no information buys.
 | C4 +runway | 56,558 | 222.217 | 214.858 | 213.602 | 213.245 | 213.094 | 213.085 | 213.132 |
 | C5 +dest | 213,234 | 238.167 | 215.932 | 213.589 | 213.201 | 213.110 | 213.113 | 213.127 |
 | C6 +3 h block | 336,025 | 239.641 | 214.923 | 213.227 | 213.074 | 213.084 | 213.110 | 213.129 |
-| C7 +actype +delay band | 543,456 | 229.476 | 213.730 | 213.127 | 213.101 | 213.113 | 213.122 | 213.127 |
+| C7 +actype +delay band | 543,181 | 229.522 | 213.715 | 213.120 | 213.098 | 213.112 | 213.121 | 213.127 |
 | stand alone | 2,529 | 213.378 | 213.248 | 213.173 | 213.113 | 213.050 | 213.031 | 213.144 |
 | stand × rwy × 3 h | 43,843 | 221.487 | 215.272 | 213.717 | 213.240 | 213.079 | 213.088 | 213.135 |
 | operator alone | 622 | 213.102 | 213.027 | 213.011 | 213.002 | **212.995** | 212.998 | 213.093 |
 
 **[S] The best cell in the whole table recovers 0.27 s and the shuffled control recovers 0.10 s.** An
-oracle that is *handed the true mean residual* of every one of 543,456 cells built from airport, operator,
+oracle that is *handed the true mean residual* of every one of 543,181 cells built from airport, operator,
 stand, runway, destination, three-hour block, aircraft type and NM-delay quintile cannot move lane A.
 
 **[X] What this does and does not close.** A cell-mean correction is exactly what a target encoding, a
@@ -573,10 +660,11 @@ for the brief:
 
 ## 9. What this leaves
 
-* **The floor on lane A is 197 – 205 s, best estimate 201.0**, from the twin-residual covariance route
-  (§4), with the 1-NN semivariance route reading 203.6 at 94 % coverage (§3) and the matched-twin ladder
-  reading 214.0 and unable to go lower (§2). The three do not contradict each other; §3's apparent 140 is
-  a selection effect that §3.2's third column resolves.
+* **The floor on lane A is 187 – 205 s, best estimate 201**, from the twin-residual covariance route
+  (§4, 201.0 [197.0, 205.0]) and the learning curve (§5, 201.1 at 10× rows, 187.4 extrapolated to `n → ∞`).
+  The 1-NN semivariance route reads 203.6 at 94 % coverage (§3) and the matched-twin ladder reads 214.0
+  and cannot go lower (§2). §3's apparent 140 is a selection effect that §3.2's third column resolves;
+  §5's 187.4 is a power-law extrapolation I do not trust, and §5.4 says why rather than averaging it away.
 * **Recoverable: 11.3 s of lane-A RMSE, 213.13 → 201.78, ≈ −8.5 s of board if every second of it were
   taken.** LIRF and LFPG are 53.6 % of it; LSZH is 1.8 %.
 * **Closed at 0.3 s:** every re-encoding, target encoding, per-group specialist and per-group offset over
@@ -605,8 +693,12 @@ for the brief:
   `STAND_mvt` 12.21 %, `RUNWAY_mvt` 7.22 %, `ADES_mvt` 5.76 %, `AIRCRAFT_OPERATOR_flt` 4.34 %,
   `mvt_minus_aobt3_slog` 4.13 %, `ADEP_mvt` 3.36 %, `aobt3_minus_eobt1_slog` 3.34 %, `aobt3_minus_sched`
   3.30 % — 85 % of the gain in twelve columns (400 rounds, 300k-row subsample, seed 1). Rows at `d = 0`
-  may still differ on the ~90 other visible columns, which inflates §2 and §3 and **under**-states §4's ρ.
-  Both are the conservative direction for §7's conclusion.
+  may still differ on the ~90 other visible columns. For §2 and §3 that inflates the estimate, which is
+  the harmless direction. **For §4 it is the harmful one:** systematic error lying *along* the omitted
+  columns never enters `Cov(e_i, e_j)`, so ρ is under-stated, the floor is over-stated, and §7's
+  conclusion is flattered. **[X] This is the one bias in the note that points the wrong way, and §4.5
+  exists to bound it** — re-running the whole estimator on a 21-column metric that adds the congestion
+  block, the weather block and time-of-day.
 * **`g` is heavy-tailed and every number here is an L2 quantity dominated by that tail.** ρ's bootstrap CI
   at the tightest bin rests on 5,091 pairs and is correspondingly wide ([0.074, 0.146]). The three wider
   bins, on 26k–60k pairs, agree with it and are what make the point estimate credible; a reader who

@@ -495,6 +495,23 @@ towards the truth as d -> 0. Pairs are restricted to the same OOF fold, so ghat 
     print("wide-d table extends it to d > 3.")
 
     print("""
+PER FOLD. The pooled lane-A RMSE of 213.13 averages three folds that differ by 45 s (S1), and S5's
+learning curve is measured on the forward fold alone. rho per fold makes the two sections comparable
+without anyone having to assume the folds behave alike.""")
+    fold_rmse = {}
+    for nm, code in (("jan", 0), ("jul", 1), ("forward", 2)):
+        ev = a.filter(pl.col("fold") == nm)["e"].to_numpy()
+        fold_rmse[nm] = float(np.sqrt(np.nanmean(ev**2)))
+    print(f"  {'fold':10s} {'pairs':>8s} {'rho':>8s} {'rho 95% CI':>20s} {'lane-A RMSE':>12s} {'floor':>9s}")
+    for nm, code in (("jan", 0), ("jul", 1), ("forward", 2)):
+        m = ok & (d <= 1.0) & (fi == code)
+        if m.sum() < 500:
+            continue
+        mse, c, rho, ci = _rho(ei[m], ej[m])
+        print(f"  {nm:10s} {m.sum():8d} {rho:8.4f}  [{ci[0]:.4f}, {ci[1]:.4f}] {fold_rmse[nm]:12.2f} "
+              f"{fold_rmse[nm] * np.sqrt(max(1 - rho, 0)):9.2f}")
+
+    print("""
 ROBUSTNESS - how far apart in time are the twins? Two rows minutes apart on the same stand can share a
 real operational shock (a closed taxiway, a de-icing queue) that is NOT a function of x. Such a shock
 puts a positive Cov(g_i, g_j | x) into the estimator, inflating rho and pushing the floor DOWN. If rho
@@ -621,8 +638,11 @@ def s5_learning_curve(points=((127, 0.0625), (127, 0.125), (127, 0.25), (127, 0.
     del ft
     gc.collect()
     print(f"forward fold, matched rows only: train pool {pool.height}, validation {val.height}")
-    print("production recipe (configs/main_gap.yaml) with n_seeds=1; rounds come from the same inner-holdout")
-    print("early stopping production uses, so each point is the best this recipe can do at that row count.\n")
+    print("configs/main_gap.yaml cheapened IDENTICALLY at every point: lr 0.15 (production 0.05), <=400 rounds")
+    print("(production 2000), one seed (production three), deterministic/force_row_wise OFF. Early stopping is")
+    print("kept, so each point is this recipe's best at that row count. The LEVEL is worse than production's")
+    print("198.53 on this fold; only the SHAPE is read. Determinism is off because it costs ~10x wall clock")
+    print("on this box for bit-reproducibility no conclusion here needs.\n")
     h = (pool["MVT_ID_mvt"].cast(pl.Utf8).hash(seed=99) % 10**6).to_numpy() / 10**6
     yv = val[LABEL].to_numpy().astype(float)
     apt = val["ADEP_mvt"].to_numpy()
