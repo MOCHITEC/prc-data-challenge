@@ -23,6 +23,8 @@ Why each mode exists:
               `p4a_gap`), at `n_seeds=1` and `n_seeds=3`, plus two flags-ON control runs per arm. Separate
               processes matter: thread arrival order is a property of the process, so two calls inside one
               process are not two draws.
+* `threads`  - the replacement. With the flags off, is one thread enough to put bit-identity back, and what
+              does that cost? Hashes `model_to_string()` in fresh processes at 4, 2 and 1 threads.
 * `analyse` - the distribution of fold RMSE, the verdict simulation against `prc.compare.verdict`, the
               seed-averaging comparison and the flags-ON byte check.
 """
@@ -47,12 +49,12 @@ import yaml
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src"))
 
-import lightgbm as lgb  # noqa: E402
+import lightgbm as lgb
 
-from prc.compare import robustness_curve, verdict  # noqa: E402
-from prc.cv import rmse, year_month_key  # noqa: E402
-from prc.features import CATEGORICALS  # noqa: E402
-from prc.train import (  # noqa: E402
+from prc.compare import robustness_curve, verdict
+from prc.cv import rmse, year_month_key
+from prc.features import CATEGORICALS
+from prc.train import (
     LABEL,
     PROXY,
     TrainConfig,
@@ -155,8 +157,7 @@ def cmd_bench(out: Path, repeats: int) -> None:
                 r["repeat"] = rep
                 rows.append(r)
                 print(
-                    f"  rows={r['rows']:>9,} {corner:<10} rep{rep} "
-                    f"{r['wall_s']:7.2f}s  {r['s_per_round']:.4f} s/round",
+                    f"  rows={r['rows']:>9,} {corner:<10} rep{rep} {r['wall_s']:7.2f}s  {r['s_per_round']:.4f} s/round",
                     flush=True,
                 )
     (out / "bench.json").write_text(json.dumps(rows, indent=1))
@@ -187,6 +188,66 @@ def matrix_one(det: bool) -> dict:
     return {"sha256": hashlib.sha256(X.tobytes()).hexdigest()[:32], "rows": int(X.shape[0]), "cols": len(cols)}
 
 
+# ---------------------------------------------------------------- 2b. what could replace bit-identity
+
+
+def threads_one(det: bool, threads: int, rows: int, rounds: int) -> dict:
+    """Fit model A once and hash the learner itself, so two processes can be compared exactly.
+
+    `model_to_string()` rather than the predictions: it is the object the byte-comparison guards are really
+    about, and it cannot hide a difference behind a rounding. P1 §3.3 measured that with the flags ON the
+    learner is bit-reproducible at 4 threads while only LightGBM's validation-metric reduction moves (1-2
+    ULP). The question here is the other direction: with the flags OFF, does dropping to one thread put
+    bit-identity back? If it does, the determinism-check configs have a replacement that costs one config's
+    wall clock instead of production's."""
+    cfg, _ = load_cfg("p4a_base")
+    X, cols, y, cats = model_a_training_matrix(cfg)
+    if rows > 0:
+        X, y = X[:rows], y[:rows]
+    p = dict(cfg.params, seed=42)
+    if not det:
+        p.pop("deterministic")
+        p.pop("force_row_wise")
+    p["num_threads"] = threads
+    cat_idx = [cols.index(c) for c in cats]
+    d = lgb.Dataset(X, label=y, categorical_feature=cat_idx, params=p)
+    t0 = time.time()
+    b = lgb.train(p, d, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
+    wall = time.time() - t0
+    return {
+        "det": det,
+        "threads": threads,
+        "rows": int(X.shape[0]),
+        "rounds": rounds,
+        "wall_s": wall,
+        "model_sha256": hashlib.sha256(b.model_to_string().encode()).hexdigest()[:32],
+        "pred_sha256": hashlib.sha256(b.predict(X[:20000]).tobytes()).hexdigest()[:32],
+    }
+
+
+def cmd_threads(out: Path, repeats: int, rows: int, rounds: int) -> None:
+    res = []
+    for det, th in ((True, 4), (False, 4), (False, 2), (False, 1)):
+        for rep in range(repeats):
+            r = _child(
+                [
+                    "threads-one",
+                    "--det",
+                    str(det),
+                    "--threads",
+                    str(th),
+                    "--rows",
+                    str(rows),
+                    "--rounds",
+                    str(rounds),
+                ]
+            )
+            r["repeat"] = rep
+            res.append(r)
+            print(f"  det={det!s:<5} threads={th} rep{rep} model={r['model_sha256']} {r['wall_s']:6.1f}s", flush=True)
+    (out / "threads.json").write_text(json.dumps(res, indent=1))
+
+
 # ---------------------------------------------------------------- 3. the spread, on the real pipeline
 
 
@@ -199,7 +260,9 @@ def fit_one(arm: str, det: bool, n_seeds: int, seed: int) -> dict:
     t0 = time.time()
     pred, info = predict_fold(tr, va, cfg)
     wall = time.time() - t0
-    joined = va.select(["MVT_ID_mvt", LABEL, "ADEP_mvt", PROXY]).join(pred, on="MVT_ID_mvt", how="inner")
+    joined = va.select(["MVT_ID_mvt", LABEL, "ADEP_mvt", PROXY, "MVT_TIME_UTC_mvt"]).join(
+        pred, on="MVT_ID_mvt", how="inner"
+    )
     y = joined[LABEL].to_numpy().astype(float)
     p = joined["pred"].to_numpy().astype(float)
     matched = joined[PROXY].is_not_null().to_numpy()
@@ -210,7 +273,7 @@ def fit_one(arm: str, det: bool, n_seeds: int, seed: int) -> dict:
         "seed": seed,
         "pid": os.getpid(),
         "wall_s": wall,
-        "n": int(len(y)),
+        "n": len(y),
         "rmse_full": rmse(y, p),
         "rmse_matched": rmse(y[matched], p[matched]),
         "rmse_unmatched": rmse(y[~matched], p[~matched]),
@@ -226,15 +289,20 @@ def fit_one(arm: str, det: bool, n_seeds: int, seed: int) -> dict:
     }
 
 
-def cmd_fits(out: Path, n: int, seeds_list: tuple[int, ...]) -> None:
+def cmd_fits(out: Path, n: int) -> None:
     """The runs. Each one is a separate process; each writes an .npz and appends a JSON line."""
     log = out / "fits.jsonl"
-    jobs = []
-    for arm in ARMS:
-        # the flags-ON control: two runs of the same thing must be byte-identical
-        jobs += [(arm, True, 3, 0), (arm, True, 3, 1)]
-        for ns in seeds_list:
-            jobs += [(arm, False, ns, r) for r in range(n)]
+    # The cells, in the order they are wanted if the budget runs out: the control first, then the production
+    # setting on both arms (which is what the verdict simulation needs), then the single-seed arm (which is
+    # what the seed-averaging comparison needs).
+    #   (arm, lgb_deterministic, n_seeds, how many runs)
+    cells = [
+        ("p4a_base", True, 1, 2),  # flags ON, two processes: must be byte-identical
+        ("p4a_base", False, 3, n),  # production n_seeds, flags off
+        ("p4a_gap", False, 3, n),
+        ("p4a_base", False, 1, n),  # the same thing at one seed, for the seed-averaging question
+    ]
+    jobs = [(arm, det, ns, r) for arm, det, ns, k in cells for r in range(k)]
     done = set()
     if log.exists():
         for line in log.read_text().splitlines():
@@ -271,7 +339,7 @@ def _npz(out: Path, r: dict) -> dict:
 
 def _sd_ci(x: np.ndarray) -> tuple[float, float, float]:
     """SD with a chi-square 95% interval on it. The point of choosing N is that this interval is reportable."""
-    from scipy import stats  # noqa: PLC0415
+    from scipy import stats
 
     n = len(x)
     s = float(np.std(x, ddof=1))
@@ -280,8 +348,31 @@ def _sd_ci(x: np.ndarray) -> tuple[float, float, float]:
     return s, float(lo), float(hi)
 
 
-def spread_table(runs: list[dict]) -> list[dict]:
-    out = []
+def row_disagreement(out: Path, sel: list[dict]) -> dict:
+    """How far apart two runs' PREDICTIONS are, over every pair of runs in a cell.
+
+    Reported separately from the RMSE spread because the two answer different questions and the repository's
+    own history separates them: `det_a` and `det_b` differ by 0.007 s of fold RMSE and by RMS 20.76 s on
+    327,635 submission rows. A fold RMSE that barely moves does not mean the model is the same model, and it
+    is the model - not the fold statistic - that the byte-comparison guards are about."""
+    P = [_npz(out, r)["pred"] for r in sel]
+    rms, mx, frac = [], [], []
+    for i, j in itertools.combinations(range(len(P)), 2):
+        d = P[i] - P[j]
+        rms.append(float(np.sqrt(np.mean(d**2))))
+        mx.append(float(np.abs(d).max()))
+        frac.append(float((np.abs(d) > 1e-9).mean()))
+    return {
+        "pairs": len(rms),
+        "rms_mean": float(np.mean(rms)),
+        "rms_max": float(np.max(rms)),
+        "abs_max": float(np.max(mx)),
+        "frac_rows_differing_mean": float(np.mean(frac)),
+    }
+
+
+def spread_table(out: Path, runs: list[dict]) -> list[dict]:
+    res = []
     for arm, ns in itertools.product(ARMS, sorted({r["n_seeds"] for r in runs if not r["lgb_deterministic"]})):
         sel = [r for r in runs if r["arm"] == arm and not r["lgb_deterministic"] and r["n_seeds"] == ns]
         if len(sel) < 3:
@@ -289,12 +380,17 @@ def spread_table(runs: list[dict]) -> list[dict]:
         x = np.array([r["rmse_full"] for r in sel])
         s, lo, hi = _sd_ci(x)
         rd = np.array([r["rounds_matched"] for r in sel], dtype=float)
-        out.append(
+        xm = np.array([r["rmse_matched"] for r in sel])
+        xu = np.array([r["rmse_unmatched"] for r in sel])
+        res.append(
             {
                 "arm": arm,
                 "n_seeds": ns,
                 "n_runs": len(sel),
                 "mean": float(x.mean()),
+                "sd_matched": float(xm.std(ddof=1)),
+                "sd_unmatched": float(xu.std(ddof=1)),
+                "rows": row_disagreement(out, sel),
                 "sd": s,
                 "sd_ci95": [lo, hi],
                 "min": float(x.min()),
@@ -307,7 +403,7 @@ def spread_table(runs: list[dict]) -> list[dict]:
                 "wall_mean_s": float(np.mean([r["wall_s"] for r in sel])),
             }
         )
-    return out
+    return res
 
 
 def verdict_sim(out: Path, runs: list[dict], n_seeds: int, half: bool) -> dict:
@@ -363,7 +459,7 @@ def verdict_sim(out: Path, runs: list[dict], n_seeds: int, half: bool) -> dict:
 
 def cmd_analyse(out: Path) -> None:
     runs = _load(out)
-    res: dict = {"spread": spread_table(runs)}
+    res: dict = {"spread": spread_table(out, runs)}
 
     # the flags-ON control: same arm, same config, two processes
     ctl = {}
@@ -379,12 +475,18 @@ def cmd_analyse(out: Path) -> None:
         }
     res["flags_on_control"] = ctl
 
-    seeds_seen = sorted({r["n_seeds"] for r in runs if not r["lgb_deterministic"]})
-    res["verdicts"] = [verdict_sim(out, runs, ns, h) for ns in seeds_seen for h in (False, True)]
+    # only the n_seeds settings where BOTH arms were run can be re-decided
+    both = sorted(
+        {r["n_seeds"] for r in runs if not r["lgb_deterministic"] and r["arm"] == "p4a_base"}
+        & {r["n_seeds"] for r in runs if not r["lgb_deterministic"] and r["arm"] == "p4a_gap"}
+    )
+    res["verdicts"] = [verdict_sim(out, runs, ns, h) for ns in both for h in (False, True)]
     if (out / "bench.json").exists():
         res["bench"] = json.loads((out / "bench.json").read_text())
     if (out / "matrix.json").exists():
         res["matrix"] = json.loads((out / "matrix.json").read_text())
+    if (out / "threads.json").exists():
+        res["threads"] = json.loads((out / "threads.json").read_text())
     (out / "analysis.json").write_text(json.dumps(res, indent=1, default=str))
     print(json.dumps({k: v for k, v in res.items() if k not in ("bench", "matrix")}, indent=1, default=str)[:6000])
 
@@ -409,11 +511,23 @@ def _child(args: list[str]) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("mode", choices=["bench", "bench-one", "matrix", "matrix-one", "fits", "fit-one", "analyse"])
+    ap.add_argument(
+        "mode",
+        choices=[
+            "bench",
+            "bench-one",
+            "matrix",
+            "matrix-one",
+            "threads",
+            "threads-one",
+            "fits",
+            "fit-one",
+            "analyse",
+        ],
+    )
     ap.add_argument("--out", type=Path, required=True, help="scratch directory; never inside outputs/")
     ap.add_argument("--repeats", type=int, default=5)
     ap.add_argument("--n", type=int, default=12, help="runs per (arm, n_seeds) cell")
-    ap.add_argument("--seeds-list", type=int, nargs="+", default=[1, 3])
     ap.add_argument("--corner", choices=list(CORNERS))
     ap.add_argument("--rows", type=int, default=0)
     ap.add_argument("--rounds", type=int, default=50)
@@ -421,6 +535,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--det", default="False")
     ap.add_argument("--n-seeds", type=int, default=1)
     ap.add_argument("--npz", type=Path)
+    ap.add_argument("--threads", type=int, default=THREADS)
     a = ap.parse_args(argv)
     det = a.det.lower() in ("1", "true", "yes")
 
@@ -429,6 +544,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.mode == "matrix-one":
         print(json.dumps(matrix_one(det)))
+        return 0
+    if a.mode == "threads-one":
+        print(json.dumps(threads_one(det, a.threads, a.rows, a.rounds)))
         return 0
     if a.mode == "fit-one":
         r = fit_one(a.arm, det, a.n_seeds, seed=42)
@@ -443,8 +561,10 @@ def main(argv: list[str] | None = None) -> int:
         cmd_bench(a.out, a.repeats)
     elif a.mode == "matrix":
         cmd_matrix(a.out, a.repeats)
+    elif a.mode == "threads":
+        cmd_threads(a.out, a.repeats, a.rows, a.rounds)
     elif a.mode == "fits":
-        cmd_fits(a.out, a.n, tuple(a.seeds_list))
+        cmd_fits(a.out, a.n)
     elif a.mode == "analyse":
         cmd_analyse(a.out)
     return 0
