@@ -70,6 +70,25 @@ CONT = [
     "stand_arrival_gap",
 ]
 CAT = ["RUNWAY_mvt", "ADES_mvt", "AIRCRAFT_OPERATOR_flt", "AIRCRAFT_TYPE_mvt"]
+# The wide metric of S4.5. Adds the columns the narrow metric leaves out - the congestion block, the
+# weather block and time-of-day - so that "d = 0" comes closer to "the whole visible vector agrees". If
+# rho is stable between the two metrics, the 15% of gain the narrow metric omits carries no systematic
+# error; if rho rises, the narrow metric was under-stating the recoverable share and the floor is lower.
+CONT_WIDE = CONT + [
+    "mvt_minus_iobt",
+    "lobt_minus_eobt1",
+    "nbr_mvt_minus_aobt_mean_30m",
+    "dep_tko_prev_30m",
+    "dep_tko_prev_60m",
+    "arr_taxi_in_mean_30m",
+    "rwy_headway_prev_s",
+    "rwy_headway_next_s",
+    "queue_ahead",
+    "hour_local",
+    "temp_c",
+    "wind_ms",
+    "vis_km",
+]
 # Continuous columns used as within-cell covariates in S2's adjusted arm (a superset of CONT).
 ZCOV = CONT + [
     "mvt_minus_iobt",
@@ -307,7 +326,7 @@ def s2_twin_ladder() -> None:
 
 
 def neighbour_pairs(a: pl.DataFrame, knn: int = 1, dmax: float = np.inf, shuffle_g: bool = False,
-                    seed: int = 5) -> dict:
+                    seed: int = 5, cont: list[str] | None = None) -> dict:
     """For every row, its k nearest visible twins inside its own STAND block.
 
     Distance: squared Euclidean over the eight z-scored continuous columns of CONT plus one unit per
@@ -315,6 +334,7 @@ def neighbour_pairs(a: pl.DataFrame, knn: int = 1, dmax: float = np.inf, shuffle
     metric columns exactly. Blocks smaller than 8 rows are skipped.
     """
     rng = np.random.default_rng(seed)
+    cont = cont or CONT
     out = {k: [] for k in ("d", "gi", "gj", "ei", "ej", "fi", "fj", "ap", "ba", "ii", "dt")}
     fmap = {"jan": 0, "jul": 1, "forward": 2}
     for ap in APTS:
@@ -327,7 +347,7 @@ def neighbour_pairs(a: pl.DataFrame, knn: int = 1, dmax: float = np.inf, shuffle
         ids = s["MVT_ID_mvt"].to_numpy()
         ba = s["b_ae"].to_numpy()
         tv = s["MVT_TIME_UTC_mvt"].dt.epoch("s").to_numpy().astype(np.float64)
-        Z = np.column_stack([np.nan_to_num(s[c].to_numpy().astype(np.float64), nan=0.0) for c in CONT])
+        Z = np.column_stack([np.nan_to_num(s[c].to_numpy().astype(np.float64), nan=0.0) for c in cont])
         Z = (Z - Z.mean(0)) / np.maximum(Z.std(0), 1e-9)
         C = np.column_stack(
             [s[c].cast(pl.Categorical).to_physical().fill_null(-1).to_numpy() for c in CAT]
@@ -452,7 +472,7 @@ At d > 0 the two rows' approximation errors are not identical, so the measured c
 UNDER-estimate of E[(ghat - mu)^2]; every floor printed below is therefore an UPPER bound that falls
 towards the truth as d -> 0. Pairs are restricted to the same OOF fold, so ghat comes from one model.
 """)
-    a = load_lane_a()
+    a = load_lane_a(extra=CONT_WIDE)
     P = neighbour_pairs(a, knn=6, dmax=1.0)
     d, ei, ej, fi, fj, apv = P["d"], P["ei"], P["ej"], P["fi"], P["fj"], P["ap"]
     ok = np.isfinite(ei) & np.isfinite(ej) & (fi == fj)
@@ -489,6 +509,27 @@ survives at large time separations, the covariance is approximation error and no
         mse, c, rho, ci = _rho(ei[m], ej[m])
         print(f"  {lbl:18s} {m.sum():8d} {np.sqrt(mse):9.2f} {rho:8.4f}  [{ci[0]:.4f}, {ci[1]:.4f}] "
               f"{lane_rmse * np.sqrt(max(1 - rho, 0)):11.2f}")
+
+    print(f"""
+WIDE METRIC - the narrow metric matches on 12 columns carrying 85% of the gain, so two rows at d = 0
+can still differ on the other ~90 visible columns. If model A is systematically wrong ALONG those
+columns, that error does not enter Cov(e_i, e_j) and rho is under-stated. Re-running the whole estimator
+with {len(CONT_WIDE)} continuous columns instead of {len(CONT)} - the congestion block, the weather block and
+time-of-day added - tests exactly that. A stable rho means the omitted columns carry no systematic error.
+Distances are larger in the wider space, so the bins are wider and only the trend is read.""")
+    Pw = neighbour_pairs(a, knn=6, dmax=2.0, cont=CONT_WIDE)
+    dw, eiw, ejw, fiw, fjw = Pw["d"], Pw["ei"], Pw["ej"], Pw["fi"], Pw["fj"]
+    okw = np.isfinite(eiw) & np.isfinite(ejw) & (fiw == fjw)
+    print(f"  {'d bin (wide)':16s} {'pairs':>8s} {'MSE^0.5':>9s} {'rho':>8s} {'rho 95% CI':>20s} {'floor|lane':>11s}")
+    for lo, hi in [(0, .5), (.5, 1.0), (1.0, 1.5), (1.5, 2.0)]:
+        m = okw & (dw > lo) & (dw <= hi)
+        if m.sum() < 500:
+            continue
+        mse, c, rho, ci = _rho(eiw[m], ejw[m])
+        print(f"  ({lo:.2f},{hi:.2f}]{'':4s} {m.sum():8d} {np.sqrt(mse):9.2f} {rho:8.4f}  "
+              f"[{ci[0]:.4f}, {ci[1]:.4f}] {lane_rmse * np.sqrt(max(1 - rho, 0)):11.2f}")
+    del Pw, dw, eiw, ejw, fiw, fjw, okw
+    gc.collect()
 
     print("\nNEGATIVE control - the partner residual is permuted, so no pair is a twin any more:")
     m = ok & (d <= 1.0)
@@ -550,7 +591,23 @@ survives at large time separations, the covariance is approximation error and no
 # --------------------------------------------------------------------------------------------------
 
 
-def s5_learning_curve(fracs=(0.03, 0.06, 0.125, 0.25, 0.5, 1.0), leaves=(127,)) -> None:
+def s5_learning_curve(points=((127, 0.0625), (127, 0.125), (127, 0.25), (127, 0.5), (127, 1.0),
+                              (31, 0.25), (511, 0.25))) -> None:
+    """Each point is (num_leaves, fraction of the matched training pool).
+
+    Cheapened deliberately and IDENTICALLY for every point, because the curve's shape is what is read and
+    not its level: learning_rate 0.15 instead of production's 0.05, at most 400 rounds instead of 2000,
+    one seed instead of three, and `deterministic`/`force_row_wise` off (those two are there for
+    bit-reproducibility of a 0.1 s delta, which no conclusion here turns on, and they cost a large factor
+    in wall clock on a shared box). Early stopping is KEPT - the same inner-holdout carve-out production
+    uses - because a fixed round budget would flatter the large-n points and steepen the curve, which is
+    the direction that would manufacture headroom.
+
+    **The absolute level is therefore worse than production and must not be quoted as a production
+    number.** configs/main_gap.yaml measures 198.53 on this fold with three seeds; the frac=1.0 point
+    here is the same recipe cheapened, and the distance between them is the price of the cheapening.
+    The capacity arm is run at frac=0.25 rather than 1.0 so that 31 / 127 / 511 leaves are compared at
+    one fixed row count inside the budget."""
     _tag("S5  route 4 - the learning curve: is model A's error still falling in rows, or in capacity?")
     import time as _t
 
@@ -570,30 +627,32 @@ def s5_learning_curve(fracs=(0.03, 0.06, 0.125, 0.25, 0.5, 1.0), leaves=(127,)) 
     yv = val[LABEL].to_numpy().astype(float)
     apt = val["ADEP_mvt"].to_numpy()
     out = []
-    for nl in leaves:
-        for f in fracs:
-            sub = pool.filter(pl.Series(h < f))
-            cfg = TrainConfig(
-                name="lc", n_seeds=1, use_encodings=True, include_candidates=("stand_arrival_gap",),
-                unmatched_sched_reparam=True, lobt_bound=True,
-            )
-            cfg.params = dict(cfg.params)
-            cfg.params["num_leaves"] = nl
-            t0 = _t.time()
-            pr, info = predict_fold(sub, val, cfg)
-            p = val.select("MVT_ID_mvt").join(pr, on="MVT_ID_mvt", how="left")["pred"].to_numpy()
-            r = float(np.sqrt(np.nanmean((p - yv) ** 2)))
-            rec = dict(
-                leaves=nl, frac=f, n=sub.height, rmse=r, rounds=info.get("rounds_matched"),
-                secs=round(_t.time() - t0, 1),
-                by_airport={a: float(np.sqrt(np.nanmean((p[apt == a] - yv[apt == a]) ** 2))) for a in APTS},
-            )
-            out.append(rec)
-            print(json.dumps({k: v for k, v in rec.items() if k != "by_airport"}), flush=True)
-            del sub
-            gc.collect()
-    json.dump(out, open(SCRATCH / "s5_learning_curve.json", "w"))
-    base = [r for r in out if r["leaves"] == leaves[0]]
+    for nl, f in points:
+        sub = pool.filter(pl.Series(h < f))
+        cfg = TrainConfig(
+            name="lc", n_seeds=1, num_rounds=400, early_stopping=50, use_encodings=True,
+            include_candidates=("stand_arrival_gap",), unmatched_sched_reparam=True, lobt_bound=True,
+        )
+        cfg.params = dict(cfg.params)
+        cfg.params["num_leaves"] = nl
+        cfg.params["learning_rate"] = 0.15
+        cfg.params["deterministic"] = False
+        cfg.params["force_row_wise"] = False
+        t0 = _t.time()
+        pr, info = predict_fold(sub, val, cfg)
+        p = val.select("MVT_ID_mvt").join(pr, on="MVT_ID_mvt", how="left")["pred"].to_numpy()
+        r = float(np.sqrt(np.nanmean((p - yv) ** 2)))
+        rec = dict(
+            leaves=nl, frac=f, n=sub.height, rmse=r, rounds=info.get("rounds_matched"),
+            secs=round(_t.time() - t0, 1),
+            by_airport={a: float(np.sqrt(np.nanmean((p[apt == a] - yv[apt == a]) ** 2))) for a in APTS},
+        )
+        out.append(rec)
+        print(json.dumps({k: v for k, v in rec.items() if k != "by_airport"}), flush=True)
+        json.dump(out, open(SCRATCH / "s5_learning_curve.json", "w"))
+        del sub, pr, p
+        gc.collect()
+    base = [r for r in out if r["leaves"] == 127]
     if len(base) >= 4:
         n = np.array([r["n"] for r in base], float)
         m = np.array([r["rmse"] for r in base], float) ** 2
@@ -609,6 +668,16 @@ def s5_learning_curve(fracs=(0.03, 0.06, 0.125, 0.25, 0.5, 1.0), leaves=(127,)) 
             print(f"\nfit MSE(n) = a + b*n^-alpha  ->  alpha {alpha:.3f}, asymptote sqrt(a) = {np.sqrt(c[0]):.2f}")
             print("  (the n -> infinity limit of THIS recipe on THESE features; it is not the floor, it is the")
             print("   error the recipe converges to given unlimited 2025-like rows.)")
+            n100 = base[-1]["n"]
+            for mult in (2, 4, 10):
+                pred = np.sqrt(c[0] + c[1] * (n100 * mult) ** (-alpha))
+                print(f"  extrapolated to {mult}x the training rows ({n100 * mult:,}): "
+                      f"{pred:.2f}  ({pred - base[-1]['rmse']:+.2f} s)")
+    caps = [r for r in out if r["frac"] == 1.0]
+    if len(caps) > 1:
+        print("\ncapacity arm at 100% of the rows:")
+        for r in sorted(caps, key=lambda z: z["leaves"]):
+            print(f"  num_leaves {r['leaves']:5d}  rounds {r['rounds']:5d}  RMSE {r['rmse']:8.3f}")
 
 
 # --------------------------------------------------------------------------------------------------

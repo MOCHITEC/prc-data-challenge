@@ -58,18 +58,20 @@ assuming anything. [S] `S1`
    partitions — up to 543,456 cells — moves lane A from 213.127 to at best **212.86**, against a shuffled
    control at 213.03. That is **0.27 s**, and it is the ceiling on every target encoding, per-group
    specialist and per-group offset column over those variables. [S] `S6`
-6. **Per airport, the recoverable gap is concentrated exactly where the error already is.** LIRF
-   (ρ 0.186, 345.1 → 311.4) and LFPG (ρ 0.130, 241.5 → 225.2) carry the most; EGLL and LSZH have almost
-   none (ρ 0.060 and 0.047). LIRF + LFPG + LTFM + EGLL are **62.9 %** of lane-A SSE. [S] `S1`, `S4`
+6. **Per airport, the recoverable gap is concentrated, and it is concentrated where the error already
+   is.** LIRF (ρ 0.186, 345.1 → 311.4) and LFPG (ρ 0.130, 241.5 → 225.2) are **53.6 %** of all the
+   recoverable squared error between them; LSZH is 1.8 % and EGLL 7.5 %. It is neither "a floor of 150
+   that is entirely LFPG" nor a gap spread evenly over ten airports. [S] `S1`, `S4`
 7. **The +1.98 s OOF-to-board gap is not a constant and no target should be computed through it.** It is
    a single observation, and it is an artefact of which folds happen to be pooled: on the board's own
    months (jan + jul) the same OOF reads 323.12 and the gap is **−43.60**; on forward alone it reads
    219.72 and the gap is **+59.80**. Lane A itself moves 198.5 → 243.3 across folds. [S] `S7`
 8. **[X] The honest headline: lane A's error is about 90 % irreducible at this feature set. The whole
-   recoverable amount is 11.3 s of lane-A RMSE (213.13 → 201.78), worth **−8.5 s of board if every second
-   of it were taken**, and the 230s are out of reach from lane A alone.** What is *not* ruled out is a feature carrying genuinely new information
-   (an external off-block observation, in the sense of `missing-clock.md` §6); this note measures what the
-   current columns can support, not what a new column could.
+   recoverable amount is 11.3 s of lane-A RMSE (213.13 → 201.78) — worth −8.5 s of board if every second
+   of it were taken — and the 230s are out of reach from lane A alone.** What is *not* ruled out is a
+   column carrying genuinely new information (an external off-block observation, in the sense of
+   `missing-clock.md` §6): this note measures what the current columns can support, not what a new one
+   could.
 
 ---
 
@@ -253,7 +255,11 @@ rows in the same distance bin*.
 | (1.50, 2.00] | 299,488 | 103,100 | 281.45 | 257.08 | 0.913 |
 | (2.00, 3.00] | 101,561 | 38,328 | 404.96 | 356.98 | 0.881 |
 | (> 3.00) | 20,796 | 8,778 | 822.27 | 590.38 | 0.718 |
-| whole lane A | 2,062,064 | 664,050 | — | **213.07** | — |
+| whole lane A † | 2,062,064 | 664,050 | — | **213.07** | — |
+
+**†** 2,062,064 of the 2,062,577 matched rows are paired; the 513 that are not sit in stand blocks with
+fewer than eight rows. Model A's RMSE over the paired subset is 213.066 against 213.1266 over the whole
+lane, so the pairing is not selecting on difficulty at the level of the lane.
 
 **[X] This is the trap this route sets, and it is worth recording because the number it produces is
 exactly the "board 230s is reachable" number.** Read the second column alone and the floor looks like
@@ -333,6 +339,10 @@ Lane A OOF RMSE over all 664,050 rows: 213.1266.
 
 **ρ is flat in `d`**, which is what the estimator needs to be carried from the dense rows to the whole
 lane, and the CI at the tightest bin is [0.074, 0.146] → **floor 197.0 to 205.0, point 201.0**.
+
+Restated against §1.2's variance decomposition: model A explains **71.51 %** of Var(`g`), and a perfect
+model — one that is handed `μ(x)` itself — would explain **1 − (201.78/399.28)² = 74.46 %**. **[X] The
+entire remaining prize on lane A is 2.95 percentage points of Var(`g`).**
 
 ### 4.3 Three controls, of which two are the ones this repo's history demands
 
