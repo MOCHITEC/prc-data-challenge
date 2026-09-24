@@ -5,8 +5,12 @@ one inner month), exactly the months that are scored.
 Model per fold (the v2 'two-clock' structure of src/prc/train.py):
   * NM-matched rows: target y - (MVT - AOBT_3)
   * NM-unmatched rows: target y
-Usage:  python stand_03_model.py [variant ...]      variants: base, occ, occ_geo, ... (see VARIANTS)
-Writes SCRATCH/oof_<variant>.parquet and prints RMSE + paired bootstrap vs 'base'.
+Usage:  python stand_03_model.py [variant ...]      variants: base, occ, nbr, geo, grp, occ_grp, all (see VARIANTS)
+        python stand_03_model.py report <variant ...>
+Env: RUN_TAG (suffix of the OOF files), TRAIN_FRAC (share of NM-matched fitting rows), LGB_LR, LGB_THREADS,
+     LOAD_EXTRA=0 (skip neighbour/successor/geo files to save memory).
+Writes SCRATCH/oof_<variant><RUN_TAG>.parquet and prints RMSE + paired bootstrap vs 'base'.
+Peak RSS ~3.8 GB with all feature files loaded.
 """
 
 from __future__ import annotations
@@ -31,6 +35,8 @@ OCC = ["g_arr_prev1", "g_arr_prev2", "g_arr_next1", "g_dep_prev", "g_dep_next", 
        "occ_lb_minus_sched"]
 GEO_FILE = f"{SCRATCH}/stand_geo_feats.parquet"
 EXTRA_FILES = [f"{SCRATCH}/stand_nbr_feats.parquet", f"{SCRATCH}/stand_succ_feats.parquet"]
+if os.environ.get("LOAD_EXTRA", "1") == "0":  # memory: variants that need only OCC / grp columns
+    EXTRA_FILES = []
 NBR = ["nb_dep_aobt_5m", "nb_arr_inb_5m", "same_num_dep_5m", "nb_dep_tko_5m"]
 SUCC = ["succ_taxiin", "succ_taxiin_excess", "succ_land_before_tko_s"]
 GEO = ["geo_x_m", "geo_y_m", "geo_dist_thr_m"]
@@ -60,7 +66,7 @@ def load() -> pl.DataFrame:
         (pl.col("occ_lb") - pl.col(PROXY)).alias("occ_lb_minus_aobt"),
         (pl.col("occ_lb") - pl.col("mvt_minus_sched")).alias("occ_lb_minus_sched"),
     )
-    for fpath in [GEO_FILE] + EXTRA_FILES:
+    for fpath in ([GEO_FILE] if EXTRA_FILES else []) + EXTRA_FILES:
         if os.path.exists(fpath):
             df = df.join(pl.read_parquet(fpath).drop("geo_matched", strict=False), on="MVT_ID_mvt", how="left")
     df = df.with_columns(
@@ -221,7 +227,6 @@ def report(names: list[str]) -> None:
 
 if __name__ == "__main__":
     names = sys.argv[1:] or ["base", "occ"]
-    VARIANTS.setdefault("x", [])
     if names[0] == "report":
         report(names[1:])
         sys.exit()

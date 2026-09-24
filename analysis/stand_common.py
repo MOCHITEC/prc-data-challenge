@@ -20,24 +20,6 @@ RAW = os.path.join(ROOT, "data", "raw")
 SCRATCH = os.environ.get("STAND_SCRATCH", "/tmp/stand_analysis")
 os.makedirs(SCRATCH, exist_ok=True)
 
-_UNUSED_COLS = [
-    "MVT_ID_mvt",
-    "FLIGHT_ID_mvt",
-    "PHASE_mvt",
-    "ADEP_mvt",
-    "ADES_mvt",
-    "STAND_mvt",
-    "RUNWAY_mvt",
-    "MVT_TIME_UTC_mvt",
-    "BLOCK_TIME_UTC_mvt",
-    "SCHED_TIME_UTC_mvt",
-    "TAXITIME_SEC_mvt",
-    "AOBT_3_flt",
-    "EOBT_1_flt",
-    "AIRCRAFT_TYPE_mvt",
-    "WK_TBL_CAT_flt",
-    "AIRCRAFT_OPERATOR_flt",
-]
 BAD_STANDS = {"UNKNOWN", "NA", "", "NULL", "0"}
 
 
