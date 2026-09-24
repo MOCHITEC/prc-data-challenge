@@ -401,7 +401,47 @@ nobody has managed yet.**
 
 ---
 
-## 5. Route 4 — the learning curve
+## 5. Route 4 — the learning curve: information-limited, or data-limited?
+
+The three routes above say how much of the error is systematic. They do not say whether that systematic
+part is the model's *function class* falling short or simply not enough rows. The learning curve
+separates them, and it matters for the two-week decision: a data-limited model is fixed by nothing
+anyone can do in two weeks (2025 is all the data there is), an information-limited one is fixed only by
+a new column.
+
+### 5.1 The measurement this repo already owns
+
+**[S]** `P4-turnaround-features.md:136`, from `8bdf4f9:docs/codex_fe_results/continuation_evaluation.json`.
+Identical settings on both arms (LightGBM `lr 0.05, 127 leaves, min_data 50, feature_fraction 1.0`,
+one seed, **fixed 742 matched rounds, no early stopping**), identical evaluation population — the
+forward fold's 328,009 rows:
+
+| arm | training rows | RMSE (both lanes) | Δ | 95 % day CI |
+|---|---:|---:|---:|---|
+| 8-month baseline (Jan–Aug) | 1,387,414 | 228.3237 | — | — |
+| **10-month baseline (Jan–Oct)** | **1,757,038** | **225.6349** | **−2.6888** | [−4.923, −0.954] |
+
+**[X] A 26.6 % increase in training rows bought 2.69 s, and the model was therefore NOT at its data
+limit as of the 10-month baseline.** Extrapolating a power law through two points needs an assumed
+exponent, so what follows is an inference, not a measurement — under `MSE = a + b·n^−α` the `n → ∞`
+asymptote implied by those two points is **215.2** at `α = 1`, **211.2** at `α = 0.75` and **202.9** at
+`α = 0.5`, i.e. a further −10 to −23 s.
+
+**[X] Three things have to be said about that number before anyone plans against it.**
+
+1. **It is both lanes, and lane B is the starved one.** Going from 8 to 10 months takes model B from
+   about 18k to about 22k training rows, and `missing-clock.md` §2.2 prices model B's training-size
+   starvation at a 1.14× penalty on its own RMSE — which, on a lane carrying 41.8 % of total SSE, is
+   easily the whole 2.69 s. **The 8→10 datum is not clean evidence about lane A**, which is why §5.2
+   re-measures it on matched rows alone.
+2. **There is no more data.** 2025 is the whole training year; the asymptote is a counterfactual that no
+   amount of work in two weeks can reach.
+3. **[X] And it cuts the other way for feature engineering.** §4's ρ measures *total* recoverable error —
+   function-class shortfall plus estimation variance. Whatever part of it is estimation variance is
+   removable only by rows that do not exist. So the share of §4's 11.3 s that feature work could
+   actually claim is **smaller** than 11.3 s, not larger.
+
+### 5.2 Measured here
 
 <!--S5-->
 
