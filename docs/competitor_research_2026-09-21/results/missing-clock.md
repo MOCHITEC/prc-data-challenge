@@ -325,10 +325,10 @@ plus the named column(s). "Reweighted" is the scored-lane composition of §2.2. 
 | variant | RMSE matched | Δ | RMSE reweighted | Δ | gain share |
 |---|---:|---:|---:|---:|---|
 | **B_cf base** | 292.53 | — | 554.03 | — | |
-| **+`stand_arrival_gap`** | **282.66** | **−8.46** | **539.09** | **−13.95** | 2.43 % |
-| +`queue_ahead` | 290.37 | −0.75 | 549.97 | −3.07 | 1.03 % |
-| +`congestion_vs_usual_30m` | 290.46 | −0.66 | 551.66 | −1.39 | 0.34 % |
-| +`dest_distance_km` | 290.30 | −0.82 | 550.94 | −2.10 | 0.16 % |
+| **+`stand_arrival_gap`** † | **282.66** | **−8.46** | **539.09** | **−13.95** | 2.43 % |
+| +`queue_ahead` † | 290.37 | −0.75 | 549.97 | −3.07 | 1.03 % |
+| +`congestion_vs_usual_30m` † | 290.46 | −0.66 | 551.66 | −1.39 | 0.34 % |
+| +`dest_distance_km` † | 290.30 | −0.82 | 550.94 | −2.10 | 0.16 % |
 | +`surface_occ` | 292.46 | −0.07 | 554.70 | +0.67 | 0.43 % |
 | +`nbr_aobt_minus_sched_60m` | 292.43 | −0.11 | 553.29 | −0.74 | 0.54 % |
 | +`nbr_unmatched_rate_60m` | 292.99 | +0.46 | 555.48 | +1.45 | 0.23 % |
@@ -342,11 +342,46 @@ plus the named column(s). "Reweighted" is the scored-lane composition of §2.2. 
 
 Query: `S5`, `rmse(y, pred)` on the 152,271 matched jan rows, and the post-stratified version.
 
+> **† [X] The four marked rows are not from the same `S5` run as the rest of the table, and *both* of
+> their numbers are affected. Recorded unresolved: re-running `S5` is what settles it.** Their own
+> `RMSE` and `Δ` disagree by a constant **1.41** matched and **0.99** reweighted — `RMSE − Δ` gives
+> **291.12 / 553.04** on all four, where this table's base row gives **292.53 / 554.03**. The other ten
+> rows agree with the base row to rounding.
+>
+> * **The Δ cannot have drifted on its own.** `S5` fits exactly one base (`missing_clock.py:421`) and
+>   prints every variant as `a - b_all` on the same line as that variant's own RMSE (`:446`). There is
+>   no cached Δ, no prior results file, no hardcoded table and no second `base` variable in the
+>   section. Within one run the two columns *cannot* disagree — so for these four rows **both** numbers
+>   come from an earlier run whose base was 291.12 / 553.04. [S] `S5`
+> * **292.53 / 554.03 is the shipped harness's base.** §2.2's `B_cf` is literally the same fit — same
+>   fold, same `cols_b` + `cats_mvt`, same seed, same 400 rounds — and measures 292.53 / 554.0. [S] `S4`
+> * **The earlier run is the superseded harness of §7's last caveat**, whose `base` still contained the
+>   four new columns (one of them the wrong first build of `surface_occ`, §7). The four columns marked
+>   here are `CANDIDATE_COLS` (`features.py:276`) and are hidden from `visible_numeric_columns`
+>   (`train.py:245`) in *both* harnesses, so in that run they were still genuine additions and never
+>   showed the identical-RMSE no-op signature that sent the four new-column rows back to be re-run.
+>   That is why exactly these four rows, and no others, survived from it.
+> * **So neither column can be repaired by arithmetic.** Read against this table's base the printed
+>   RMSEs would give −9.87 / −14.94, −2.16 / −4.06, −2.07 / −2.37 and −2.23 / −3.09. Those are the size
+>   of the discrepancy, **not** a correction: the models behind the printed RMSEs were fitted on a base
+>   that is not this table's base.
+>
+> **What inherits this and what does not.** Everything resting on the ten agreeing rows is untouched:
+> the floor itself (`noise_control` +0.07 / +0.83), the four new columns, the witness, and the
+> +5.60 / +14.94 cost of removing the neighbour clocks — so §0.1–0.5, the second and third readings
+> below, §6 and §7 stand as written, and `stand_arrival_gap` is the largest single contributor by an
+> order of magnitude under either base. Pending the re-run: the first reading's placement of
+> `queue_ahead`, `congestion_vs_usual_30m` and `dest_distance_km` *inside* the floor (true on the Δ as
+> printed, false if their RMSEs are read against 292.53), and §5's `stand_arrival_gap` price, which
+> moves by at most 0.03 s (−0.41 s as printed, −0.38 s on the Δ side of the row).
+
 **Three readings. [X]**
 
-* **The noise floor is about ±1 s matched and ±1.5 s reweighted.** Four of the five single-column
-  additions — `queue_ahead`, `congestion_vs_usual_30m`, `dest_distance_km`, `surface_occ`,
-  `nbr_aobt_minus_sched_60m`, `nbr_unmatched_rate_60m` — sit inside it. `nbr_unmatched_rate_60m`, the
+* **The noise floor is about ±1 s matched and ±1.5 s reweighted.** Six of the eight single-column
+  additions (the control aside) — `queue_ahead` †, `congestion_vs_usual_30m` †, `dest_distance_km` †,
+  `surface_occ`, `nbr_aobt_minus_sched_60m`, `nbr_unmatched_rate_60m` — sit inside it on the Δ as
+  printed; for the three marked † that placement is exactly what the footnote above leaves open, since
+  their RMSEs read against this table's base would put them outside it. `nbr_unmatched_rate_60m`, the
   one idea `lfpg-unmatched-lane.md` §4.2 left open, is the **worst** of them: +0.46 / +1.45, i.e. it
   hurts, at a gain share of 0.23 %. **Record §4.2 as measured and closed.**
 * **The neighbour off-block clock is the clock substitute, it exists, and it is already deployed.**
@@ -409,11 +444,15 @@ these three would be the seventh, eighth and ninth. Do not propose them as lever
 | **non-LIRF: observed → fully sighted** | 4,907 | 569.1 | 361.6 | **−4.85 s** |
 | non-LIRF: blind-and-starved → sighted (both counterfactual, consistent pair) | 4,907 | 591.4 | 361.6 | **−5.50 s** |
 | non-LIRF: the *training-size* part alone (more rows, still blind) | 4,907 | 591.4 | 541.7 | −1.42 s |
-| non-LIRF: what `stand_arrival_gap` measurably recovers | 4,907 | 554.0 | 539.1 | **−0.41 s** |
+| non-LIRF: what `stand_arrival_gap` measurably recovers † | 4,907 | 554.0 | 539.1 | **−0.41 s** |
 | non-LIRF: what the witness + all four new columns recover | 4,907 | 554.0 | 547.5 | **−0.18 s** |
 | whole lane: observed → sighted (includes LIRF) | 5,290 | 1,141.3 | 361.6 | −31.73 s |
 | whole lane: a 10 % cut of its RMSE — the shape of the old −7 s | 5,290 | 1,141.3 | 1,027.2 | −6.70 s |
 | **LIRF's 383 rows alone → the non-LIRF unmatched level** | 383 | 3,437.2 | 569.1 | **−22.53 s** |
+
+**†** The 539.1 is §4.1's `+stand_arrival_gap` row, which is flagged there: on the Δ side of that same
+row the figure is 540.1 and the price −0.38 s. The range −0.38 to −0.41 s is what is settled; the exact
+value waits on a re-run of `S5`. [S] `S5`, §4.1
 
 **[X] Three conclusions from this table.**
 
@@ -441,7 +480,8 @@ conditioned (§4.2), the ranking is:
 
 * `nbr_mvt_minus_aobt_mean_30m/60m` — **the** substitute, +0.658 Spearman with the lost clock, worth
   15 s of unmatched-lane RMSE, **already shipped**. Nothing here is a change.
-* `stand_arrival_gap` — worth −13.95 reweighted, **already adopted today**, and explicitly **not** a
+* `stand_arrival_gap` — worth −13.95 reweighted (−14.94 on the RMSE side of the same row; see §4.1's
+  † footnote, which does not change its rank), **already adopted today**, and explicitly **not** a
   bound (§3.3). Anyone tempted to clip predictions to it should read that section first.
 * the congestion witness in merry-quicksand's exact hour-bucket form — real (−3.00 matched against a
   +0.07 control), **computable on every scored unmatched row at 2.8 % null**, and worth about
