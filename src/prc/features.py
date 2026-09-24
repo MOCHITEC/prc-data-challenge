@@ -274,6 +274,11 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
 # TrainConfig.exclude_features, so one feature can be measured at a time without rebuilding the feature cache
 # (a rebuild costs about four minutes; a CV run costs five).
 CANDIDATE_COLS = (
+    "stand_arrival_gap",
+    "stand_aobt_turn",
+    "stand_arrival_type_match",
+    "eobt_schedule_revision",
+    "delay_neighbor_deviation",
     "queue_ahead",
     "bank_position",
     "stand_rwy_share",
@@ -284,6 +289,71 @@ CANDIDATE_COLS = (
     "dest_distance_km",
     "planned_flight_s",
 )
+
+
+def stand_arrival_features(departures: pl.DataFrame, arrivals: pl.DataFrame) -> pl.DataFrame:
+    """Seconds since the latest completed same-stand arrival, capped at six hours.
+
+    Arrival block timestamps are available in ranking. Departure block timestamps and
+    labels are never read. This is a stand-context link, not an aircraft rotation.
+    """
+    arrival = (
+        arrivals.select(
+            pl.col("ADES_mvt").alias("ADEP_mvt"),
+            "STAND_mvt",
+            pl.col("BLOCK_TIME_UTC_mvt").alias("_arrival_block"),
+            pl.col("AIRCRAFT_TYPE_mvt").alias("_arrival_type"),
+        )
+        .drop_nulls(["ADEP_mvt", "STAND_mvt", "_arrival_block"])
+        .sort("_arrival_block")
+    )
+    linked = (
+        departures.select("MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "MVT_TIME_UTC_mvt", "AOBT_3_flt", "AIRCRAFT_TYPE_mvt")
+        .drop_nulls("MVT_TIME_UTC_mvt")
+        .sort("MVT_TIME_UTC_mvt")
+        .join_asof(
+            arrival,
+            left_on="MVT_TIME_UTC_mvt",
+            right_on="_arrival_block",
+            by=["ADEP_mvt", "STAND_mvt"],
+            strategy="backward",
+            allow_exact_matches=False,
+            check_sortedness=False,
+        )
+    )
+    gap = (pl.col("MVT_TIME_UTC_mvt") - pl.col("_arrival_block")).dt.total_seconds()
+    valid = gap <= 21600
+    result = linked.select(
+        "MVT_ID_mvt",
+        pl.when(valid).then(gap).alias("stand_arrival_gap"),
+        pl.when(valid)
+        .then((pl.col("AOBT_3_flt") - pl.col("_arrival_block")).dt.total_seconds())
+        .alias("stand_aobt_turn"),
+        pl.when(valid)
+        .then((pl.col("AIRCRAFT_TYPE_mvt") == pl.col("_arrival_type")).cast(pl.Int8))
+        .alias("stand_arrival_type_match"),
+    )
+    return departures.select("MVT_ID_mvt").join(result, on="MVT_ID_mvt", how="left", maintain_order="left")
+
+
+def revision_context_features(row: pl.DataFrame, ctx: pl.DataFrame) -> pl.DataFrame:
+    """Selected clock revision and departure-delay deviation, without labels."""
+    return (
+        row.select(
+            "MVT_ID_mvt",
+            (pl.col("EOBT_1_flt") - pl.col("SCHED_TIME_UTC_mvt"))
+            .dt.total_seconds()
+            .cast(pl.Float64)
+            .alias("eobt_schedule_revision"),
+            "aobt3_minus_eobt1",
+        )
+        .join(ctx.select("MVT_ID_mvt", "nbr_aobt_delay_mean_30m"), on="MVT_ID_mvt", how="left", maintain_order="left")
+        .select(
+            "MVT_ID_mvt",
+            "eobt_schedule_revision",
+            (pl.col("aobt3_minus_eobt1") - pl.col("nbr_aobt_delay_mean_30m")).alias("delay_neighbor_deviation"),
+        )
+    )
 
 
 def _destination_distance(row: pl.DataFrame) -> pl.DataFrame:
@@ -429,6 +499,18 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
                     (pl.col("ARVT_1_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("planned_flight_s"),
                 ]
             ),
+            on="MVT_ID_mvt",
+            how="left",
+            maintain_order="left",
+        )
+        .join(
+            stand_arrival_features(row, ctx_src.filter(pl.col("PHASE_mvt") == "ARR")),
+            on="MVT_ID_mvt",
+            how="left",
+            maintain_order="left",
+        )
+        .join(
+            revision_context_features(row, ctx),
             on="MVT_ID_mvt",
             how="left",
             maintain_order="left",

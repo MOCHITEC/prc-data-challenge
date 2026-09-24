@@ -110,3 +110,36 @@ def test_missing_anchor_time_gives_null_counts_not_zero():
     assert no_anchor["anchor_ok"].sum() == 0
     assert no_anchor["dep_tko_prev_15m"].null_count() == no_anchor.height  # not a misleading zero
     assert feats.filter(pl.col("MVT_TIME_UTC_mvt").is_not_null())["anchor_ok"].min() == 1
+
+
+def test_stand_arrival_gap_boundaries_and_keys():
+    from datetime import datetime, timedelta
+
+    from prc.features import stand_arrival_features
+    from prc.train import TrainConfig, visible_numeric_columns
+
+    t = datetime(2025, 1, 1, 12)
+    departures = pl.DataFrame(
+        {
+            "MVT_ID_mvt": [4, 1, 2, 3, 5],
+            "ADEP_mvt": ["A"] * 5,
+            "STAND_mvt": ["S", "S", "S", "X", "S"],
+            "MVT_TIME_UTC_mvt": [t + timedelta(seconds=21601), t, t + timedelta(seconds=21600), t, None],
+        }
+    )
+    departures = departures.with_columns(
+        pl.col("MVT_TIME_UTC_mvt").alias("AOBT_3_flt"), pl.lit("A320").alias("AIRCRAFT_TYPE_mvt")
+    )
+    arrivals = pl.DataFrame(
+        {
+            "ADES_mvt": ["A", "A", "B"],
+            "STAND_mvt": ["S", "S", "X"],
+            "BLOCK_TIME_UTC_mvt": [t - timedelta(seconds=60), t, t - timedelta(seconds=10)],
+        }
+    )
+    arrivals = arrivals.with_columns(pl.lit("A320").alias("AIRCRAFT_TYPE_mvt"))
+    result = stand_arrival_features(departures, arrivals)
+    assert result["MVT_ID_mvt"].to_list() == [4, 1, 2, 3, 5]
+    assert result["stand_arrival_gap"].to_list() == [None, 60, 21600, None, None]
+    assert "stand_arrival_gap" not in visible_numeric_columns(result, TrainConfig())
+    assert "stand_arrival_gap" in visible_numeric_columns(result, TrainConfig(include_candidates=["stand_arrival_gap"]))
