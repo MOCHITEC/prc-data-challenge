@@ -298,7 +298,10 @@ def main() -> None:
     # ------------------------------------------------------------ S5 OOF
     hr("S5  OOF: per band and per kind -- n, RMSE, bias, SSE share")
     oof = pl.read_parquet(OOF).filter(pl.col("oof").is_not_null())
-    folds = pl.read_parquet(FOLDS)
+    # NB: the folds sidecar has 863,141 rows for 672,428 OOF rows -- `jul` and
+    # `jul_fwd` list the same 190,713 MVT_IDs, so joining it naively duplicates
+    # every July row. Deduplicate to one fold label per MVT_ID.
+    folds = pl.read_parquet(FOLDS).unique(subset=["MVT_ID_mvt"], keep="first")
     j = (tr.join(oof, on="MVT_ID_mvt", how="inner").join(folds, on="MVT_ID_mvt", how="left")
          .with_columns((pl.col("oof") - pl.col("y")).alias("resid"))
          .with_columns((pl.col("resid") ** 2).alias("sse")))
