@@ -470,3 +470,157 @@ def test_the_design_matrix_is_a_function_of_the_data_not_of_its_chunking():
     for c in cats:
         n_levels = feats[c].cast(pl.Utf8).fill_null("__NA__").n_unique()
         assert len(np.unique(X[:, cols.index(c)])) == n_levels, c
+
+
+# ---------- per-airport specialists (P11) ----------
+
+
+def _grouping_fixture(seed: int, deps: int, blank_dep: bool = False) -> pl.DataFrame:
+    return build_departure_features(generate_month(2025, 7, seed=seed, deps_per_airport_day=deps, blank_dep=blank_dep))
+
+
+def test_airport_models_are_off_by_default_and_the_default_path_is_the_old_one():
+    """The flag is the only thing that can change a prediction, and with it off nothing else can.
+
+    What can be shown inside the repository is that the five new fields are inert while `airport_models` is
+    False: moving the group key, the weight, the floor and the seed leaves every prediction bit-identical and
+    leaves the grouped branch's bookkeeping out of `info` entirely. That the production numbers are unchanged
+    is checked on the real data instead, by the byte-identity gate in P11 stage 0 - rerunning
+    `configs/p11_base.yaml` must reproduce `experiments/oof_p4a_gap-ca4297619f.parquet` exactly."""
+    assert TrainConfig().airport_models is False, "every shipped recipe must keep today's model"
+    tr, tg = _grouping_fixture(41, 8), _grouping_fixture(42, 5)
+    off = TrainConfig(num_rounds=30, early_stopping=10, unmatched_num_rounds=30)
+    p_off, info_off = predict_fold(tr, tg, off)
+    moved = replace(
+        off, airport_group_key="shuffled", airport_blend_weight=1.0, airport_min_group_rows=1, airport_group_seed=7
+    )
+    p_moved, info_moved = predict_fold(tr, tg, moved)
+    assert np.array_equal(p_off["pred"].to_numpy(), p_moved["pred"].to_numpy())
+    for k in ("airport_groups", "airport_blended_rows", "airport_n_groups_fitted"):
+        assert k not in info_off and k not in info_moved
+
+
+def test_a_zero_weight_blend_is_the_global_model_and_a_full_weight_blend_is_the_specialist():
+    """`(1-w)*global + w*group` with w=0 must be the unsplit model to the last bit - that is what makes the
+    blend a blend rather than a second model, and it is the arithmetic the pure-specialist arm is recovered
+    with (`2*blend - global`, exact wherever neither the zero floor nor the LOBT bound binds)."""
+    tr, tg = _grouping_fixture(43, 8), _grouping_fixture(44, 5)
+    base = TrainConfig(num_rounds=30, early_stopping=10, unmatched_num_rounds=30, airport_min_group_rows=50)
+    p_plain, _ = predict_fold(tr, tg, base)
+    p_w0, info0 = predict_fold(tr, tg, replace(base, airport_models=True, airport_blend_weight=0.0))
+    assert np.array_equal(p_plain["pred"].to_numpy(), p_w0["pred"].to_numpy())
+    assert info0["airport_n_groups_fitted"] == 0 and info0["airport_blended_rows"] == 0
+
+    p_half, info_h = predict_fold(tr, tg, replace(base, airport_models=True, airport_blend_weight=0.5))
+    p_full, info_f = predict_fold(tr, tg, replace(base, airport_models=True, airport_blend_weight=1.0))
+    assert info_h["airport_n_groups_fitted"] == info_f["airport_n_groups_fitted"] >= 2
+    assert info_h["airport_blended_rows"] == info_f["airport_blended_rows"] > 0
+    # the half-weight prediction must sit strictly between the two ends on the rows that were blended,
+    # which is the cheapest check that the blend is not silently one of them
+    a, h, b = (x["pred"].to_numpy() for x in (p_w0, p_half, p_full))
+    moved = np.abs(a - b) > 1e-6
+    assert moved.sum() > 0
+    assert np.allclose(h[moved], 0.5 * (a[moved] + b[moved]), atol=1e-6)
+
+
+def test_every_airport_is_its_own_group_and_the_record_says_how_many_rows_each_one_got():
+    """A silent no-op here looks exactly like a success, so the per-group row counts go into the record.
+
+    Twice in this repo's history a change shipped that did nothing, and the only symptom was several recipes
+    returning the same number to six figures."""
+    tr, tg = _grouping_fixture(45, 8), _grouping_fixture(46, 5)
+    cfg = TrainConfig(
+        num_rounds=20, early_stopping=10, unmatched_num_rounds=20, airport_models=True, airport_min_group_rows=50
+    )
+    _, info = predict_fold(tr, tg, cfg)
+    groups = info["airport_groups"]
+    assert set(groups) == set(tr["ADEP_mvt"].unique().to_list())
+    m_tr = tr.filter(pl.col(PROXY).is_not_null())
+    for name, rec in groups.items():
+        assert rec["train_rows"] == int((m_tr["ADEP_mvt"] == name).sum())
+    assert info["airport_ungrouped_target_rows"] == 0
+    assert sum(r["target_rows"] for r in groups.values()) == int(tg[PROXY].is_not_null().sum())
+
+
+def test_a_group_below_the_floor_keeps_the_global_prediction_untouched():
+    """The floor is a refusal, not a selector: below it the group is not fitted and its rows are the global
+    model's, unchanged. OpenAir refuse any airport group under 20,000 rows outright for the same reason."""
+    tr, tg = _grouping_fixture(47, 8), _grouping_fixture(48, 5)
+    base = TrainConfig(num_rounds=20, early_stopping=10, unmatched_num_rounds=20)
+    p_plain, _ = predict_fold(tr, tg, base)
+    p_floored, info = predict_fold(tr, tg, replace(base, airport_models=True, airport_min_group_rows=10**9))
+    assert info["airport_n_groups_fitted"] == 0
+    assert all(not r["fitted"] for r in info["airport_groups"].values())
+    assert np.array_equal(p_plain["pred"].to_numpy(), p_floored["pred"].to_numpy())
+
+
+def test_the_shuffled_control_matches_the_airport_partition_in_count_and_size_but_not_in_membership():
+    """The noise arm has to cost what the candidate costs. It copies the group count and the size profile
+    from the airport partition and takes its membership from a hash of MVT_ID_mvt alone, so the only thing
+    it does not carry is which rows belong together."""
+    from prc.train import _group_labels
+
+    tr, tg = _grouping_fixture(49, 8), _grouping_fixture(50, 5)
+    cfg_a = TrainConfig(airport_models=True, airport_group_key="adep")
+    cfg_s = TrainConfig(airport_models=True, airport_group_key="shuffled")
+    a_tr, _, a_groups = _group_labels(tr, tg, cfg_a)
+    s_tr, s_tg, s_groups = _group_labels(tr, tg, cfg_s)
+    assert len(s_groups) == len(a_groups) >= 2
+    a_sizes = sorted(int((a_tr == g).sum()) for g in a_groups)
+    s_sizes = sorted(int((s_tr == g).sum()) for g in s_groups)
+    # same profile to within sampling noise of a per-row draw, and every row placed exactly once
+    assert sum(s_sizes) == sum(a_sizes) == tr.height
+    for x, y in zip(a_sizes, s_sizes):
+        assert abs(x - y) < 0.25 * max(x, 1), (a_sizes, s_sizes)
+    # and no airport information: every shuffled group must draw from several airports
+    for g in s_groups:
+        assert len(set(a_tr[s_tr == g].tolist())) > 1
+    assert set(np.unique(s_tg).tolist()) <= set(s_groups)
+
+
+def test_group_membership_is_a_function_of_the_row_id_alone():
+    """G11 again, one level up: the design matrix is deterministic, and so must be the decision of which
+    rows enter which design matrix. A row's group must not depend on the frame it arrives in, on the order
+    of the rows, or on the process."""
+    from prc.train import _group_labels, _row_uniform
+
+    tr, tg = _grouping_fixture(51, 8), _grouping_fixture(52, 5)
+    cfg = TrainConfig(airport_models=True, airport_group_key="shuffled")
+    _, tg_lab, _ = _group_labels(tr, tg, cfg)
+    # the same rows, reordered and cut in half, must land in the same groups
+    perm = tg.sort("MVT_ID_mvt", descending=True)
+    _, perm_lab, _ = _group_labels(tr, perm, cfg)
+    back = dict(zip(perm["MVT_ID_mvt"].to_list(), perm_lab.tolist()))
+    assert [back[i] for i in tg["MVT_ID_mvt"].to_list()] == tg_lab.tolist()
+    # ...and repeated calls agree exactly
+    ids = tg["MVT_ID_mvt"].to_numpy()
+    assert {_row_uniform(ids, 20260924).tobytes() for _ in range(3)} == {_row_uniform(ids, 20260924).tobytes()}
+    assert not np.array_equal(_row_uniform(ids, 1), _row_uniform(ids, 2))
+    assert ((_row_uniform(ids, 5) >= 0.0) & (_row_uniform(ids, 5) < 1.0)).all()
+
+
+def test_the_grouped_fit_refuses_a_weight_outside_the_unit_interval_and_an_unknown_key():
+    tr, tg = _grouping_fixture(53, 6), _grouping_fixture(54, 4)
+    base = TrainConfig(num_rounds=10, early_stopping=5, unmatched_num_rounds=10, airport_models=True)
+    with pytest.raises(ValueError, match="airport_blend_weight"):
+        predict_fold(tr, tg, replace(base, airport_blend_weight=1.5))
+    with pytest.raises(ValueError, match="airport_group_key"):
+        predict_fold(tr, tg, replace(base, airport_group_key="runway"))
+
+
+def test_a_grouped_run_is_reproducible_across_processes(tmp_path):
+    """Two fits of the same grouped config must agree bit for bit. The per-group split changes which
+    categorical levels each fit sees - each group's Enum is built over that group's own levels - so the G11
+    failure mode has a new way in, and this is the in-repo guard for it (the real-data guard is
+    `configs/determinism_check_airport.yaml`, run twice in separate processes)."""
+    tr, tg = _grouping_fixture(55, 8), _grouping_fixture(56, 5)
+    cfg = TrainConfig(
+        num_rounds=25,
+        early_stopping=10,
+        unmatched_num_rounds=25,
+        airport_models=True,
+        airport_min_group_rows=50,
+        n_seeds=2,
+    )
+    runs = [predict_fold(tr, tg, cfg)[0]["pred"].to_numpy().tobytes() for _ in range(2)]
+    assert runs[0] == runs[1]

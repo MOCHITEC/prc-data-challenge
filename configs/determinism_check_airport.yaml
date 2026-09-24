@@ -1,0 +1,32 @@
+# Two runs of this in separate processes must produce a byte-identical OOF. The airport twin of
+# `configs/determinism_check.yaml`, and it must be run BEFORE the stage-1 arms.
+#
+# Why it needs its own config. `_matrix` builds each fit's categorical encoding as an explicit
+# `pl.Enum(sorted(unique))` over the frame it is handed, which is what fixed G11. A per-airport split hands
+# every fit a DIFFERENT frame, so every fit gets a different level set - LSZH's specialist never sees LFPG's
+# stands - and the G11 failure mode has a new way back in: if which rows go to which fit, or the order the
+# fits run in, were ever a function of anything but the data, two runs would disagree. The code answers that
+# by taking group membership from the row's own id and iterating groups in sorted order, but the claim is
+# only worth what the measurement is.
+#
+# One fold, one seed, flag on: the cheapest configuration that exercises the grouped path end to end.
+name: determinism_check_airport
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+folds: [forward]
+airport_models: true
+airport_group_key: adep
+airport_blend_weight: 0.5
+airport_min_group_rows: 20000

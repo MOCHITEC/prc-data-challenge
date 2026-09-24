@@ -1,0 +1,27 @@
+# P11 stage 1, arm A0: base -- the production recipe, per-airport splitting OFF.
+#
+# This arm is the control for the CODE CHANGE, not only for the model. `configs/main_gap.yaml` + folds:[forward]
+# is exactly what produced `p4a_gap-ca4297619f`, so running this config on the changed code must reproduce
+# `experiments/oof_p4a_gap-ca4297619f.parquet` BYTE FOR BYTE. If it does not, the five new TrainConfig fields
+# have altered the default path and stage 1 stops there; nothing downstream is interpretable.
+#
+# Adding fields to TrainConfig changes `cfg.hash()` for every config in the repository, so this run's exp_id
+# will NOT be `p4a_gap-ca4297619f` even when its OOF is identical. Compare the parquet, not the name.
+name: p11_base
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [forward]
+airport_models: false

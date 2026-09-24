@@ -49,6 +49,13 @@ ENCODING_COLS = ["ref_p10", "ref_p20", "ref_med", "ref_n", "arh_med", "arh_n", "
 # airport's. Operator and airport are both categoricals already, but a tree cannot aggregate across rows, and
 # learning 676 x 10 combinations by splitting alone is not the same as being handed the number.
 OFFSET_COLS = ["op_offset_med", "op_offset_n"]
+# Grouping keys model A may be split on; see TrainConfig.airport_models and
+# docs/competitor_research_2026-09-21/plans/P11-per-airport-models.md.
+#   adep     - the departure airport. The candidate.
+#   shuffled - the same number of groups with the same size profile, membership drawn from a hash of
+#              MVT_ID_mvt alone. The control: it carries the row-count cost and the blending gain of the
+#              candidate and none of its airport information.
+GROUP_KEYS = ("adep", "shuffled")
 
 
 @dataclass
@@ -143,6 +150,32 @@ class TrainConfig:
     # The system constant, not a tuned quantile. Re-deriving it on our data returns 3606 exactly; widening it
     # weakens the bound and narrowing it makes it false. Do not sweep this.
     lobt_bound_slack: float = 3606.0
+    # ---- per-airport specialists on model A (P11). Off by default: with the flag off `predict_fold` calls
+    # `_fit` exactly as it did before this field existed, and every existing recipe is unchanged.
+    #
+    # On, model A becomes one global fit PLUS one fit per group, combined as
+    # `(1 - airport_blend_weight) * global + airport_blend_weight * group` on that group's rows. The global
+    # fit is kept, not replaced: the published evidence is that a per-group model ties or slightly loses to a
+    # global one at this group size (Filienko et al., KDD 2023 UC: global LightGBM 10.7232 vs per-airport
+    # 10.7686 MAE over 10 airports), while the teams that shipped per-group models shipped them blended
+    # (NASA pushback 1st place: unweighted mean of 3 per-airport CatBoosts and 1 global; jubilant-vase in
+    # this competition: a 50/50 global/local blend at 3 of 10 airports, 290.488 -> 286.656 official).
+    # Model B is deliberately NOT split. Its per-airport training sets on the production folds are
+    # 670-3,791 rows with a 60-379 row inner holdout to early-stop on, which is a fit nobody can defend;
+    # the counts are in P11 section 3.
+    airport_models: bool = False
+    airport_group_key: str = "adep"  # one of GROUP_KEYS
+    # Fixed at 0.5 and not tuned. Every source that reports a per-group blend weight that transferred used a
+    # declared constant (NASA 1st place 1/4 each, M5 1st place an arithmetic mean, jubilant-vase 0.5); the one
+    # sourced measurement of per-airport TUNED weights is negative (Phoenix-Ops, 323.712 against 323.377,
+    # rejected). 1.0 is pure replacement and 0.0 is the global model; both exist so the two ends of the
+    # blend can be priced, not so the weight can be swept.
+    airport_blend_weight: float = 0.5
+    # Groups smaller than this keep the global prediction untouched. 20,000 is OpenAir's hard guard in this
+    # competition (run_e20_ensemble.py:265). On model A every airport clears it on every fold by a factor of
+    # five or more, so it is a floor, not a selector - it decides nothing about which airports are used.
+    airport_min_group_rows: int = 20_000
+    airport_group_seed: int = 20_260_924  # only read by the `shuffled` control
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -380,6 +413,119 @@ def _fit(
     return preds, rounds
 
 
+# ---------- per-airport specialists: grouping and the grouped fit ----------
+
+
+def _row_uniform(ids: np.ndarray, seed: int) -> np.ndarray:
+    """A uniform [0, 1) draw per row that is a pure function of that row's id and `seed`.
+
+    The murmur3 finaliser, written out in uint64 arithmetic rather than taken from `polars.hash` or
+    `numpy.random`: a library hash is free to change between versions, and a control arm whose group
+    membership moved between two runs would be indistinguishable from the effect it is controlling for.
+    Frame-independent on purpose - a row's group must not depend on which other rows share its frame,
+    or the training side and the target side could disagree about where a row belongs."""
+    v = np.asarray(ids, dtype=np.float64)
+    if v.size and not (np.isfinite(v).all() and np.array_equal(v, np.floor(v))):
+        raise ValueError("row ids must be finite integers to derive a reproducible group")
+    with np.errstate(over="ignore"):
+        x = v.astype(np.int64).astype(np.uint64) + np.uint64(seed)
+        x ^= x >> np.uint64(33)
+        x *= np.uint64(0xFF51AFD7ED558CCD)
+        x ^= x >> np.uint64(33)
+        x *= np.uint64(0xC4CEB9FE1A85EC53)
+        x ^= x >> np.uint64(33)
+    return (x >> np.uint64(11)).astype(np.float64) / 9007199254740992.0
+
+
+def _group_labels(
+    train: pl.DataFrame, target: pl.DataFrame, cfg: TrainConfig
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Group label per row for both frames, plus the sorted list of groups that may be fitted.
+
+    The group list comes from the TRAINING side and is sorted, so the fitting loop's order is a function of
+    the data and nothing else. A target row whose group is not in that list (an airport with no training
+    rows) keeps the global prediction."""
+    if cfg.airport_group_key == "adep":
+
+        def labels(frame: pl.DataFrame) -> np.ndarray:
+            return frame["ADEP_mvt"].cast(pl.Utf8).fill_null("__NA__").to_numpy().astype(object)
+
+        tr = labels(train)
+        return tr, labels(target), sorted(set(tr.tolist()))
+    if cfg.airport_group_key != "shuffled":
+        raise ValueError(f"airport_group_key must be one of {GROUP_KEYS}, got {cfg.airport_group_key!r}")
+    # The control copies the candidate's group COUNT and size profile from the training side's airport
+    # partition, so the only thing it does not carry is which rows belong together.
+    counts = (
+        train.select(pl.col("ADEP_mvt").cast(pl.Utf8).fill_null("__NA__")).group_by("ADEP_mvt").len().sort("ADEP_mvt")
+    )
+    names = [f"G{i:02d}" for i in range(counts.height)]
+    edges = np.cumsum(counts["len"].to_numpy().astype(float)) / max(1, train.height)
+    if len(edges):
+        edges[-1] = 1.0
+    arr = np.array(names, dtype=object)
+
+    def assign(frame: pl.DataFrame) -> np.ndarray:
+        u = _row_uniform(frame["MVT_ID_mvt"].to_numpy(), cfg.airport_group_seed)
+        return arr[np.clip(np.searchsorted(edges, u, side="right"), 0, max(0, len(names) - 1))]
+
+    return assign(train), assign(target), list(names)
+
+
+def _fit_grouped(
+    train: pl.DataFrame,
+    target: pl.DataFrame,
+    target_expr,
+    cfg: TrainConfig,
+    feature_cols: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """One global fit plus one fit per group, combined as `(1-w)*global + w*group` on that group's rows.
+
+    Returns model-space predictions aligned to `target`'s rows, so the caller's add-back, floor and bound
+    are untouched: the blend happens BEFORE `_assemble`, which is what makes the pure-specialist arm
+    recoverable as `2*blend - global` from the base arm's OOF without fitting it a second time.
+
+    The global fit is first and the groups follow one at a time, each frame filtered inside the loop and
+    dropped at the end of it: peak memory is the global fit's design matrix, exactly as before, and each
+    group's is about a tenth of it. Two runs of this must agree byte for byte - see
+    `configs/determinism_check_airport.yaml`."""
+    w = float(cfg.airport_blend_weight)
+    if not 0.0 <= w <= 1.0:
+        raise ValueError(f"airport_blend_weight must be in [0, 1], got {w}")
+    (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target])
+    info["rounds_matched"] = rounds
+    tr_lab, tg_lab, groups = _group_labels(train, target, cfg)
+    if len(groups) < 2:
+        raise ValueError(f"airport_models needs at least two training groups, got {groups}")
+    out = np.array(g_glob, dtype=float, copy=True)
+    per: dict[str, dict] = {}
+    blended = 0
+    for name in groups:
+        tr_m, tg_m = tr_lab == name, tg_lab == name
+        n_tr, n_tg = int(tr_m.sum()), int(tg_m.sum())
+        rec = {"train_rows": n_tr, "target_rows": n_tg, "fitted": False, "rounds": 0}
+        if w > 0.0 and n_tg > 0 and n_tr >= cfg.airport_min_group_rows:
+            sub_tr = train.filter(pl.Series("_g", tr_m))
+            sub_tg = target.filter(pl.Series("_g", tg_m))
+            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, feature_cols, cat_cols, [sub_tg])
+            out[tg_m] = (1.0 - w) * out[tg_m] + w * g_loc
+            rec.update(fitted=True, rounds=r_g)
+            blended += n_tg
+            del sub_tr, sub_tg, g_loc
+        per[name] = rec
+    # Everything a silent no-op would hide. This repo has twice shipped a change that turned out to be one,
+    # and both times the only symptom was several recipes returning the same number to six figures.
+    info["airport_group_key"] = cfg.airport_group_key
+    info["airport_blend_weight"] = w
+    info["airport_n_groups_fitted"] = sum(1 for r in per.values() if r["fitted"])
+    info["airport_blended_rows"] = blended
+    info["airport_ungrouped_target_rows"] = int(target.height - sum(r["target_rows"] for r in per.values()))
+    info["airport_groups"] = per
+    return out
+
+
 def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig) -> tuple[pl.DataFrame, dict]:
     """Fit on train_f and predict target_f. Returns (DataFrame[MVT_ID_mvt, pred], info).
 
@@ -403,15 +549,17 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if m_tg.height:
         if m_tr.height >= 200:
             cols_a = [c for c in num_cols if c != PROXY] + [PROXY]
-            (g,), rounds = _fit(
-                m_tr,
-                lambda f: f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float),
-                cfg,
-                cols_a,
-                cat_cols,
-                [m_tg],
-            )
-            info["rounds_matched"] = rounds
+
+            def _target_a(f: pl.DataFrame) -> np.ndarray:
+                return f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
+
+            # With airport_models off this is the single `_fit` call it has always been; the grouped branch
+            # is the only thing the flag adds, and it sets rounds_matched itself.
+            if cfg.airport_models:
+                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info)
+            else:
+                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg])
+                info["rounds_matched"] = rounds
         else:
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"

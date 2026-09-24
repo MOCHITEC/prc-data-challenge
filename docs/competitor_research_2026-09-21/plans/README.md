@@ -30,3 +30,9 @@ headline evidence a slot produced; the plan files carry the detail.
   decisive test first, with an abort criterion.
 - Each stage states how we would know it failed.
 - Represent contradicting evidence rather than advocating.
+
+## Added after the round
+
+| # | theme | why it is here | added |
+|---|-------|----------------|-------|
+| P11 | per-airport specialist models | not one of the ten themes and not on the auditor's list; approved by the user on the grounds that the field uses it, with the explicit condition that it be verified like everything else. Evidence base is slot 12. **Not** related to `P6-per-airport-upper-bound.md`, which is a per-airport *cap* on 12 rows and is closed. | 2026-09-24 |
