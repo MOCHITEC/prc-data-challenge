@@ -96,11 +96,13 @@ def build_features(
 
 
 def _float32(df: pl.DataFrame) -> pl.DataFrame:
-    """Float64 feature columns to Float32; the label keeps its own dtype."""
+    """Float64 feature columns to Float32. The label and the ID columns keep their dtype: the IDs are Float64 in
+    the raw files, and float32 has 24 bits of mantissa, so casting them would merge distinct movements."""
     from .train import LABEL
 
+    keep = {LABEL, "MVT_ID_mvt", "FLIGHT_ID_mvt"}
     return df.with_columns(
-        [pl.col(c).cast(pl.Float32) for c, dt in df.schema.items() if dt == pl.Float64 and c != LABEL]
+        [pl.col(c).cast(pl.Float32) for c, dt in df.schema.items() if dt == pl.Float64 and c not in keep]
     )
 
 
