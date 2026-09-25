@@ -1,0 +1,60 @@
+# P8-E: does DELETING the five identically-constant model-visible columns help, hurt, or do nothing?
+#
+# The candidate is pure deletion - remove five columns, add nothing. It is the cheaper alternative named at
+# the end of results/P8-B-wxcodes-repair.md section 6 and never measured. P8-B tried to *repair* four of the
+# same columns from `wxcodes` and measured -0.35 s [-1.01, +0.22] against an arity-matched control, inside
+# the +0.16 [-0.58, +1.06] that adding four arbitrary columns produced in that same experiment: REJECT.
+# So the information those columns would carry is worth nothing here, which says nothing about whether
+# carrying five constants costs anything.
+#
+# The five, from `python -m prc.coverage --config configs/main_gap.yaml` (results/P8-D-coverage-gate.md
+# section 3) and re-confirmed on today's `data/work` frames: `precip_mm`, `precip_mm_prev1h`,
+# `temp_x_precip`, `temp_x_precip_prev1h` (IEM serves the literal "0.00" for p01i on 100% of cached
+# station-hours, so the two products are zero by construction) and `runway_null`. Non-zero on 0.000000% of
+# 2,085,047 training rows, each of them, and all five are visible to BOTH lanes.
+#
+# Three arms, all of them configs/main_gap.yaml + folds:[forward, jul_fwd], differing only in
+# `exclude_features`. No src change: `exclude_features` already exists and is already honoured by
+# `visible_numeric_columns`, by the categorical list in `predict_fold` and by `prc.coverage`. That is the
+# point - the frames are byte-identical across the three arms, one `data/work` cache serves all three, and
+# `cache_fingerprint` cannot differ between them because it does not (and must not) carry this field.
+name: p8e_ctrl
+folds: [forward, jul_fwd]
+# Arm: control. Five LIVE columns hidden instead, same mechanism, same arity delta: 85 numeric + 10
+# categorical, and 79 for the unmatched lane - identical widths to the drop arm in both lanes.
+#
+# Why this control and not a noise arm. The usual third arm ADDS a signal-free column, which tests the
+# opposite direction: the candidate removes columns, so an additive control prices an arity change this
+# experiment never makes. What a reader needs instead is the answer to "what does a five-column removal
+# cost when the columns carried something" - both because it is the direction-matched analogue of P8-B's
+# +0.16 [-0.58, +1.06], and, more importantly, because without it a null on the candidate is unreadable:
+# it could mean the deletion is free, or it could mean this instrument cannot see a five-column removal at
+# all. The control settles which.
+#
+# The five were DRAWN AT RANDOM, `random.Random(20260925).sample(sorted(pool), 5)`, and the draw was
+# recorded before any arm was fitted (results/dead-column-removal.md section 1). The pool is the 70 live
+# columns OF THE CACHED FEATURE FRAME visible to BOTH lanes - the model-B prefix filter in `predict_fold`
+# hides 15 of the 90 from the unmatched lane, and all five dead columns are visible to both, so drawing
+# from the both-lane set keeps the control's scope matched to the candidate's. The 9 label-derived encoding
+# columns are not in the pool: `attach_encodings` adds them per fold, so they are not in the frame the draw
+# was made from. That exclusion is stated rather than hidden - it happens to spare the control a draw on
+# `ref_p10`, which is not an ordinary column. Random rather than hand-picked on purpose: picking five
+# low-importance columns would bias the control toward "removal is free", which is the reassurance being
+# tested. The draw is what it is; it is not re-rolled.
+exclude_features: [arr_land_prev_5m, arr_land_prev_60m, lobt_null, rwy_headway_next_s, vis_km]
+include_candidates: [stand_arrival_gap]
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: true

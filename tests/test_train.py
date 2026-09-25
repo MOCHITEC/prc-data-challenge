@@ -687,3 +687,50 @@ def test_the_determinism_flag_reaches_every_booster_on_both_lanes(monkeypatch):
     predict_fold(tr, tg, replace(cfg, lgb_deterministic=False))
     assert len(seen) == n_calls
     assert all("deterministic" not in p and "force_row_wise" not in p for p in seen)
+
+
+def test_excluding_a_column_narrows_the_lightgbm_matrix(monkeypatch):
+    """`exclude_features` must narrow the matrix LightGBM is actually handed, not just the config.
+
+    A deletion is the shape of change that can silently not happen: if the "removed" arm still carries the
+    columns, every RMSE looks plausible and means nothing. Asserting `visible_numeric_columns` would only
+    re-run the function under test, so this reads `Dataset.num_feature()` at the LightGBM boundary, inside a
+    real `predict_fold`, and requires the width to fall by exactly the number of columns excluded. The
+    control is the categorical list: excluding a categorical must narrow it too, which is a separate code
+    path in `predict_fold`."""
+    tr = build_departure_features(generate_month(2025, 7, seed=41, deps_per_airport_day=8))
+    tg = build_departure_features(generate_month(2025, 7, seed=42, deps_per_airport_day=6, blank_dep=True))
+    base = TrainConfig(num_rounds=5, early_stopping=3, unmatched_num_rounds=5)
+
+    widths: list[int] = []
+    real_train = lgb.train
+
+    def spy(params, train_set, *a, **k):
+        train_set.construct()
+        widths.append(train_set.num_feature())
+        return real_train(params, train_set, *a, **k)
+
+    def run(cfg):
+        widths.clear()
+        predict_fold(tr, tg, cfg)
+        return list(widths)
+
+    monkeypatch.setattr("prc.train.lgb.train", spy)
+
+    w_base = run(base)
+    assert w_base, "no LightGBM Dataset was built; the spy is not on the path this test claims to test"
+
+    # `runway_null` is one of the five identically-constant columns P8-E deletes; `stand_null` is live.
+    # The synthetic fixture carries no weather join, so `precip_mm` is not available here.
+    drop = ("runway_null", "stand_null")
+    present = [c for c in drop if c in tr.columns]
+    assert present == list(drop), "the fixture must carry the columns, so that hiding them is a real change"
+    w_drop = run(replace(base, exclude_features=drop))
+    assert len(w_drop) == len(w_base)
+    assert all(b - d == len(drop) for b, d in zip(w_base, w_drop)), (
+        f"matrix width did not fall by {len(drop)}: base={w_base} dropped={w_drop}"
+    )
+
+    # Control: the categorical lane. Same flag, different code path in `predict_fold`.
+    w_cat = run(replace(base, exclude_features=(CATEGORICALS[0],)))
+    assert all(b - c == 1 for b, c in zip(w_base, w_cat)), f"base={w_base} cat-dropped={w_cat}"
