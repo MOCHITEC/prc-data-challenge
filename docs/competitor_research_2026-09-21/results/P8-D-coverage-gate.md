@@ -14,7 +14,7 @@ fails today, on five columns P8-B is meant to remove. That is the gate working, 
 
 | thing | where |
 |---|---|
-| the gate | `src/prc/coverage.py` (new, ~330 lines incl. the reasoning) |
+| the gate | `src/prc/coverage.py` (new, 390 lines incl. the reasoning) |
 | tests | `tests/test_coverage.py` (new, 12 tests, one per rule plus a control per rule) |
 | wiring | `src/prc/pipeline.py`, behind `coverage_gate:` **defaulting to false** |
 
@@ -186,6 +186,10 @@ with `coverage_gate: true` exits 1 on the five dead columns. `[X]` That is the c
 should not be weakened. The three ways forward, in order of preference:
 
 1. **P8-B lands** and deletes the four weather constants; `runway_null` is then a one-line separate fix.
+   **Measured since this note was written** (`P8-B-wxcodes-repair.md` §4): with the repair on, the gate goes
+   from **9 failures to 5**, all four weather DEAD failures clear, and none of the eight new columns fails
+   any rule. But P8-B is REJECT as a scoring change, so shipping it is a correctness decision, not an
+   adoption. The cheapest path to a switchable gate may instead be option (2).
 2. **The columns are deleted without P8-B** — they carry no information by construction, so this is a
    removal, not a feature change. `[X]` It is still an 5-column arity change and the plan's §6.4 note
    applies: price it with `prc.compare`, do not just delete and ship.
@@ -203,8 +207,10 @@ should be made then.
 
 ## 5. Tests, and the mutation audit
 
-`tests/test_coverage.py`, **12 tests, all passing**. Full suite: **111 passed** before this work,
-**123 passed** after (12 added, 0 changed). `ruff check` / `ruff format` clean on the touched files.
+`tests/test_coverage.py`, **12 tests, all passing**. Full suite: **111 passed** before P8 began,
+**123** after P8-D's 12, **132** after P8-B's further 9 — 0 existing tests changed. `ruff check` /
+`ruff format` clean on every file this work touched (the one remaining `ruff` finding, `I001` in
+`tests/test_train.py`, predates this work and was left alone).
 
 Every rule has a **control column beside it** that must stay silent, because the defect this repo keeps
 shipping is a check that passes everything — an AUC of exactly 1.0000 across every recipe including the
