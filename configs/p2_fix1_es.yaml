@@ -1,0 +1,33 @@
+# P2 Fix 1, arm: es -- the early-stopping holdout stops reading its own labels.
+#
+# `configs/p2_fix1_base.yaml` plus `es_holdout_encodings: true`, and nothing else. The flag re-encodes
+# the inner early-stopping holdout from a map fitted without its own calendar month; the rows the model
+# is fitted on, the rows it is refitted on and the target frame are byte-identical to the base arm, so
+# the ONLY channel from this arm to a prediction is the integer round count (`rounds_matched`,
+# `rounds_unmatched` in the experiment record). That is asserted, not assumed:
+# tests/test_encoding_separation.py::test_fix1_is_wired_into_the_stage1_fit records the two stage-1
+# design matrices and requires the fit matrix to be identical and the stopping matrix to differ.
+#
+# There is deliberately NO noise-control arm here, unlike configs/p4a_*. A noise arm prices the cost of
+# adding a column to the model; this change adds no column and removes none. Its control is the
+# mutation audit and the byte-identity assertion above.
+#
+# Read with docs/competitor_research_2026-09-21/results/P2-fix1-earlystop-encoder.md.
+name: p2_fix1_es
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [forward]
+es_holdout_encodings: true

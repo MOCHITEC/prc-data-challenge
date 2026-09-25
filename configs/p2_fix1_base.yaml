@@ -1,0 +1,26 @@
+# P2 Fix 1, arm: base -- the production recipe, unchanged.
+#
+# `configs/main_gap.yaml` verbatim plus `folds: [forward]`. Screening on the forward fold alone is the
+# house rule (docs/README §6 "どの fold を判定に使うか"): it is the only fold that is both forward-looking
+# and trained on ten months. Nothing else differs from what ships, so the paired comparison against
+# p2_fix1_es isolates one boolean.
+#
+# Read with docs/competitor_research_2026-09-21/results/P2-fix1-earlystop-encoder.md.
+name: p2_fix1_base
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [forward]
+es_holdout_encodings: false

@@ -17,6 +17,15 @@ Invariants enforced here (each one was a real bug caught in review):
 * Early stopping never sees the evaluation fold: the stopping point comes from an inner holdout carved out of
   the training months, and the final model is refitted on all training rows with a fixed number of rounds. The
   same code path therefore produces the same model whether or not the target frame carries labels.
+* The invariant above is about the VALIDATION fold and says nothing about the training side, which is where the
+  defect was. `fit_encodings` is fitted on every labelled training row and `_fit` then carves the inner
+  early-stopping holdout out of that same encoded frame, so the rows that choose `best_iteration` read
+  encodings their own labels helped build. `es_holdout_encodings` (off by default) repairs exactly that: the
+  holdout block is re-encoded from a map fitted without its own calendar months. The rows the model is fitted
+  and refitted on, and the target frame, are NOT cross-fitted and are byte-identical either way - the one
+  channel from the flag to a prediction is the integer round count. The training rows' own self-inclusion is a
+  separate, measured-as-harmful change and is deliberately not made here; see
+  docs/competitor_research_2026-09-21/plans/P2-cross-fit-encodings.md §3.2.
 * Predictions are returned keyed by MVT_ID_mvt, never by row position.
 """
 
@@ -96,6 +105,14 @@ class TrainConfig:
     use_encodings: bool = True
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
+    # P2 Fix 1 / Option A (docs/competitor_research_2026-09-21/plans/P2-cross-fit-encodings.md §3.1).
+    # On, the inner early-stopping holdout rows carry encodings fitted on the fold's training rows MINUS
+    # the calendar months those holdout rows occupy, instead of the whole-frame encoder that their own
+    # labels helped build. The rows the stage-1 booster is fitted on, the stage-2 refit rows and the
+    # target frame are untouched, so the only channel from this flag to a prediction is the integer
+    # `rounds` chosen by early stopping. Off by default: with the flag off `_fit` builds exactly the
+    # matrices it built before this field existed, and every existing recipe is unchanged.
+    es_holdout_encodings: bool = False
     # The rows with no NM record are 1.2% of the data and roughly half the squared error. Model B sees ~22k
     # rows where model A sees 2.06M, so the obvious guess was that it needed *less* capacity, and measurement
     # says otherwise: 31 leaves is worse than 127, 255 is better than 127, 511 adds nothing. The effect is
@@ -372,6 +389,65 @@ def _inner_holdout_mask(train: pl.DataFrame, months: int) -> np.ndarray:
     return keys.is_in(uniq[-months:]).to_numpy()
 
 
+def _es_encoder(train_f: pl.DataFrame, cfg: TrainConfig, stats: list[dict]):
+    """Factory for P2 Fix 1: re-encode a lane's inner early-stopping holdout from a clean map.
+
+    Returns `build(hold_rows) -> pl.DataFrame`, where `hold_rows` is the already-encoded holdout block
+    of one lane and the result is the same rows, same order, same schema, with the nine encoding
+    columns (and the two hidden offset columns) rebuilt from `fit_encodings` over `train_f` MINUS the
+    calendar months those rows occupy.
+
+    Why a whole-month exclusion rather than a leave-one-row-out: the folds are month-blocked for the
+    reason `cv.month_block_folds` gives, and the inner holdout is itself a month, so excluding the
+    month is the smallest exclusion that makes the block clean. Nothing else is excluded - a holdout
+    row still reads the other nine or eleven training months, which is what keeps the column
+    informative rather than merely leak-free.
+
+    `train_f` is the FOLD's whole training frame, both lanes, exactly the frame `predict_fold` fits the
+    production encoder on. Model A's rows are not the only rows in these tables and dropping model B's
+    would be a second, unmeasured change.
+
+    Cached by month set, so model A and model B - whose holdout months coincide in every production
+    fold - pay for one encoder build, not two. `stats` receives one record per build; it is the
+    built-in no-op control, because a repair that silently changed nothing would otherwise be
+    indistinguishable from a repair that worked."""
+    keys = year_month_key(train_f)
+    cache: dict[frozenset, dict[str, pl.DataFrame]] = {}
+    encoded = [*ENCODING_COLS, *OFFSET_COLS]
+
+    def build(hold_rows: pl.DataFrame) -> pl.DataFrame:
+        months = sorted(set(year_month_key(hold_rows).unique().to_list()))
+        key = frozenset(months)
+        if key not in cache:
+            base = train_f.filter(~keys.is_in(months))
+            if base.height == 0:
+                raise ValueError(f"no training rows left after excluding the holdout months {months}")
+            cache[key] = fit_encodings(base, cfg)
+        enc = cache[key]
+        out = attach_encodings(hold_rows.drop([c for c in encoded if c in hold_rows.columns]), enc)
+        out = out.select(hold_rows.columns)
+        if out.height != hold_rows.height:
+            raise AssertionError("the early-stopping encoder changed the holdout row count")
+        changed = {}
+        for c in ENCODING_COLS:
+            if c not in hold_rows.columns:
+                continue
+            a, b = hold_rows[c], out[c]
+            changed[c] = int(((a != b) | (a.is_null() != b.is_null())).fill_null(True).sum())
+        stats.append(
+            {
+                "rows": hold_rows.height,
+                "months_excluded": months,
+                "train_rows_used": int(train_f.height - keys.is_in(months).sum()),
+                "table_groups": {t: int(enc[t].height) for t in ("ref", "arh", "apt")},
+                "cols_changed": changed,
+            }
+        )
+        return out
+
+    return build
+
+
 def _fit(
     train: pl.DataFrame,
     target_expr,
@@ -379,13 +455,27 @@ def _fit(
     feature_cols: list[str],
     cat_cols: list[str],
     predict_frames: list[pl.DataFrame],
+    es_rows=None,
 ) -> tuple[list[np.ndarray], int]:
     """Early-stop on an inner holdout of `train`, refit on all of `train`, then predict each frame.
 
     `target_expr(frame) -> np.ndarray` builds the model-space target, so the caller decides the parameterisation.
-    Returns one prediction array per frame (in model space) and the number of rounds actually used."""
+    Returns one prediction array per frame (in model space) and the number of rounds actually used.
+
+    `es_rows` (P2 Fix 1) optionally re-encodes the inner-holdout block: `_es_encoder`'s `build`, taking the
+    holdout rows and returning them with encodings fitted without their own months. The re-encoded block is
+    appended to the SAME stacked frame rather than matrixed on its own, because `_matrix` builds each
+    categorical's Enum over the stacked frame's own levels - a separately built matrix would carry a
+    different integer coding and be a different model. The appended rows are a subset of `train`, so the
+    level set and therefore every existing row's code are unchanged, and `Xall[a:b]` is byte-identical to
+    what it was with `es_rows=None`. Stage 2 never sees the block."""
     hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
-    frames = [train, *predict_frames]
+    n_hold = int(hold.sum())
+    es_block = None
+    if es_rows is not None and 0 < n_hold < train.height:
+        es_block = es_rows(train.filter(pl.Series("_es_hold", hold)))
+    frames = [train, *predict_frames] + ([es_block] if es_block is not None else [])
+    n_pred = len(predict_frames)
     stacked = pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed")
     Xall, cols = _matrix(stacked, feature_cols, cat_cols)
     del stacked
@@ -401,11 +491,12 @@ def _fit(
     a, b = offs[0]
     y = target_expr(train)
     rounds = cfg.num_rounds
-    n_hold = int(hold.sum())
     if 0 < n_hold < train.height:
         Xtrain = Xall[a:b]
+        # A view into the stack when Fix 1 is on, the fancy-indexed copy it always was when it is off.
+        Xhold = Xall[offs[-1][0] : offs[-1][1]] if es_block is not None else Xtrain[hold]
         dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], categorical_feature=cat_idx, params=params)
-        dva = lgb.Dataset(Xtrain[hold], label=y[hold], categorical_feature=cat_idx, reference=dtr)
+        dva = lgb.Dataset(Xhold, label=y[hold], categorical_feature=cat_idx, reference=dtr)
         booster = lgb.train(
             params,
             dtr,
@@ -416,15 +507,15 @@ def _fit(
         best = int(booster.best_iteration or cfg.num_rounds)
         # scale the round count to the larger refit set, then cap
         rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
-        del dtr, dva, booster, Xtrain  # the fancy-indexed copies are the peak of this function
+        del dtr, dva, booster, Xtrain, Xhold  # the fancy-indexed copies are the peak of this function
 
     dfull = lgb.Dataset(Xall[a:b], label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
     # Refit under each seed and average. One seed is the default, and then this is the single fit it was before.
-    acc = [np.zeros(e - s) for (s, e) in offs[1:]]
+    acc = [np.zeros(e - s) for (s, e) in offs[1 : 1 + n_pred]]
     for k in range(max(1, cfg.n_seeds)):
         p_k = dict(params, seed=cfg.seed + k, bagging_seed=cfg.seed + k, feature_fraction_seed=cfg.seed + k)
         model = lgb.train(p_k, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
-        for i, (s_, e_) in enumerate(offs[1:]):
+        for i, (s_, e_) in enumerate(offs[1 : 1 + n_pred]):
             acc[i] += model.predict(Xall[s_:e_])
     preds = [a_ / max(1, cfg.n_seeds) for a_ in acc]
     return preds, rounds
@@ -497,6 +588,7 @@ def _fit_grouped(
     feature_cols: list[str],
     cat_cols: list[str],
     info: dict,
+    es_rows=None,
 ) -> np.ndarray:
     """One global fit plus one fit per group, combined as `(1-w)*global + w*group` on that group's rows.
 
@@ -511,7 +603,7 @@ def _fit_grouped(
     w = float(cfg.airport_blend_weight)
     if not 0.0 <= w <= 1.0:
         raise ValueError(f"airport_blend_weight must be in [0, 1], got {w}")
-    (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target])
+    (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target], es_rows=es_rows)
     info["rounds_matched"] = rounds
     tr_lab, tg_lab, groups = _group_labels(train, target, cfg)
     if len(groups) < 2:
@@ -526,7 +618,7 @@ def _fit_grouped(
         if w > 0.0 and n_tg > 0 and n_tr >= cfg.airport_min_group_rows:
             sub_tr = train.filter(pl.Series("_g", tr_m))
             sub_tg = target.filter(pl.Series("_g", tg_m))
-            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, feature_cols, cat_cols, [sub_tg])
+            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, feature_cols, cat_cols, [sub_tg], es_rows=es_rows)
             out[tg_m] = (1.0 - w) * out[tg_m] + w * g_loc
             rec.update(fitted=True, rounds=r_g)
             blended += n_tg
@@ -555,6 +647,14 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
 
+    # P2 Fix 1. One factory per lane so the two lanes' records stay separable in `info`; the month-keyed
+    # cache lives inside each factory, and the encoder build is shared within a lane, not across them.
+    info["es_holdout_encodings"] = bool(cfg.es_holdout_encodings)
+    es_stats_a: list[dict] = []
+    es_stats_b: list[dict] = []
+    es_a = _es_encoder(train_f, cfg, es_stats_a) if cfg.es_holdout_encodings else None
+    es_b = _es_encoder(train_f, cfg, es_stats_b) if cfg.es_holdout_encodings else None
+
     num_cols = visible_numeric_columns(tr, cfg)
     cat_cols = (
         [c for c in CATEGORICALS if c in tr.columns and c not in set(cfg.exclude_features)]
@@ -573,9 +673,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
             # is the only thing the flag adds, and it sets rounds_matched itself.
             if cfg.airport_models:
-                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info)
+                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info, es_rows=es_a)
             else:
-                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg])
+                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg], es_rows=es_a)
                 info["rounds_matched"] = rounds
         else:
             info["rounds_matched"] = 0
@@ -597,7 +697,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["n_features_unmatched"] = len(cols_b)
         if u_tr.height >= 200:
             cfg_b = cfg.for_unmatched()
-            (g,), rounds = _fit(u_tr, lambda f: unmatched_target(f, cfg_b), cfg_b, cols_b, cat_cols, [u_tg])
+            (g,), rounds = _fit(
+                u_tr, lambda f: unmatched_target(f, cfg_b), cfg_b, cols_b, cat_cols, [u_tg], es_rows=es_b
+            )
             # Back to seconds of taxi time. The fit above ran on `LABEL - shift`, so the model's output is in
             # that space and nothing downstream (_assemble's clip, the metrics, the submission) knows it.
             shift_tg = sched_reparam_shift(u_tg, cfg_b)
@@ -612,6 +714,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             info["rounds_unmatched"] = 0
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
+    # Everything a silent no-op would hide. An empty record with the flag on means the holdout was never
+    # re-encoded; a record whose `cols_changed` are all zero means it was re-encoded to the same values.
+    if cfg.es_holdout_encodings:
+        info["es_encoder_matched"] = es_stats_a
+        info["es_encoder_unmatched"] = es_stats_b
     return _assemble(parts, tr, tg, target_f, info, cfg)
 
 
