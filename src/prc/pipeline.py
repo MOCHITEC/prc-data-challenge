@@ -38,7 +38,13 @@ def load_raw(raw_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, Path]:
     return train, pl.read_parquet(rank_path), sub_path
 
 
-def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.DataFrame:
+def weather_cache_path(wx_codes: bool) -> Path:
+    """One cache file per weather recipe. Two recipes sharing one path is how a `weather.py` edit gets
+    silently reverted at read time."""
+    return data_dir() / "ref" / ("metar_hourly_wxcodes.parquet" if wx_codes else "metar_hourly.parquet")
+
+
+def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path, wx_codes: bool = False) -> pl.DataFrame:
     if not enabled:
         return feats
     from .weather import fetch_metar, hourly_weather_table, join_weather
@@ -46,21 +52,31 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.Da
     if cache.exists():
         hourly = pl.read_parquet(cache)
     else:
-        hourly = hourly_weather_table(fetch_metar())
+        hourly = hourly_weather_table(fetch_metar(), wx_codes=wx_codes)
         cache.parent.mkdir(parents=True, exist_ok=True)
         hourly.write_parquet(cache)
     return join_weather(feats, hourly)
 
 
-def cache_fingerprint(train: pl.DataFrame, rank: pl.DataFrame, raw_dir: Path, use_weather: bool) -> dict:
-    """What the cached feature frames were built from. A cache hit requires every field to match."""
+def cache_fingerprint(
+    train: pl.DataFrame, rank: pl.DataFrame, raw_dir: Path, use_weather: bool, wx_codes: bool = False
+) -> dict:
+    """What the cached feature frames were built from. A cache hit requires every field to match.
+
+    `weather_code` is here because it was not, and that was a trap: the fingerprint hashed `features.py`
+    only, so an edit to `weather.py` left every cached frame valid and the next run reported the old numbers
+    with the new code on disk. The plan calls that the highest-probability way for this theme to waste a day.
+    It is hashed only when the weather join is on, so a `use_weather: false` recipe is unaffected by weather
+    edits and its cache is not invalidated by them."""
     return {
         "raw_dir": str(raw_dir.resolve()),
         "files": sorted((p.name, p.stat().st_size) for p in raw_dir.rglob("*.parquet")),
         "train_rows": train.height,
         "rank_rows": rank.height,
         "use_weather": use_weather,
+        "wx_codes": bool(use_weather and wx_codes),
         "feature_code": _features_version(),
+        "weather_code": _weather_version() if use_weather else None,
     }
 
 
@@ -71,8 +87,15 @@ def _features_version() -> str:
     return hashlib.sha256(Path(features.__file__).read_bytes()).hexdigest()[:16]
 
 
+def _weather_version() -> str:
+    """Hash of the weather module source, for the same reason and with the same effect."""
+    from . import weather
+
+    return hashlib.sha256(Path(weather.__file__).read_bytes()).hexdigest()[:16]
+
+
 def build_features(
-    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path, raw_dir: Path
+    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path, raw_dir: Path, wx_codes: bool = False
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Feature frames for the labelled months and for the ranking months, cached on disk.
 
@@ -85,7 +108,7 @@ def build_features(
     work.mkdir(parents=True, exist_ok=True)
     f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
     meta_path = work / "feat_meta.json"
-    want = cache_fingerprint(train, rank, raw_dir, use_weather)
+    want = cache_fingerprint(train, rank, raw_dir, use_weather, wx_codes)
     if f_tr_path.exists() and f_rk_path.exists() and meta_path.exists():
         have = json.loads(meta_path.read_text())
         # json round-trips the file tuples as lists
@@ -94,9 +117,9 @@ def build_features(
             return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
         differing = sorted(k for k in want if have.get(k) != json.loads(json.dumps(want))[k])
         print(f"features: cache in {work} was built from different inputs ({', '.join(differing)}); rebuilding")
-    wcache = data_dir() / "ref" / "metar_hourly.parquet"
-    f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache)
-    f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache)
+    wcache = weather_cache_path(wx_codes)
+    f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache, wx_codes)
+    f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache, wx_codes)
     f_tr.write_parquet(f_tr_path)
     f_rk.write_parquet(f_rk_path)
     meta_path.write_text(json.dumps(want, indent=2, default=str))
@@ -136,11 +159,28 @@ def main(argv: list[str] | None = None) -> int:
             fields[k] = tuple(fields[k])
     cfg = TrainConfig(**fields)
     use_weather = bool(spec.get("use_weather", False))
+    # P8-B. Off by default: `hourly_weather_table` emits exactly the columns it always has unless a recipe
+    # asks for the repair, so every archived recipe rebuilds to the same frame it did before.
+    wx_codes = bool(spec.get("wx_codes", False))
     t0 = time.time()
 
     train, rank, sub_path = load_raw(a.raw_dir)
-    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir)
+    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir, wx_codes)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
+
+    # Coverage parity, before CV, because CV cannot see this class of defect: it validates on the training
+    # side, which is intact by construction. Off by default so every existing recipe runs exactly as it did.
+    # It cannot be turned on for production today - the five identically-zero columns P8-D found make it
+    # fail - which is the finding, not a reason to weaken the rule (P8-D results note).
+    if bool(spec.get("coverage_gate", False)):
+        from .coverage import gate
+
+        gate(f_tr, f_rk, cfg, allow=spec.get("coverage_allow") or {}, strict=True)
+    elif a.submit:
+        print(
+            "WARNING: submitting without the coverage gate (coverage_gate is not set in this recipe). "
+            "Nothing checks that the columns the model trained on still look the same on the scored months."
+        )
 
     log_name = "synthetic_smoke.jsonl" if a.synthetic else "experiments.jsonl"
     cv_rec = None
@@ -174,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             "config": str(a.config),
             "train_config": asdict(cfg),
             "use_weather": use_weather,
+            "wx_codes": wx_codes,
             "cv": cv_rec["overall"] if cv_rec else None,
             "predict_info": info,
             "file": str(out_file),

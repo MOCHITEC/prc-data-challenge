@@ -273,6 +273,8 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
 # Candidate columns under test. They are computed always and hidden from the model with
 # TrainConfig.exclude_features, so one feature can be measured at a time without rebuilding the feature cache
 # (a rebuild costs about four minutes; a CV run costs five).
+NOISE_CONTROLS = ("noise_control", "noise_control_2", "noise_control_3", "noise_control_4")
+
 CANDIDATE_COLS = (
     "stand_arrival_gap",
     "stand_aobt_turn",
@@ -283,6 +285,9 @@ CANDIDATE_COLS = (
     "bank_position",
     "stand_rwy_share",
     "noise_control",
+    "noise_control_2",
+    "noise_control_3",
+    "noise_control_4",
     "active_runways_60m",
     "dep_arr_ratio_30m",
     "congestion_vs_usual_30m",
@@ -480,10 +485,18 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
             ).alias("congestion_vs_usual_30m")
         )
         .with_columns(
-            # A column that cannot carry signal, to price what adding *any* column costs. feature_fraction is
+            # Columns that cannot carry signal, to price what adding *any* column costs. feature_fraction is
             # 0.8, so a new column changes which columns every split samples from; if a pure-noise column costs
             # as much as a real candidate, the comparison is measuring the reshuffle and not the feature.
-            (pl.col("MVT_ID_mvt").hash(seed=20260915) % 1_000_000).cast(pl.Float64).alias("noise_control")
+            #
+            # There are four because a change can move the column count by more than one and the control arm
+            # has to match it: P8-B replaces four dead weather columns with eight live ones, a net +4, and an
+            # arity-matched control is the difference between measuring weather and measuring the reshuffle.
+            # `noise_control` keeps seed 20260915 unchanged so configs/p4a_noise.yaml still reproduces.
+            *[
+                (pl.col("MVT_ID_mvt").hash(seed=20260915 + 7919 * k) % 1_000_000).cast(pl.Float64).alias(name)
+                for k, name in enumerate(NOISE_CONTROLS)
+            ]
         )
         .join(_destination_distance(row), on="MVT_ID_mvt", how="left", maintain_order="left")
         .join(

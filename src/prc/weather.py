@@ -121,35 +121,71 @@ def parse_metar_csv(text: str) -> pl.DataFrame:
 
 
 SNOW_CODES = ("SN", "SG", "PL", "IC", "GS", "GR", "FZ")
+# Present-weather families the same feed already serves and this module has always discarded (P8-B).
+# Matched as substrings of the space-separated code string, which is how METAR codes compose: "-SHRA" is a
+# light rain shower and contains both "SH" and "RA"; "-DZRA" is drizzle with rain and contains both "DZ" and
+# "RA"; "FZRA" is freezing rain and is both frozen and wet, which is correct.
+WET_CODES = ("RA", "DZ")  # rain, drizzle
+SHOWER_CODES = ("SH", "TS")  # showers, thunderstorms - convective, and in July the only live channel
+OBSCURATION_CODES = ("FG", "BR", "HZ", "FU")  # fog, mist, haze, smoke - pairs with the existing vis_km
 
 
-def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
+def _any_code(codes: tuple[str, ...]) -> pl.Expr:
+    return pl.fold(pl.lit(False), lambda a, b: a | b, [pl.col("wx").str.contains(c, literal=True) for c in codes])
+
+
+def hourly_weather_table(metar: pl.DataFrame, wx_codes: bool = False) -> pl.DataFrame:
     """One row per station-hour with the fields the model uses, including a de-icing gate.
 
     De-icing gate: precipitation or a frozen-precipitation code while the temperature is at or below 3 C -
-    the January mechanism reported in docs/README (dry vs wet at sub-zero changes taxi-out by 400-1000 s)."""
-    frozen = pl.fold(pl.lit(False), lambda a, b: a | b, [pl.col("wx").str.contains(c) for c in SNOW_CODES])
-    return (
-        metar.with_columns(
-            [
-                pl.col("obs_time_utc").dt.truncate("1h").alias("hour_utc"),
-                (pl.col("temp_c") - pl.col("dewp_c")).alias("dewp_spread_c"),
-                frozen.alias("frozen_wx"),
-            ]
-        )
-        .group_by(["station", "hour_utc"])
-        .agg(
-            [
-                pl.col("temp_c").mean().alias("temp_c"),
-                pl.col("dewp_spread_c").mean().alias("dewp_spread_c"),
-                pl.col("wind_ms").max().alias("wind_ms"),
-                pl.col("gust_ms").max().alias("gust_ms"),
-                pl.col("precip_mm").sum().alias("precip_mm"),
-                pl.col("vis_km").min().alias("vis_km"),
-                pl.col("frozen_wx").any().alias("frozen_wx"),
-            ]
-        )
-        .with_columns(
+    the January mechanism reported in docs/README (dry vs wet at sub-zero changes taxi-out by 400-1000 s).
+
+    `wx_codes=False` is the shipped behaviour and stays the default.
+
+    `wx_codes=True` repairs four identically-zero columns (P8-B). IEM serves the literal string "0.00" for
+    `p01i` on 100% of 138,457 cached observations at all ten stations, so `precip_mm` is non-null and
+    constant zero, `temp_x_precip` is its product and equally constant, and after the join their `_prev1h`
+    copies make four dead columns out of the eighteen the model is given. Two consequences follow, and the
+    second is the one that matters: `precip_mm > 0` never fires, so `deicing_gate` reduces exactly to
+    `frozen_wx AND temp_c <= 3`, and the entire liquid-precipitation half of the gate has never existed.
+
+    The information is not missing - it is in `wxcodes`, which this module already parses and then throws
+    away everywhere except `SNOW_CODES`. Rain-family codes are live on 9.14% of the scored rows against the
+    gate's 1.95%, and on 5,535 rows of July 2026, where `deicing_gate`, `low_vis` and `precip_mm` are zero on
+    every row at every airport.
+
+    Repaired, the table drops `precip_mm` and `temp_x_precip` and gains `wet_wx`, `shower_wx`,
+    `obscuration_wx` and `frozen_wx_i8` - the last of which recovers a column that exists today but never
+    reaches the model, because `frozen_wx` is Boolean and `numeric_feature_columns` admits only float and int
+    dtypes. Net effect on what the model sees: 18 columns become 22, four of which were constants.
+    """
+    flags = [
+        pl.col("obs_time_utc").dt.truncate("1h").alias("hour_utc"),
+        (pl.col("temp_c") - pl.col("dewp_c")).alias("dewp_spread_c"),
+        _any_code(SNOW_CODES).alias("frozen_wx"),
+    ]
+    aggs = [
+        pl.col("temp_c").mean().alias("temp_c"),
+        pl.col("dewp_spread_c").mean().alias("dewp_spread_c"),
+        pl.col("wind_ms").max().alias("wind_ms"),
+        pl.col("gust_ms").max().alias("gust_ms"),
+        pl.col("precip_mm").sum().alias("precip_mm"),
+        pl.col("vis_km").min().alias("vis_km"),
+        pl.col("frozen_wx").any().alias("frozen_wx"),
+    ]
+    code_cols = ("wet_wx", "shower_wx", "obscuration_wx")
+    if wx_codes:
+        flags += [
+            _any_code(WET_CODES).alias("wet_wx"),
+            _any_code(SHOWER_CODES).alias("shower_wx"),
+            _any_code(OBSCURATION_CODES).alias("obscuration_wx"),
+        ]
+        # `any()` over the hour, matching how `frozen_wx` has always been aggregated: an hour in which any
+        # observation reported rain is a rain hour.
+        aggs += [pl.col(c).any().alias(c) for c in code_cols]
+    hourly = metar.with_columns(flags).group_by(["station", "hour_utc"]).agg(aggs)
+    if not wx_codes:
+        return hourly.with_columns(
             [
                 ((pl.col("temp_c") <= 3.0) & ((pl.col("precip_mm") > 0) | pl.col("frozen_wx")))
                 .cast(pl.Int8)
@@ -157,7 +193,22 @@ def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
                 (pl.col("vis_km") < 1.5).cast(pl.Int8).alias("low_vis"),
                 (pl.col("temp_c") * ((pl.col("precip_mm") > 0).cast(pl.Float64))).alias("temp_x_precip"),
             ]
+        ).sort(["station", "hour_utc"])
+    return (
+        hourly.with_columns(
+            [
+                # The `precip_mm > 0` term is replaced by the observation that actually reports liquid
+                # precipitation. On the cached frames this widens the gate rather than redefining it: every
+                # hour the old gate fired on still fires, because `frozen_wx AND temp_c <= 3` is retained.
+                ((pl.col("temp_c") <= 3.0) & (pl.col("frozen_wx") | pl.col("wet_wx")))
+                .cast(pl.Int8)
+                .alias("deicing_gate"),
+                (pl.col("vis_km") < 1.5).cast(pl.Int8).alias("low_vis"),
+                pl.col("frozen_wx").cast(pl.Int8).alias("frozen_wx_i8"),
+                *[pl.col(c).cast(pl.Int8).alias(c) for c in code_cols],
+            ]
         )
+        .drop("precip_mm")
         .sort(["station", "hour_utc"])
     )
 

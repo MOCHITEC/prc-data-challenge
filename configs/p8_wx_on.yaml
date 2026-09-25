@@ -1,0 +1,67 @@
+# P8-A, arm B: the production recipe (configs/main_gap.yaml) exactly as it stands, weather ON.
+#
+# Why this pair exists. The -3.13 s that justifies `use_weather: true` was measured between det_a-cfc9417c52
+# (sha 70ef994) and weather_check-1776e5e01c (sha 34808da) on a 288.88 s forward-fold baseline. Four commits
+# separate those two shas, so it is not a pure weather diff, and the baseline has since moved 65 seconds to
+# 219.72 (main_gap-62dd7c6e88) because the LIRF schedule reparameterisation removed most of the unmatched
+# tail. A -0.87 s matched / -37.1 s unmatched effect measured against a 2,153 s unmatched RMSE has no reason
+# to reproduce against a 1,028 s one. This pair is the same sha, the same seeds and the same folds, differing
+# in one line.
+#
+# Folds. `forward` (validate Nov+Dec 2025, train Jan-Oct) is the honest winter proxy and carries 2,625 gate
+# rows; `jul_fwd` (validate Jul 2025, train Jan-Jun) is the honest July proxy and carries zero gate rows in
+# both years. There is no `jan_fwd` fold and there cannot be one (cv.py:39-42), so the 44.3% of the scored
+# set that is January has no honest fold that validates on a January. Read the two folds separately: a pooled
+# number mixes a regime that exists with one that does not.
+#
+# Known limitation, stated rather than hidden: `use_weather` moves 18 columns at once, and a signal-free
+# column moves this model by +/-0.5 s (docs/features_log.md:44-52). The arity effect is therefore INSIDE this
+# comparison and cannot be separated from it without an 18-column noise arm. That is the right framing for an
+# audit of the shipped flag - the question is whether the block as shipped earns its place - but it means a
+# small negative result for weather-on is not evidence that the weather information is harmful.
+name: p8_wx_on
+folds: [forward, jul_fwd]
+use_weather: true
+# The production recipe as of 2026-09-24: configs/main_reparam.yaml + stand_arrival_gap.
+#
+# Why the feature is here. P4 stage A measured it on the forward fold against the baseline we actually ship,
+# with a noise-control arm beside it because a signal-free column moves this model by +/-0.5 s on its own:
+#
+#   base   223.35 full / 201.41 matched / 1028.41 unmatched
+#   noise  223.58        201.49          1032.09
+#   gap    219.72        198.53          1003.60
+#
+# prc.compare, gap against base: -3.62 s at K=0, -2.85 at K=200, P(B better) = 1.000 at all four drop levels,
+# month bootstrap -3.62 [-4.79, -2.43]. VERDICT ADOPT. Against the noise arm it is -3.85 s, so this is not the
+# +0.23 that adding any column buys.
+#
+# Read the number correctly. The -3.2424 recorded for this feature in docs/codex_fe_results was measured
+# against an EIGHT-month baseline; production's forward fold trains on ten, and the ten-month baseline is
+# itself 2.6888 s better. The -3.62 above is on top of that, and is the first measurement of this feature
+# taken on code where two runs of the same config agree (the G11 categorical-encoding fix).
+#
+# Honest caveat: on the unmatched lane this is a large win at LIRF (4124.6 -> 3955.4, 78.4% of the
+# disagreement) outweighing small losses at the eight airports other than LIRF and LFPG. It is not a uniform
+# improvement.
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+
+# P2 Fix 1 (results/P2-fix1-earlystop-encoder.md). The early-stopping holdout used to read encoding tables its
+# own labels helped build: 11.30% of model A's ES rows sat in a reference group more than 20% own-month, and
+# polars' quantile default is `nearest`, so ref_p10 on a qualifying group was one member's own label verbatim
+# (0.58% of ES rows). Measured at +0.04 s [-0.06, +0.17] on the forward fold - no predictive effect, verdict's
+# CI-contains-zero branch - and the sign flips negative at every drop level >= 20. It is on because it is
+# correct, not because it scores: no serve-side feature change, and the repaired arm is faster (703 s vs 732 s).
+es_holdout_encodings: true
