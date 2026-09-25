@@ -22,6 +22,7 @@ Invariants enforced here (each one was a real bug caught in review):
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import subprocess
@@ -190,6 +191,9 @@ class TrainConfig:
     fe_cyclic: bool = False
     fe_meta_prior: bool = False
     fe_noise_cols: int = 0
+    # External weather v2 (docs/weather_v2_2026-09-25/plan.md): "" off, "B" METAR present-weather columns,
+    # "C" those plus Open-Meteo precipitation / snowfall / snow depth. Joined at the take-off hour inside the fold.
+    fe_weather_v2: str = ""
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -460,6 +464,28 @@ def meta_prior_features(
     return out[0], out[1]
 
 
+@functools.lru_cache(maxsize=2)
+def _weather_v2_table(mode: str) -> pl.DataFrame:
+    """The station-hour table for a weather-v2 mode, loaded once per process from the on-disk caches."""
+    from .weather import fetch_metar, fetch_openmeteo, wx_code_table
+
+    table = wx_code_table(fetch_metar())
+    if mode == "C":
+        om = fetch_openmeteo()
+        table = table.join(om, on=["station", "hour_utc"], how="full", coalesce=True)
+    elif mode != "B":
+        raise ValueError(f"fe_weather_v2 must be '', 'B' or 'C', got {mode!r}")
+    return table
+
+
+def weather_v2_features(df: pl.DataFrame, mode: str) -> pl.DataFrame:
+    """Join the weather-v2 columns at the take-off hour. No label is read; the same table serves every fold."""
+    from .weather import OM_COLS, WX_V2_COLS, join_hourly
+
+    cols = WX_V2_COLS + (OM_COLS if mode == "C" else [])
+    return join_hourly(df, _weather_v2_table(mode), cols)
+
+
 def add_fold_features(
     tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, info: dict
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -474,6 +500,8 @@ def add_fold_features(
         tr, tg = cyclic_features(tr), cyclic_features(tg)
     if cfg.fe_noise_cols:
         tr, tg = noise_features(tr, cfg.fe_noise_cols), noise_features(tg, cfg.fe_noise_cols)
+    if cfg.fe_weather_v2:
+        tr, tg = weather_v2_features(tr, cfg.fe_weather_v2), weather_v2_features(tg, cfg.fe_weather_v2)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
     return tr, tg
 
@@ -747,7 +775,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
-    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols:
+    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols or cfg.fe_weather_v2:
         tr, tg = add_fold_features(tr, tg, cfg, info)
 
     num_cols = visible_numeric_columns(tr, cfg)

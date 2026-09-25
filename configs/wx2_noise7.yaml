@@ -1,0 +1,21 @@
+# Weather v2, arm noise7 -- control: the four constant columns out, seven hashed-id columns in.
+# Pre-registered in docs/weather_v2_2026-09-25/plan.md; every arm is main_gap + folds [jan, forward] + the lines below.
+name: wx2_noise7
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [jan, forward]
+exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h]
+fe_noise_cols: 7
