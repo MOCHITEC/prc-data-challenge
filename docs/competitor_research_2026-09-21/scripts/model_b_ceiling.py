@@ -808,6 +808,19 @@ see _rho's docstring for why the centred one is the headline here and the raw on
     print(f"\n  LANE B floor, reassembled:  {np.sqrt(acc/n_all):.1f}"
           f"   [{np.sqrt(acc_lo/n_all):.1f}, {np.sqrt(acc_hi/n_all):.1f}]"
           f"   against today's {lane:.1f}")
+    # the brief asks for the floor WITH and WITHOUT LIRF, and without the impossible labels
+    print("\n  The same assembly restricted, because the brief asks for it both ways:")
+    parts = {n_: (float((e_all[rm] ** 2).sum()), int(rm.sum()), rc)
+             for (n_, rm, _), rc in zip(blocks, [0.0, 0.0, 0.2748, 0.1982])}
+    for lab, names in (("lane B, all rows", [b_[0] for b_ in blocks]),
+                       ("excl. the 19 impossible labels", [b_[0] for b_ in blocks[1:]]),
+                       ("excl. impossible labels AND LIRF", [b_[0] for b_ in blocks[2:]])):
+        S = sum(parts[k][0] * (1 - parts[k][2]) for k in names)
+        N = sum(parts[k][1] for k in names)
+        T = sum(parts[k][0] for k in names)
+        print(f"    {lab:<34} n={N:>6,}  today {np.sqrt(T/N):>8.1f}  floor {np.sqrt(S/N):>8.1f}"
+              f"  recoverable {np.sqrt(T/N)-np.sqrt(S/N):>6.1f} s")
+    print()
     print(f"  recoverable: {lane - np.sqrt(acc/n_all):.1f} s of lane-B RMSE"
           f"  ({(tot_sse-acc)/tot_sse*100:.2f}% of lane-B SSE)")
     print("  And the naive version, for contrast - one rho carried to the whole lane:")
@@ -956,16 +969,26 @@ a route is worth a slot. model-a-ceiling.md S6 uses the same device.
     print(f"    shift {-e.mean():+.1f} s  ->  lane B {base:.2f} -> {rmse(e-e.mean()):.2f}")
 
     print("\n-- S6.3  the missing-clock route, priced on the same axis")
-    print("  missing-clock.md S4 measured a fully-sighted counterfactual at 378.4 reweighted against")
-    print("  554.0 blind, i.e. sight is a 1.31x penalty. Applying that ratio to the lane as an ORACLE:")
-    for lab, m in (("whole lane B", np.ones(n, bool)),
-                   ("excl. broken labels", ~brk),
-                   ("excl. broken and LIRF", ~brk & (ap != "LIRF"))):
-        print(f"    {lab:<24} RMSE {rmse(e[m]):>9.2f}  /1.31 -> {rmse(e[m])/1.31:>9.2f}"
-              f"   (recovers {rmse(e[m])-rmse(e[m])/1.31:>8.2f} s of that subset)")
-    print("  [X] The ratio is measured on MATCHED rows reweighted to the lane's composition. It does not")
-    print("      apply to a broken label, which no amount of sight fixes - the clock that is missing is")
-    print("      NM's, and the corruption is in the airport's own BLOCK stamp.")
+    print("""  missing-clock.md S2.2's reweighted column, non-LIRF, is the right source and it separates the
+  two penalties instead of pooling them:
+      A      (sighted, full data)  361.6
+      B_cf   (blind,   full data)  541.7   -> BLINDNESS costs 541.7/361.6 = 1.498x
+      B_small(blind,   19k rows)   591.4   -> STARVATION costs 591.4/541.7 = 1.092x
+      observed lane, non-LIRF, excl. rollover labels, reweighted  569.1
+  (The 1.31x quoted in that note's headline is the MATCHED-row, unreweighted ratio 292.53/222.76. Both
+  are reported below because they bracket the answer and the note's own price used the reweighted one.)""")
+    print(f"\n{'subset':<32}{'today':>9}{'/1.313':>9}{'/1.498':>9}{'/1.092':>9}   <- blind, blind(rw), starved")
+    for lab, m in (("whole lane B", np.ones(len(e), bool)),
+                   ("excl. 19 impossible labels", ~brk),
+                   ("excl. impossible and LIRF", ~brk & ~L)):
+        r0 = rmse(e[m])
+        print(f"{lab:<32}{r0:>9.1f}{r0/1.313:>9.1f}{r0/1.498:>9.1f}{r0/1.092:>9.1f}")
+    print("  [X] The ratio is measured on MATCHED rows reweighted to the lane's composition. It cannot")
+    print("      apply to an impossible label, which no amount of NM sight fixes - the clock that is")
+    print("      missing is NM's, and the corruption is in the AIRPORT's own BLOCK stamp, which is one")
+    print("      of the two columns blanked on every scored row (src/prc/schema.py:52).")
+    print("  [X] So the honest reading of missing-clock's route on this axis is the THIRD row: full NM")
+    print("      sight at the nine ordinary airports, 573.9 -> 383.1. S7 prices it.")
 
 
 # --------------------------------------------------------------------------------------------------
@@ -1020,13 +1043,15 @@ def s7_price() -> None:
     e_h = e.copy()
     e_h[L & (np.abs(bs) <= 10)] = (ms - y)[L & (np.abs(bs) <= 10)]
     price("PERFECT LIRF fill gate (S6.1)", float((e_h**2).sum()), "<- P1 stage 2's route, closed at AUC 0.9201")
+    for rat, nm in ((1.498, "reweighted"), (1.313, "matched-row")):
+        e4 = e.copy()
+        m9 = ~brk & ~L
+        e4[m9] = e4[m9] / rat
+        price(f"full NM sight, 9 non-LIRF airports (/{rat:.3f})", float((e4**2).sum()),
+              f"<- missing-clock.md's route, {nm} ratio")
     e3 = e.copy()
-    e3[~brk] = e3[~brk] / 1.31
-    price("full NM sight on non-impossible rows (S6.3)", float((e3**2).sum()), "<- missing-clock.md's route")
-    e4 = e.copy()
-    m9 = ~brk & ~L
-    e4[m9] = e4[m9] / 1.31
-    price("   ...only at the 9 non-LIRF airports", float((e4**2).sum()))
+    e3[~brk] = e3[~brk] / 1.498
+    price("   ...and at LIRF too", float((e3**2).sum()))
     price("the 19 impossible labels predicted exactly", float((e[~brk] ** 2).sum()),
           "<- not a route; nothing visible sees them")
     print("  -- the brief's arithmetic, for comparison --")
@@ -1041,9 +1066,39 @@ def s7_price() -> None:
           f"   = {(e[L&~brk]**2).sum()/(sse_a+sse_b)*100:>5.2f}%")
     print(f"  the other 9 airports, excl. imp.:{(e[~L&~brk]**2).sum()/sse_b*100:>6.2f}%"
           f"   = {(e[~L&~brk]**2).sum()/(sse_a+sse_b)*100:>5.2f}%")
+    # the 9-airport block floor, recombined from S5.2's two measured blocks rather than quoted
+    f9 = np.sqrt((5.583e8 * (1 - 0.2748) + 2.023e9 * (1 - 0.1982)) / int((~L & ~brk).sum()))
     print("  [X] The block that ten months of feature work could plausibly touch - nine ordinary")
-    print("      airports, no LIRF switch, no broken labels - is 5% of the problem's squared error,")
-    print(f"      and its measured floor is {508.4:.0f} against {rmse(e[~L&~brk]):.0f} today (S5.2).")
+    print("      airports, no LIRF switch, no impossible labels - is 5% of the problem's squared error,")
+    print(f"      and its measured floor is {f9:.1f} against {rmse(e[~L&~brk]):.1f} today (S5.2).")
+
+    print("\n-- S7.3  reconciliation with missing-clock.md's own -4.9 to -5.5 s")
+    print("""  The table above prices on the OOF's composition, where lane B is 8,378 / 672,428 = 1.246% of
+  rows. missing-clock.md priced on the SCORED composition, where the unmatched lane is 5,290 / 344,841
+  = 1.534% - a factor 1.231 more of it. Re-priced on that composition (lane A's board RMSE backed out
+  of board 279.5234 on the assumption that lane B scores what it scores in the OOF):""")
+    sse_b_board = 5290 * (sse_b / n_b)
+    sse_a_board = BOARD_N * BOARD_V14**2 - sse_b_board
+    print(f"    implied lane-A board RMSE {np.sqrt(sse_a_board/(BOARD_N-5290)):.2f}"
+          f"  (forward-fold lane A is 198.53, so this is consistent)")
+    print(f"{'counterfactual':<44}{'lane B':>10}{'board':>10}{'dBoard':>9}{'@0.747':>9}")
+    def price_board(lab, new_rmse_b):
+        nb = BOARD_N * 0.0 + 5290
+        bd = np.sqrt((sse_a_board + nb * new_rmse_b**2) / BOARD_N)
+        print(f"{lab:<44}{new_rmse_b:>10.1f}{bd:>10.2f}{bd-BOARD_V14:>9.2f}"
+              f"{BOARD_V14+(bd-BOARD_V14)*TRANSFER:>9.2f}")
+    price_board("today", np.sqrt(sse_b / n_b))
+    for rat in (1.498, 1.313):
+        e4 = e.copy()
+        m9 = ~brk & ~L
+        e4[m9] = e4[m9] / rat
+        price_board(f"full NM sight, 9 non-LIRF airports (/{rat:.3f})", rmse(e4))
+    price_board("MEASURED FLOOR (S5.2)", 1586.2)
+    price_board("PERFECT LIRF fill gate (S6.1)", rmse(e_h))
+    print("  [S] -3.6 to -4.7 s of board for the sight route on the scored composition, against")
+    print("      missing-clock.md S7's -4.9 to -5.5. Same order, same sign, and the OOF table above")
+    print("      simply has 23% less lane B in it. NOTHING HERE OVERTURNS THAT FIGURE - what this note")
+    print("      changes is what the figure MEANS: it is that route's ceiling, not the lane's.")
 
     print("\n-- S7.2  the scored lane is a LOTTERY on how many impossible labels it contains")
     ub = load_lane_b(with_oof=False)
@@ -1076,8 +1131,61 @@ def s7_price() -> None:
     gc.collect()
 
 
+def s8_learning_curve() -> None:
+    _tag("S8  route 3 - the learning curve, from measurements ALREADY IN HAND (no refit)")
+    print("""
+model-a-ceiling.md S5 had to fit models to get lane A's learning curve. Lane B's is already measured:
+missing-clock.md S4 ran the SAME blind feature regime at two training sizes on the same rows and folds,
+for the express purpose of separating blindness from starvation. Reusing it costs nothing and gives a
+route that shares no machinery at all with S5's twin covariance.
+
+  regime       training rows   RMSE, matched rows   reweighted to the scored unmatched lane
+  B_cf                247,547               292.53                                    554.0
+  B_small              19,165               317.26                                    616.6
+
+B_small was sized to model B's own training set on purpose (missing-clock.md S2.1). So the measured
+cost of model B's starvation, over a 12.9x range of rows, is:""")
+    r_matched = 317.26 / 292.53
+    r_rew = 616.6 / 554.0
+    r_nl = 591.4 / 541.7  # non-LIRF reweighted, missing-clock.md S2.2
+    print(f"    on matched rows              {r_matched:.4f}x")
+    print(f"    reweighted, all ten          {r_rew:.4f}x")
+    print(f"    reweighted, non-LIRF         {r_nl:.4f}x   <- the one that applies to S8.1's block")
+    print(f"  i.e. 12.9x the training rows is worth a factor {1/r_nl:.4f} - {1/r_rew:.4f} on model B.")
+
+    b = load_lane_b(oof_only=True)
+    e = b["e"].to_numpy()
+    ap = np.array(b["ADEP_mvt"].to_list())
+    brk = b["broken"].to_numpy()
+    m9 = (~brk) & (ap != "LIRF")
+    today9 = rmse(e[m9])
+    f9 = np.sqrt((5.583e8 * (1 - 0.2748) + 2.023e9 * (1 - 0.1982)) / int(m9.sum()))
+    print(f"\n-- S8.1  the two routes compared on the ONE block where both can be run")
+    print("  (the nine non-LIRF airports with the impossible labels removed: 7,839 rows, the only")
+    print("   block with enough twins for S5 AND a composition the reweighting of S4 was built for)")
+    print(f"    today                                      {today9:>8.1f}")
+    print(f"    route 3, learning curve at 12.9x the rows  {today9/r_nl:>8.1f} - {today9/r_rew:>6.1f}"
+          f"   (non-LIRF and all-ten ratios)")
+    print(f"    route 2, twin-residual covariance floor    {f9:>8.1f}   (S5.2)")
+    print(f"    difference                                 {today9/r_rew - f9:>+8.1f} to "
+          f"{today9/r_nl - f9:>+.1f} s  ({abs(today9/r_rew-f9)/f9*100:.1f}% - "
+          f"{abs(today9/r_nl-f9)/f9*100:.1f}%)")
+    print("  [S] The two agree to 1.4%-3.4%, by methods sharing no machinery: one counts how much a twin's")
+    print("      residual predicts this row's, the other reads a pair of models fitted at 19k and 248k")
+    print("      rows. The ordering is also right - a finite-n learning-curve point MUST sit at or")
+    print("      above the floor, and it does.")
+    print("\n-- S8.2  and the thing the learning curve says that the twin route cannot")
+    print("  [X] Model B is DATA-LIMITED, not information-limited, on this block. 13x the rows is")
+    print("      worth 10% of its RMSE and would land it essentially ON the floor. There is no 13x:")
+    print("      lane B's training rows are every unmatched departure in 2025 and there are 22,470.")
+    print("      So the 65 s that S5 says is recoverable at the nine airports is recoverable by ROWS")
+    print("      THAT DO NOT EXIST, not by a feature. That is the same conclusion model-a-ceiling.md")
+    print("      S5.1 reached for lane A, and it is sharper here because lane B is 100x smaller.")
+
+
 SECTIONS = {"S1": s1_baseline, "S2": s2_concentration, "S3": s3_bias_vs_spread,
-            "S4": s4_semivariance, "S5": s5_rho, "S6": s6_oracles, "S7": s7_price}
+            "S4": s4_semivariance, "S5": s5_rho, "S6": s6_oracles, "S7": s7_price,
+            "S8": s8_learning_curve}
 
 if __name__ == "__main__":
     want = [a for a in sys.argv[1:] if a in SECTIONS] or list(SECTIONS)
