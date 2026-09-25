@@ -35,3 +35,11 @@ unmatched_sched_reparam: true
 unmatched_sched_reparam_airports: [LIRF]
 lobt_bound: true
 include_candidates: [stand_arrival_gap]
+
+# P2 Fix 1 (results/P2-fix1-earlystop-encoder.md). The early-stopping holdout used to read encoding tables its
+# own labels helped build: 11.30% of model A's ES rows sat in a reference group more than 20% own-month, and
+# polars' quantile default is `nearest`, so ref_p10 on a qualifying group was one member's own label verbatim
+# (0.58% of ES rows). Measured at +0.04 s [-0.06, +0.17] on the forward fold - no predictive effect, verdict's
+# CI-contains-zero branch - and the sign flips negative at every drop level >= 20. It is on because it is
+# correct, not because it scores: no serve-side feature change, and the repaired arm is faster (703 s vs 732 s).
+es_holdout_encodings: true
