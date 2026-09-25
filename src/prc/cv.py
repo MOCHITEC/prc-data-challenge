@@ -34,12 +34,13 @@ def month_block_folds(months_present: list[int], scheme: str = "fast") -> list[F
     if scheme == "full":
         return [Fold(f"lomo_{m}", (m,), tuple(x for x in ms if x != m)) for m in ms]
     folds = []
+    # 'janjul' is 'fast' without the forward fold: the two season-matched folds that decide adoption
     for month, name in ((1, "jan"), (7, "jul")):
         sel = tuple(x for x in ms if x % 100 == month)
         if sel and len(sel) < len(ms):
             folds.append(Fold(name, sel, tuple(x for x in ms if x not in sel)))
     fwd = tuple(x for x in ms if x % 100 >= 11)
-    if fwd and len(fwd) < len(ms):
+    if fwd and len(fwd) < len(ms) and scheme != "janjul":
         folds.append(Fold("forward", fwd, tuple(x for x in ms if x not in fwd)))
     if not folds:  # tiny sets: hold out the last month
         folds.append(Fold(f"lomo_{ms[-1]}", (ms[-1],), tuple(ms[:-1])))

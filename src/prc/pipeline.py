@@ -53,7 +53,7 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.Da
 
 
 # Every module whose source decides which columns end up in the cached feature frames.
-FEATURE_SOURCES = ("features.py", "weather.py")
+FEATURE_SOURCES = ("features.py", "features_extra.py", "weather.py")
 
 
 def feature_fingerprint(use_weather: bool) -> str:
@@ -128,6 +128,12 @@ def main(argv: list[str] | None = None) -> int:
     train, rank, sub_path = load_raw(a.raw_dir)
     f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
+    # One cached feature build serves every ablation: a config names the column prefixes it leaves out.
+    drop = tuple(spec.get("drop_feature_prefixes") or ())
+    if drop:
+        gone = [c for c in f_tr.columns if c.startswith(drop)]
+        f_tr, f_rk = f_tr.drop(gone), f_rk.drop([c for c in gone if c in f_rk.columns])
+        print(f"dropped {len(gone)} columns with prefixes {list(drop)}")
 
     cv_rec = None
     if not a.skip_cv:
@@ -155,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
             "config": str(a.config),
             "train_config": asdict(cfg),
             "use_weather": use_weather,
+            "drop_feature_prefixes": list(drop),
             "model": spec.get("model", "two_clock"),
             "cv": cv_rec["overall"] if cv_rec else None,
             "predict_info": info,

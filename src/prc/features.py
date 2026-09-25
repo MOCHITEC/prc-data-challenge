@@ -29,6 +29,7 @@ AIRPORT_TZ = {
     "LSZH": "Europe/Zurich",
 }
 WINDOWS_MIN = (5, 10, 15, 30, 60)
+HEADWAY_MAX_S = 3 * 3600
 CATEGORICALS = [
     "ADEP_mvt",
     "RUNWAY_mvt",
@@ -40,6 +41,8 @@ CATEGORICALS = [
     "FLIGHT_TYPE_flt",
     "ADES_mvt",
     "ADES_REGION",
+    "FL_FMT",  # prc.features_extra: flight-number format and prefix (reporting fingerprint)
+    "FL_PFX",
 ]
 
 
@@ -223,7 +226,10 @@ def context_features(masked: pl.DataFrame, dep_ids: pl.Series | None = None) -> 
             if len(ev) == 0:
                 continue
             p, n = _headways(t[sel], ev)
-            rwy_prev[sel], rwy_next[sel] = p, n
+            # a "neighbour" hours away is in another data block (ranking jumps from January to July: up to 199
+            # days), not a quiet runway, so gaps beyond HEADWAY_MAX_S are missing rather than huge
+            rwy_prev[sel] = np.where(p <= HEADWAY_MAX_S, p, np.nan)
+            rwy_next[sel] = np.where(n <= HEADWAY_MAX_S, n, np.nan)
             rwy_cnt15[sel] = _counts_in_windows(t[sel], ev, 15 * 60)[0]
             rwy_cnt60[sel] = _counts_in_windows(t[sel], ev, 60 * 60)[0]
         cols["rwy_headway_prev_s"], cols["rwy_headway_next_s"] = rwy_prev, rwy_next
@@ -372,6 +378,15 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     dep = movements.filter(pl.col("PHASE_mvt") == "DEP")
     row = clock_and_static_features(dep)
     ctx = context_features(ctx_src, dep_ids=dep["MVT_ID_mvt"])
+    from .features_extra import extra_context_features, flight_features
+
+    ctx = ctx.join(extra_context_features(ctx_src, dep["MVT_ID_mvt"]), on="MVT_ID_mvt", how="left").join(
+        flight_features(ctx_src.filter(pl.col("PHASE_mvt") == "DEP")).filter(
+            pl.col("MVT_ID_mvt").is_in(dep["MVT_ID_mvt"].implode())
+        ),
+        on="MVT_ID_mvt",
+        how="left",
+    )
     keep = [c for c in KEEP_RAW_COLS if c in row.columns]
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
