@@ -7,7 +7,7 @@
 |---|---|---|
 | スタンド・ゲート・空間構造 | `stand.md` | `analysis/stand_*.py` |
 | 滑走路・離陸シーケンス・待ち行列 | `queue_runway.md` | `analysis/queue_runway_*.py` |
-| 報告系・時計の出所の指紋 | （レポートファイル未保存。要旨は下表） | `analysis/reporting_fingerprint_*.py` |
+| 報告系・時計の出所の指紋 | `reporting_fingerprint.md` | `analysis/reporting_fingerprint_*.py` |
 | 航空会社・機材・路線・便 | `operator_aircraft_route.md` | `analysis/operator_aircraft_route_*.py` |
 | 時間・季節・2025→2026 ドリフト、LIRF/LFPG | `temporal_shift.md` | `analysis/temporal_shift_*.py` |
 
