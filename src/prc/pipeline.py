@@ -11,6 +11,7 @@ Everything is written to disk as it goes, so a session that dies mid-way can res
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import time
@@ -94,6 +95,15 @@ def build_features(
     return f_tr, f_rk
 
 
+def _float32(df: pl.DataFrame) -> pl.DataFrame:
+    """Float64 feature columns to Float32; the label keeps its own dtype."""
+    from .train import LABEL
+
+    return df.with_columns(
+        [pl.col(c).cast(pl.Float32) for c, dt in df.schema.items() if dt == pl.Float64 and c != LABEL]
+    )
+
+
 def resolve_predictor(name: str):
     """Which model the config asks for. The same function is used for CV and for the ranking prediction, so a
     config change can never validate one model and submit another."""
@@ -127,6 +137,12 @@ def main(argv: list[str] | None = None) -> int:
 
     train, rank, sub_path = load_raw(a.raw_dir)
     f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir)
+    # The raw frames are dead after the feature build, and the feature frames are copied several times per fold
+    # (candidates, clock-source label, encodings), so halving the float columns is what keeps v14 under the
+    # cgroup limit: the v14 build OOM-killed at 14 GB with float64 features. LightGBM trains on float32 anyway.
+    del train, rank
+    gc.collect()
+    f_tr, f_rk = _float32(f_tr), _float32(f_rk)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
     # One cached feature build serves every ablation: a config names the column prefixes it leaves out.
     drop = tuple(spec.get("drop_feature_prefixes") or ())
