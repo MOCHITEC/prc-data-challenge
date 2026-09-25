@@ -21,7 +21,7 @@ import polars as pl
 import yaml
 
 from .config import data_dir
-from .features import build_departure_features
+from .features import build_feature_frames
 from .predict import log_submission, predict_ranking, write_submission
 from .train import LABEL, TrainConfig, run_cv
 
@@ -38,13 +38,23 @@ def load_raw(raw_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, Path]:
     return train, pl.read_parquet(rank_path), sub_path
 
 
-def weather_cache_path(wx_codes: bool) -> Path:
+def weather_cache_path(wx_codes: bool, wind_dir: bool = False, gust_repair: bool = False) -> Path:
     """One cache file per weather recipe. Two recipes sharing one path is how a `weather.py` edit gets
-    silently reverted at read time."""
-    return data_dir() / "ref" / ("metar_hourly_wxcodes.parquet" if wx_codes else "metar_hourly.parquet")
+    silently reverted at read time - so every flag that changes the hourly table's columns is in the name,
+    and the two names that already exist keep their spelling exactly."""
+    name = "metar_hourly" + ("_wxcodes" if wx_codes else "") + ("_winddir" if wind_dir else "")
+    name += "_gust" if gust_repair else ""
+    return data_dir() / "ref" / f"{name}.parquet"
 
 
-def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path, wx_codes: bool = False) -> pl.DataFrame:
+def maybe_join_weather(
+    feats: pl.DataFrame,
+    enabled: bool,
+    cache: Path,
+    wx_codes: bool = False,
+    wind_dir: bool = False,
+    gust_repair: bool = False,
+) -> pl.DataFrame:
     if not enabled:
         return feats
     from .weather import fetch_metar, hourly_weather_table, join_weather
@@ -52,14 +62,36 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path, wx_codes
     if cache.exists():
         hourly = pl.read_parquet(cache)
     else:
-        hourly = hourly_weather_table(fetch_metar(), wx_codes=wx_codes)
+        hourly = hourly_weather_table(fetch_metar(), wx_codes=wx_codes, wind_dir=wind_dir, gust_repair=gust_repair)
         cache.parent.mkdir(parents=True, exist_ok=True)
         hourly.write_parquet(cache)
     return join_weather(feats, hourly)
 
 
+def weather_flags(spec: dict) -> tuple[bool, bool, bool, bool]:
+    """(use_weather, wx_codes, wind_dir, gust_repair) as a recipe asks for them.
+
+    Every one of them defaults to False, which is what makes an archived recipe rebuild the frame it built
+    before. It is a function rather than four `spec.get` calls in `main` so that the defaults are something a
+    test can hold on to: a flag that silently defaults to on is a change to every recipe in the repository,
+    and `main` is the one place nothing else covers."""
+    use_weather = bool(spec.get("use_weather", False))
+    return (
+        use_weather,
+        bool(spec.get("wx_codes", False)),
+        bool(spec.get("wind_dir", False)),
+        bool(spec.get("gust_repair", False)),
+    )
+
+
 def cache_fingerprint(
-    train: pl.DataFrame, rank: pl.DataFrame, raw_dir: Path, use_weather: bool, wx_codes: bool = False
+    train: pl.DataFrame,
+    rank: pl.DataFrame,
+    raw_dir: Path,
+    use_weather: bool,
+    wx_codes: bool = False,
+    wind_dir: bool = False,
+    gust_repair: bool = False,
 ) -> dict:
     """What the cached feature frames were built from. A cache hit requires every field to match.
 
@@ -75,6 +107,11 @@ def cache_fingerprint(
         "rank_rows": rank.height,
         "use_weather": use_weather,
         "wx_codes": bool(use_weather and wx_codes),
+        # Same reason as `wx_codes`: these change which columns the hourly table has, so a frame built
+        # without them must not be handed to a recipe that asks for them. Hashed only when the weather join
+        # is on, so a `use_weather: false` recipe's cache is untouched by them.
+        "wind_dir": bool(use_weather and wind_dir),
+        "gust_repair": bool(use_weather and gust_repair),
         "feature_code": _features_version(),
         "weather_code": _weather_version() if use_weather else None,
     }
@@ -95,7 +132,14 @@ def _weather_version() -> str:
 
 
 def build_features(
-    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path, raw_dir: Path, wx_codes: bool = False
+    train: pl.DataFrame,
+    rank: pl.DataFrame,
+    use_weather: bool,
+    work: Path,
+    raw_dir: Path,
+    wx_codes: bool = False,
+    wind_dir: bool = False,
+    gust_repair: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Feature frames for the labelled months and for the ranking months, cached on disk.
 
@@ -108,7 +152,7 @@ def build_features(
     work.mkdir(parents=True, exist_ok=True)
     f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
     meta_path = work / "feat_meta.json"
-    want = cache_fingerprint(train, rank, raw_dir, use_weather, wx_codes)
+    want = cache_fingerprint(train, rank, raw_dir, use_weather, wx_codes, wind_dir, gust_repair)
     if f_tr_path.exists() and f_rk_path.exists() and meta_path.exists():
         have = json.loads(meta_path.read_text())
         # json round-trips the file tuples as lists
@@ -117,9 +161,12 @@ def build_features(
             return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
         differing = sorted(k for k in want if have.get(k) != json.loads(json.dumps(want))[k])
         print(f"features: cache in {work} was built from different inputs ({', '.join(differing)}); rebuilding")
-    wcache = weather_cache_path(wx_codes)
-    f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache, wx_codes)
-    f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache, wx_codes)
+    wcache = weather_cache_path(wx_codes, wind_dir, gust_repair)
+    # One call, because C1's modal-offset table is fitted on the two frames together; see
+    # `features.build_feature_frames`.
+    raw_tr, raw_rk = build_feature_frames(train, rank)
+    f_tr = maybe_join_weather(raw_tr, use_weather, wcache, wx_codes, wind_dir, gust_repair)
+    f_rk = maybe_join_weather(raw_rk, use_weather, wcache, wx_codes, wind_dir, gust_repair)
     f_tr.write_parquet(f_tr_path)
     f_rk.write_parquet(f_rk_path)
     meta_path.write_text(json.dumps(want, indent=2, default=str))
@@ -158,14 +205,14 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(fields.get(k), list):
             fields[k] = tuple(fields[k])
     cfg = TrainConfig(**fields)
-    use_weather = bool(spec.get("use_weather", False))
-    # P8-B. Off by default: `hourly_weather_table` emits exactly the columns it always has unless a recipe
-    # asks for the repair, so every archived recipe rebuilds to the same frame it did before.
-    wx_codes = bool(spec.get("wx_codes", False))
+    # P8-B (`wx_codes`), C3 (`wind_dir`) and C3's hygiene rider (`gust_repair`) are all off by default:
+    # with them off `hourly_weather_table` emits exactly the columns it always has, so every archived recipe
+    # rebuilds to the same frame it did before.
+    use_weather, wx_codes, wind_dir, gust_repair = weather_flags(spec)
     t0 = time.time()
 
     train, rank, sub_path = load_raw(a.raw_dir)
-    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir, wx_codes)
+    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir, wx_codes, wind_dir, gust_repair)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
 
     # Coverage parity, before CV, because CV cannot see this class of defect: it validates on the training
@@ -215,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
             "train_config": asdict(cfg),
             "use_weather": use_weather,
             "wx_codes": wx_codes,
+            "wind_dir": wind_dir,
+            "gust_repair": gust_repair,
             "cv": cv_rec["overall"] if cv_rec else None,
             "predict_info": info,
             "file": str(out_file),

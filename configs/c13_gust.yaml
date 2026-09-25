@@ -1,0 +1,31 @@
+# gust_ms hygiene repair, measured on its own
+#
+# Arm 5 of the C1/C3 measurement (docs/competitor_research_2026-09-21/results/C1-C3-measured.md).
+# Everything below the arm block is configs/main_gap.yaml verbatim except `folds`, which is the repository's
+# screening condition (docs/features_log.md: `folds: [forward]` + `--skip-predict`, weather on, 3 seeds).
+# All six arms are cut from ONE feature frame in data/work_c1c3, built with wind_dir and gust_repair on, so
+# the arms differ by which columns the model is shown and by nothing else - not by a rebuild, not by a seed,
+# not by a row.
+#
+# the gust pair and its two previous-hour copies, and the wind columns hidden. The note measures this at +0.000 and calls it hygiene; it is measured apart from C3 so it cannot be read as part of C3's number.
+name: c13_gust
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+wind_dir: true
+gust_repair: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: true
+folds: [forward]
+include_candidates: [stand_arrival_gap]
+exclude_features: [wind_dir_deg, headwind_kt, crosswind_kt, rwy_wind_misalign]

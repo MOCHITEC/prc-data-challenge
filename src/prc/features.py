@@ -275,6 +275,16 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
 # (a rebuild costs about four minutes; a CV run costs five).
 NOISE_CONTROLS = ("noise_control", "noise_control_2", "noise_control_3", "noise_control_4")
 
+# C1, the nominal-proxy flag (docs/competitor_research_2026-09-21/results/delay-mechanisms.md §2.3, §5).
+# At some airports NM does not observe the off-block event at all: it sets AOBT_3 to take-off minus a nominal
+# per-runway taxi allowance, so `mvt_minus_aobt3` lands on one exact minute far more often than on its
+# neighbours (LTFM 19.9x, LEBL 30.1x the neighbouring minute bins) while the label over the same range is
+# smooth. On those rows the offset the pipeline subtracts at coefficient 1.0 carries no flight-specific
+# information. These three columns say which rows they are.
+PROXY_MODE_COLS = ("proxy_at_mode", "proxy_minus_mode_min", "proxy_sec_in_min")
+PROXY_MODE_KEYS = ("ADEP_mvt", "RUNWAY_mvt")
+PROXY_MODE_VALUE = "_proxy_mode_min"
+
 CANDIDATE_COLS = (
     "stand_arrival_gap",
     "stand_aobt_turn",
@@ -293,7 +303,90 @@ CANDIDATE_COLS = (
     "congestion_vs_usual_30m",
     "dest_distance_km",
     "planned_flight_s",
+    *PROXY_MODE_COLS,
 )
+
+
+def proxy_mode_table(frames) -> pl.DataFrame:
+    """The modal whole minute of `MVT_TIME - AOBT_3` per (ADEP_mvt, RUNWAY_mvt), counted over the UNION of
+    `frames`.
+
+    Two properties, and the code is arranged so neither can be lost by accident.
+
+    **It reads no label.** The table is a count of a clock difference over feature columns -
+    `MVT_TIME_UTC_mvt` and `AOBT_3_flt`, both present on every scored row - so `BLOCK_TIME_UTC_mvt` and
+    `TAXITIME_SEC_mvt` are not involved, directly or through a group statistic. Fitting it on the ranking
+    frame as well as the training frame is therefore parity-safe: it is the same operation the scorer could
+    run on its own copy of the data.
+
+    **It is fitted once, on the union.** Fitting it per frame would put a different table behind the same
+    column name in training and in serving - a fold artefact wearing a feature's name - and at an airport
+    whose two runway groups carry two different allowances it would not even be stable across months. So this
+    function takes the *sequence* of frames it is fitted on, and nothing in this module can produce a table
+    from a single frame: `build_departure_features` accepts a table and never fits one, and
+    `build_feature_frames` is the only caller that makes one. A per-frame fit is not a mistake you can make
+    here without writing new code to make it with.
+
+    Ties are broken towards the smaller minute so the table is a function of the data alone and not of row
+    order.
+    """
+    if isinstance(frames, pl.DataFrame):
+        raise TypeError(
+            "proxy_mode_table takes the sequence of frames the table is fitted on (train AND rank together), "
+            "not one frame; see this docstring"
+        )
+    keys = list(PROXY_MODE_KEYS)
+    parts = []
+    for f in frames:
+        g = f.filter(pl.col("PHASE_mvt") == "DEP") if "PHASE_mvt" in f.columns else f
+        parts.append(g.select([*keys, _proxy_minute().alias("_pm")]))
+    both = pl.concat(parts, how="vertical").drop_nulls("_pm")
+    return (
+        both.group_by([*keys, "_pm"])
+        .len()
+        .sort(["len", "_pm"], descending=[True, False])
+        .unique(subset=keys, keep="first", maintain_order=True)
+        .select([*keys, pl.col("_pm").alias(PROXY_MODE_VALUE)])
+        # Sorted on the keys so the table is a value and not an order: a group_by's output order is not
+        # promised, and a table that compares unequal to itself between two runs is one nobody can check.
+        .sort(list(keys), nulls_last=True)
+    )
+
+
+def _proxy_minute() -> pl.Expr:
+    """`(MVT_TIME - AOBT_3)` in whole minutes, floored, from whichever of the two forms the frame carries."""
+    return (_sec("MVT_TIME_UTC_mvt", "AOBT_3_flt") // 60.0).cast(pl.Float64)
+
+
+def proxy_nominal_features(row: pl.DataFrame, mode_table: pl.DataFrame | None) -> pl.DataFrame:
+    """C1's three columns, or three typed nulls when no mode table was fitted (see `proxy_mode_table`).
+
+    `proxy_at_mode`        1 when this row's offset is exactly the modal minute of its airport x runway.
+    `proxy_minus_mode_min` how many minutes away from it, signed - the distance from the table value.
+    `proxy_sec_in_min`     the seconds part of the offset. A nominal allowance is a whole number of minutes
+                           measured from a whole-minute take-off stamp; a genuine observation need not be.
+    """
+    ids = row.select("MVT_ID_mvt")
+    if mode_table is None:
+        return ids.with_columns(
+            [
+                pl.lit(None, dtype=pl.Int8).alias("proxy_at_mode"),
+                pl.lit(None, dtype=pl.Float64).alias("proxy_minus_mode_min"),
+                pl.lit(None, dtype=pl.Float64).alias("proxy_sec_in_min"),
+            ]
+        )
+    pm = pl.col(PROXY_MODE_VALUE)
+    return (
+        row.select(["MVT_ID_mvt", *PROXY_MODE_KEYS, pl.col("mvt_minus_aobt3").cast(pl.Float64).alias("_proxy")])
+        .with_columns((pl.col("_proxy") // 60.0).alias("_pm"))
+        .join(mode_table, on=list(PROXY_MODE_KEYS), how="left", maintain_order="left")
+        .select(
+            "MVT_ID_mvt",
+            (pl.col("_pm") == pm).cast(pl.Int8).alias("proxy_at_mode"),
+            (pl.col("_pm") - pm).cast(pl.Float64).alias("proxy_minus_mode_min"),
+            (pl.col("_proxy") % 60.0).cast(pl.Float64).alias("proxy_sec_in_min"),
+        )
+    )
 
 
 def stand_arrival_features(departures: pl.DataFrame, arrivals: pl.DataFrame) -> pl.DataFrame:
@@ -373,7 +466,9 @@ def _destination_distance(row: pl.DataFrame) -> pl.DataFrame:
         return row.select("MVT_ID_mvt").with_columns(pl.lit(None, dtype=pl.Float64).alias("dest_distance_km"))
 
 
-def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFrame) -> pl.DataFrame:
+def candidate_features(
+    row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFrame, proxy_mode: pl.DataFrame | None = None
+) -> pl.DataFrame:
     """Hypothesis-driven columns, each computable from what the ranking set actually carries.
 
     queue_ahead     how many departures left the same airport between this flight's scheduled off-block and its
@@ -528,16 +623,33 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
             how="left",
             maintain_order="left",
         )
+        .join(
+            # C1. `proxy_mode` is fitted by `proxy_mode_table` on the union of the training and ranking
+            # frames and handed in; this function cannot fit one, which is the whole point (see that
+            # docstring). Without it the three columns are null and the model is given nothing.
+            proxy_nominal_features(row, proxy_mode),
+            on="MVT_ID_mvt",
+            how="left",
+            maintain_order="left",
+        )
         .select(["MVT_ID_mvt", *CANDIDATE_COLS])
     )
 
 
-def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFrame | None = None) -> pl.DataFrame:
+def build_departure_features(
+    movements: pl.DataFrame,
+    context_source: pl.DataFrame | None = None,
+    proxy_mode: pl.DataFrame | None = None,
+) -> pl.DataFrame:
     """Full v1 feature table for the departures in `movements`.
 
     `movements` may contain labels (training) - they are kept as TAXITIME_SEC_mvt / BLOCK_TIME_UTC_mvt for the
     trainer but never used for features. `context_source` (default: the same frame) is masked before use so the
-    same code path serves training and ranking."""
+    same code path serves training and ranking.
+
+    `proxy_mode` is C1's modal-offset table. It is an argument and never fitted here, because a table fitted
+    from this one frame would differ between training and serving; `build_feature_frames` fits it once on both
+    frames. Omitted, C1's three columns are null - a no-op, not a per-frame fit."""
     ctx_src = mask_departures(context_source if context_source is not None else movements)
     dep = movements.filter(pl.col("PHASE_mvt") == "DEP")
     row = clock_and_static_features(dep)
@@ -545,7 +657,7 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     keep = [c for c in KEEP_RAW_COLS if c in row.columns]
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
-    cand = candidate_features(row, ctx, ctx_src)
+    cand = candidate_features(row, ctx, ctx_src, proxy_mode=proxy_mode)
     feats = add_signed_log(
         row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left").join(
             cand, on="MVT_ID_mvt", how="left", maintain_order="left"
@@ -556,6 +668,21 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     if feats["MVT_ID_mvt"].n_unique() != feats.height:
         raise AssertionError("duplicate MVT_ID_mvt in feature frame")
     return feats
+
+
+def build_feature_frames(train: pl.DataFrame, rank: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """The training and ranking feature frames, built the way the pair has to be built.
+
+    The only difference from calling `build_departure_features` twice is C1's modal-offset table, which is
+    fitted once here on both frames together and handed to both builds. That is not an optimisation: a table
+    fitted per frame is a different lookup behind the same column name in training and in serving. Building
+    the pair through one function is what makes the per-frame version unreachable rather than merely
+    discouraged."""
+    table = proxy_mode_table([train, rank])
+    return (
+        build_departure_features(train, proxy_mode=table),
+        build_departure_features(rank, proxy_mode=table),
+    )
 
 
 def numeric_feature_columns(feats: pl.DataFrame) -> list[str]:

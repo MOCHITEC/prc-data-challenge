@@ -134,7 +134,56 @@ def _any_code(codes: tuple[str, ...]) -> pl.Expr:
     return pl.fold(pl.lit(False), lambda a, b: a | b, [pl.col("wx").str.contains(c, literal=True) for c in codes])
 
 
-def hourly_weather_table(metar: pl.DataFrame, wx_codes: bool = False) -> pl.DataFrame:
+# C3 (docs/competitor_research_2026-09-21/results/delay-mechanisms.md §2.4, §5). `drct` is fetched by
+# IEM_FIELDS and has always been dropped in the hourly aggregation, so wind DIRECTION has never reached the
+# model - although the wind is what picks the runway configuration, and the configuration rewrites every taxi
+# route. `wind_dir=True` keeps it through the aggregation; `join_weather` then turns it into the four columns
+# below, relative to the runway this flight actually used, and drops the raw bearing again.
+WIND_DIR_COLS = ("wind_dir_deg", "headwind_kt", "crosswind_kt", "rwy_wind_misalign")
+# The `gust_ms` hygiene repair (§5, "Not recommended, and why"). METAR omits the gust group when there is no
+# gust, so `gust_ms` is null on 96.6% of scored rows and the column conflates "the wind was steady" with "we
+# did not observe". `gust_filled` is the wind speed to use when there is no gust group, `gust_excess` is the
+# part of the gust that exceeds the steady wind - zero, not null, on a steady hour. The note measures this at
+# +0.000: it is hygiene, not a gain, and it is flagged separately so it cannot be read as one.
+GUST_REPAIR_COLS = ("gust_filled", "gust_excess")
+KNOTS_PER_MS = 1.0 / 0.514444
+
+
+def runway_heading_deg(col: str = "RUNWAY_mvt") -> pl.Expr:
+    """Magnetic heading from an ICAO runway designator: '27L' -> 270.0, '09' -> 90.0, anything else null.
+
+    The designator is the heading in tens of degrees, so 01-36 are the only legal leading pairs; a value that
+    does not parse becomes null rather than a heading of zero, because a wrong heading is a wrong wind angle
+    and 0 is a legal one."""
+    n = pl.col(col).str.extract(r"^(\d{2})", 1).cast(pl.Int16, strict=False)
+    return pl.when(n.is_between(1, 36)).then(n.cast(pl.Float64) * 10.0).otherwise(None).alias("_rwy_heading")
+
+
+def wind_relative_columns(frame: pl.DataFrame, direction_col: str = "drct") -> pl.DataFrame:
+    """Wind resolved onto the assigned runway. Reads the bearing, the wind speed and `RUNWAY_mvt`, nothing else.
+
+    `headwind_kt` is positive when the wind is down the runway's take-off direction and negative when it is
+    behind the aircraft; `crosswind_kt` is unsigned, because which side the crosswind comes from does not
+    change how the airport is configured; `rwy_wind_misalign` = 1 - cos(delta) is 0 with the wind straight
+    down the runway and 2 straight against it - the state in which a configuration flips."""
+    delta = (pl.col(direction_col).cast(pl.Float64) - pl.col("_rwy_heading")).radians().alias("_delta")
+    speed_kt = pl.col("wind_ms") * KNOTS_PER_MS
+    out = frame.with_columns(runway_heading_deg()).with_columns(delta)
+    out = out.with_columns(
+        [
+            pl.col(direction_col).cast(pl.Float64).alias("wind_dir_deg"),
+            (speed_kt * pl.col("_delta").cos()).cast(pl.Float64).alias("headwind_kt"),
+            (speed_kt * pl.col("_delta").sin().abs()).cast(pl.Float64).alias("crosswind_kt"),
+            (1.0 - pl.col("_delta").cos()).cast(pl.Float64).alias("rwy_wind_misalign"),
+        ]
+    )
+    drop = ["_rwy_heading", "_delta", direction_col, f"{direction_col}_prev1h"]
+    return out.drop([c for c in drop if c in out.columns])
+
+
+def hourly_weather_table(
+    metar: pl.DataFrame, wx_codes: bool = False, wind_dir: bool = False, gust_repair: bool = False
+) -> pl.DataFrame:
     """One row per station-hour with the fields the model uses, including a de-icing gate.
 
     De-icing gate: precipitation or a frozen-precipitation code while the temperature is at or below 3 C -
@@ -173,6 +222,11 @@ def hourly_weather_table(metar: pl.DataFrame, wx_codes: bool = False) -> pl.Data
         pl.col("vis_km").min().alias("vis_km"),
         pl.col("frozen_wx").any().alias("frozen_wx"),
     ]
+    if wind_dir:
+        # Sorted inside the aggregation rather than trusting the frame's order: `last` over a group is the
+        # last row as it arrives, and a differently ordered input would silently pick a different hour's
+        # bearing. With report_type=3 an hour normally holds one observation and the sort is free.
+        aggs.append(pl.col("drct").sort_by("obs_time_utc").last().alias("drct"))
     code_cols = ("wet_wx", "shower_wx", "obscuration_wx")
     if wx_codes:
         flags += [
@@ -184,6 +238,9 @@ def hourly_weather_table(metar: pl.DataFrame, wx_codes: bool = False) -> pl.Data
         # observation reported rain is a rain hour.
         aggs += [pl.col(c).any().alias(c) for c in code_cols]
     hourly = metar.with_columns(flags).group_by(["station", "hour_utc"]).agg(aggs)
+    if gust_repair:
+        filled = pl.coalesce([pl.col("gust_ms"), pl.col("wind_ms")])
+        hourly = hourly.with_columns([filled.alias("gust_filled"), (filled - pl.col("wind_ms")).alias("gust_excess")])
     if not wx_codes:
         return hourly.with_columns(
             [
@@ -231,7 +288,13 @@ def _utc_hour(expr: pl.Expr, like: pl.DataFrame, col: str) -> pl.Expr:
 
 
 def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
-    """Attach the weather hour of the take-off time (and the previous hour) to departure features."""
+    """Attach the weather hour of the take-off time (and the previous hour) to departure features.
+
+    If the hourly table carries `drct` - which it does only when the recipe asked for it, since
+    `hourly_weather_table` drops it otherwise - the raw bearing is turned into the four runway-relative
+    columns and then dropped, level hour only. The bearing itself is not a model column: the same 270 deg
+    means a headwind at one airport and a tailwind at the next, so what reaches the model is the angle
+    against the runway this flight was given."""
     w = hourly.rename({"station": "ADEP_mvt", "hour_utc": WX_KEY})
     prev = w.with_columns((pl.col(WX_KEY) + pl.duration(hours=1)).alias(WX_KEY)).rename(
         {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", WX_KEY)}
@@ -251,4 +314,6 @@ def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
         )
     out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias(WX_KEY))
     out = out.join(w, on=["ADEP_mvt", WX_KEY], how="left").join(prev, on=["ADEP_mvt", WX_KEY], how="left")
+    if "drct" in out.columns:
+        out = wind_relative_columns(out)
     return out.drop(WX_KEY)

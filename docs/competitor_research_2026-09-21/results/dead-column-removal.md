@@ -170,10 +170,18 @@ everywhere the deletion needs it to be:
 new bug, and the three arms differ by nothing but a five-element list in a YAML file.
 
 `[S]` **The frames are byte-identical across the three arms.** `exclude_features` is a model-visibility
-field, not a frame field, so it is correctly absent from `cache_fingerprint`; all three arms printed
-`features: reusing the cache in data/work` against the one fingerprint
-(`use_weather: true`, `wx_codes: false`, `feature_code d2c32675aa94af82`, `weather_code 6aaa29cdc6c4ceee`).
-The P8 fingerprint trap has nothing to bite on here: there is no second cache and no rebuild.
+field, not a frame field, so it is correctly absent from `cache_fingerprint` — all three arms are built from
+one fingerprint (`use_weather: true`, `wx_codes: false`, `feature_code d2c32675aa94af82`, `weather_code
+6aaa29cdc6c4ceee`, the same `raw_dir` and the same file list). There is nothing for the fingerprint to
+differ on between arms.
+
+`[S]` **That claim survived an attack on it mid-experiment, and §4 records how.** A sibling agent editing
+`src/prc/features.py` and `src/prc/weather.py` in the shared working tree changed both hashes under my
+running arms; `cache_fingerprint` caught it, printed
+`cache in data/work was built from different inputs (feature_code, gust_repair, weather_code, wind_dir);
+rebuilding`, and the contaminated arm was discarded rather than reported. The arms below were then re-run
+from a **git worktree pinned to 95ec23e** with its own `PYTHONPATH`, its own `PRC_DATA_DIR` and its own
+feature cache.
 
 ### 1.1 The no-op guard, because a deletion is the shape that can silently not happen
 
