@@ -177,3 +177,55 @@ comparisons in §6 are of file *contents*, never of filenames. **[X]**
 ## 8. Recommendation
 
 <!--S8-->
+**Recommendation: keep both flags on everywhere. Do not flip the default. `lgb_deterministic: False`
+stays in the tree as an opt-in for throwaway exploration only.**
+
+The premise this investigation was opened on does not survive contact with the production row count.
+The measurement that motivated it — about an order of magnitude, 5.6 s/round against ~0.1 s/round —
+was taken at 110k rows. Measured like for like on the real fold, **same arm, same seed count, same
+box**:
+
+| arm | n | mean wall clock | mean RMSE | spread | distinct values |
+|---|---:|---:|---:|---:|---:|
+| `p4a_base` det **ON**, 1 seed | 2 | **350.5 s** | 224.7940 | 0.0000 | 1 |
+| `p4a_base` det **OFF**, 1 seed | 10 | **342.2 s** | 224.7940 | 0.0000 | 1 |
+
+**2.4 % of wall clock.** Not 10×, not 1.5×. The 1.5× figure that circulated mid-run was my own
+arithmetic error, comparing a 3-seed run against a 1-seed one; a 3-seed fit does not cost three
+1-seed fits, so the ratio was meaningless. The like-for-like pair above is the only valid comparison
+in the file. **[S]** `S5`
+
+At 2.4 % there is nothing to buy. Every argument for dropping the flags was an argument about
+compute, and the compute is not there.
+
+**What the measurement establishes anyway, and it is worth having.**
+
+1. **At one seed the flags are not doing anything observable.** Ten runs in ten separate processes
+   with the flags OFF returned 224.7940 and 940/64 rounds, every time. **[S]** `S5`
+2. **The variation is real but appears only at three seeds**: `p4a_base` 9 runs at 223.346 and one at
+   223.363 (spread **0.017**); `p4a_gap` 7 at 219.683, two at 219.701, one at 219.711 (spread
+   **0.028**, and one run took 1113 rounds against 1134 for the other nine). So the flags are not
+   inert — dropping them does eventually change a fit — but the size is two orders below the
+   instrument. **[S]** `S5`
+3. **The verdict this repo actually shipped survives the noisy regime intact.** Mean base 223.3477,
+   mean gap 219.6894, effect **+3.6583 s** against a largest observed spread of 0.028 — a ratio of
+   **131×**. Pairing the two runs adversarially (lowest base against highest gap) still gives
+   **+3.6350 s**. `stand_arrival_gap` would have been adopted on any pairing of these twenty runs.
+   **[S]** `S5`, `S6`
+
+**So the honest summary is not "determinism is expensive" but "determinism is nearly free here, and
+also nearly unnecessary."** Keeping it costs 2.4 % and buys exact reproducibility of archived
+records; dropping it saves 2.4 % and costs the byte-comparison that `configs/determinism_check.yaml`,
+`configs/p11_base.yaml` and the no-op/leak detector in several results notes all rely on — a detector
+this project has needed twice. That trade is one-sided.
+
+**What would reopen it.** A recipe whose fits are long enough that 2.4 % is material *and* whose
+effect size is comparable to 0.03 s — no candidate in `plans/` is either. Or a measurement showing
+the gap widens with row count; the two points available (110k and the production fold) point the
+other way, so this would have to be measured, not assumed. **[X]**
+
+**One thing this note does not explain**, and it should be recorded rather than smoothed over: why
+the spread appears at three seeds and not at one, on the same data and the same flags. Ten identical
+runs at one seed and a two-valued distribution at three seeds is a real pattern in the measurements,
+not a rounding artefact. It does not affect the recommendation — the effect is 131× the spread either
+way — but anyone who later needs a tight bound on the spread should start there. **[X]**
