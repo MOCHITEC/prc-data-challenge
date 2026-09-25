@@ -127,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--work-dir", type=Path, default=data_dir() / "work")
     ap.add_argument("--out-dir", type=Path, default=Path("outputs"))
     ap.add_argument("--skip-cv", action="store_true", help="predict only, reusing the last CV record")
+    ap.add_argument("--cv-only", action="store_true", help="stop after CV (ablations): no ranking fit or file")
     ap.add_argument("--submit", action="store_true", help="upload after the gate passes (uses the daily counter)")
     ap.add_argument("--version", type=int, help="submission version number, required with --submit")
     a = ap.parse_args(argv)
@@ -166,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"tail20={m['top20_share_of_sse']:.2f}"
             )
 
+    if a.cv_only:
+        return 0
     pred, info = predict_ranking(f_tr, f_rk, cfg, predictor=predictor)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     name = spec.get("name", cfg.name)
