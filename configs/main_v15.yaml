@@ -29,17 +29,23 @@
 #     recommends building C1 without it. It is kept here because the -0.29 was measured WITH it, and
 #     shipping a configuration that was never measured is the larger risk.
 #
-# wind_dir and gust_repair are on with all their columns excluded, exactly as in configs/c13_c1.yaml, so
-# the design matrix matches the arm that produced the number rather than merely resembling it. C3 (wind,
-# +0.07) and the gust repair (-0.08) both measured REJECT and are not shipped.
+# C3 (wind, +0.07) and the gust repair (-0.08) both measured REJECT and are not shipped.
+#
+# The first attempt at this build set wind_dir and gust_repair TRUE with every one of their columns
+# excluded, to mirror configs/c13_c1.yaml exactly. It was OOM-killed at 13.97 GB anon RSS in a ~15.6 GB
+# cgroup, because that forces a feature-cache rebuild whose peak lands on top of the first fold's fit.
+# Both flags are now off. That is not a change to the model: weather.py:142,148 define
+# WIND_DIR_COLS = (wind_dir_deg, headwind_kt, crosswind_kt, rwy_wind_misalign) and
+# GUST_REPAIR_COLS = (gust_filled, gust_excess) plus their _prev1h copies, and the exclude list below
+# covers all eight, so with the flags on those columns were computed and then dropped before the matrix.
+# Off, they are never computed. Same design matrix, less memory, and the cache fingerprint returns to the
+# one main_gap.yaml already built.
 name: main_v15
 num_rounds: 2000
 early_stopping: 100
 use_categoricals: true
 use_encodings: true
 use_weather: true
-wind_dir: true
-gust_repair: true
 reference_min_count: 30
 inner_holdout_months: 1
 unmatched_num_leaves: 127
@@ -51,6 +57,4 @@ unmatched_sched_reparam_airports: [LIRF]
 lobt_bound: true
 es_holdout_encodings: true
 include_candidates: [stand_arrival_gap, proxy_at_mode, proxy_minus_mode_min, proxy_sec_in_min]
-exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null,
-                   wind_dir_deg, headwind_kt, crosswind_kt, rwy_wind_misalign,
-                   gust_filled, gust_excess, gust_filled_prev1h, gust_excess_prev1h]
+exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]
