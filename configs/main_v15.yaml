@@ -1,45 +1,24 @@
-# Production recipe for v15 = main_gap.yaml + two changes measured separately this session.
+# v15 = main_gap.yaml + the dead-column removal ONLY. C1 is NOT in this recipe.
 #
-# 1) Dead-column removal (results/dead-column-removal.md). precip_mm is 0.00 on 100 % of 138,446 cached
-#    station-hours, the two temp_x_precip columns are products with it, and runway_null is a separate
-#    constant. Pooled over [forward, jul_fwd], 518,722 rows: base -> drop -0.13 [-0.25, -0.02], K=200
-#    -0.14 [-0.28, -0.01], month bootstrap -0.13 [-0.17, -0.12] P=1.000. ADOPT on both gates.
-#    Its control is a REMOVAL, not an addition: dropping five LIVE columns costs +0.22 s and visibly moves
-#    both models, so the instrument is not blind to a five-column removal. Model B is bit-identical between
-#    base and drop (0 of 6,943 unmatched rows differ), so the change provably acts on model A alone.
+# Why C1 is not here. C1 measured -0.29 [-0.55, -0.07] on the forward fold and clears the rule against
+# base, but every attempt to build it OOM-killed at 13.96-13.97 GB against a cgroup limit of 13,681 MB -
+# four times, including once with --skip-cv so that only the full-data refit ran. main_gap's own peak is
+# about 10.9 GB, so the headroom was 2.5 GB and C1's three columns exceed it. The source note recommends
+# building C1 without proxy_sec_in_min (non-zero on 93.9 % of rows, which is not what the mechanism
+# describes), and that would also cost less memory - but the -0.29 was measured WITH that column, so
+# shipping the two-column version here would mean shipping a configuration nobody has measured. It is
+# being measured separately instead.
 #
-# 2) C1 = proxy_is_nominal (results/C1-C3-measured.md). NM does not observe the stand, so AOBT_3 is an
-#    estimate: sd(AOBT_3 - BLOCK) = 399.3 s against sd 57.5 s for the same disagreement at the arrival end
-#    where both systems watch the runway. At some airports the stamp is a nominal per-runway allowance
-#    rather than an observation - LEBL's modal minute holds 34.4x its neighbours' traffic, LTFM's 14.0x -
-#    while the label over the same range is smooth. The flag fires on 19.88 % of training and 19.85 % of
-#    scored rows. forward fold: base -> C1 -0.29 [-0.55, -0.07], K=200 -0.21 [-0.38, -0.04], month
-#    bootstrap -0.294 [-0.501, -0.093] P=1.000. ADOPT.
+# What IS here, and it is measured (results/dead-column-removal.md): precip_mm is 0.00 on 100 % of
+# 138,446 cached station-hours, the two temp_x_precip columns are products with it, and runway_null is a
+# separate constant. Pooled over [forward, jul_fwd], 518,722 rows: base -> drop -0.13 [-0.25, -0.02],
+# K=200 -0.14 [-0.28, -0.01], month bootstrap -0.13 [-0.17, -0.12] P=1.000. ADOPT on both gates.
 #
-# Read the C1 number with its caveat. C1 clears the rule against base but NOT against its own noise arm
-# (K=0 -0.79 with a CI containing zero, K=200 +0.25, i.e. worse). stand_arrival_gap beat both arms; this
-# does not. Against that, the noise arm is itself unreliable at K=200 here: three signal-free columns read
-# -0.418 [-0.625, -0.208] P=1.000 against base, i.e. significantly BETTER, and a control that improves the
-# metric cannot arbitrate at that drop level.
-#
-# Two things are extrapolation, not measurement, and are recorded as such:
-#   - the two changes were measured SEPARATELY and never together; this recipe is their first combination.
-#   - proxy_sec_in_min is non-zero on 93.9 % of rows, which is not what the mechanism describes (a nominal
-#     allowance subtracted from a take-off stamp should leave the seconds field alone). The source note
-#     recommends building C1 without it. It is kept here because the -0.29 was measured WITH it, and
-#     shipping a configuration that was never measured is the larger risk.
-#
-# C3 (wind, +0.07) and the gust repair (-0.08) both measured REJECT and are not shipped.
-#
-# The first attempt at this build set wind_dir and gust_repair TRUE with every one of their columns
-# excluded, to mirror configs/c13_c1.yaml exactly. It was OOM-killed at 13.97 GB anon RSS in a ~15.6 GB
-# cgroup, because that forces a feature-cache rebuild whose peak lands on top of the first fold's fit.
-# Both flags are now off. That is not a change to the model: weather.py:142,148 define
-# WIND_DIR_COLS = (wind_dir_deg, headwind_kt, crosswind_kt, rwy_wind_misalign) and
-# GUST_REPAIR_COLS = (gust_filled, gust_excess) plus their _prev1h copies, and the exclude list below
-# covers all eight, so with the flags on those columns were computed and then dropped before the matrix.
-# Off, they are never computed. Same design matrix, less memory, and the cache fingerprint returns to the
-# one main_gap.yaml already built.
+# Its control is a REMOVAL, not an addition - dropping five LIVE columns costs +0.22 s and visibly moves
+# both models - so the instrument is not blind to a five-column removal, which is what makes "removing the
+# dead five does not hurt" a finding rather than an absence of one. Model B is bit-identical between base
+# and drop (0 of 6,943 unmatched rows differ, unmatched RMSE equal to six decimals), so the change
+# provably acts on model A alone. This adds no columns, so it adds no memory.
 name: main_v15
 num_rounds: 2000
 early_stopping: 100
@@ -56,5 +35,5 @@ unmatched_sched_reparam: true
 unmatched_sched_reparam_airports: [LIRF]
 lobt_bound: true
 es_holdout_encodings: true
-include_candidates: [stand_arrival_gap, proxy_at_mode, proxy_minus_mode_min, proxy_sec_in_min]
+include_candidates: [stand_arrival_gap]
 exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]
