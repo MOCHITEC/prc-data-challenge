@@ -14,6 +14,10 @@ disturbed.
 **Scripts**: `docs/competitor_research_2026-09-21/scripts/c1_c3_mutation_audit.py` (the mutation audit),
 `.../c1_c3_column_checks.py` (sections K1-K4: what the columns contain and the coverage gate),
 `.../c1_c3_verdicts.py` (the verdicts, computed by `prc.compare`'s own functions).
+**Raw output**, so every number here can be checked without a rerun:
+`results/c1-c3-verdicts.txt`, `results/c1-c3-column-checks.txt`.
+**Experiment ids**: `c13_base-e6806da206`, `c13_c1-84f03c27e2`, `c13_c3wind-f0658b5d2d`,
+`c13_gust-69fd3a7c9e`, `c13_noise3-acca475972`, `c13_noise4-b97278ddd3`.
 
 Marking, as in the source note: **[S]** = measured here, with the section that produced it; **[X]** = an
 inference on top of [S] facts.
@@ -22,7 +26,29 @@ inference on top of [S] facts.
 
 ## 0. The answer first
 
-TBD-SUMMARY
+**C1 passes the repository's decision rule and I still would not build on it.** Against the production
+column set C1 reads **-0.294 s [-0.553, -0.069] on all rows and -0.210 s [-0.381, -0.039] with the worst
+200 rows removed** - both CIs excluding zero on the improving side, which is ADOPT under
+`prc.compare.verdict`. But the arity-matched control arm, three columns that are a hash of the row id,
+reads **-0.418 s [-0.625, -0.208] at K=200** in the same experiment. **[S] The instrument admits pure noise
+on the same leg it admits C1, so the verdict is real and the evidence behind it is not.**
+
+**C3 does not measure**: +0.070 s [-0.412, +0.542] against the base, the wrong sign, CI spanning zero.
+**The gust repair does not measure either**, at -0.078 s [-0.579, +0.426], exactly as the source note
+pre-registered (+0.000). Both are REJECT.
+
+**All seven new columns clear the P8-D coverage gate**: 9 failures on the base column set, 9 with C1, 9
+with C3, 9 with the gust repair, 9 with all three - **zero of them on a column built here** (§5). C3's
+coverage caveat, the reason the note gave for not proposing it, turns out not to bind: `drct`'s worst
+train-to-serve drop is 10.9 points at LSZH against a 20-point threshold.
+
+**The construction requirement the note states was priced, not just obeyed**: a mode table fitted per frame
+would put a different minute behind the same column name on **21 of the 60 (airport, runway) keys that
+occur in the ranking frame** (§6.1).
+
+**Mutation audit: 11 mutants, 9 killed on the first pass, 2 survivors - both repaired, 11/11 on the second
+pass** (§2.1). One survivor was the exact defect this repository shipped last time: the values computed
+correctly and the wrong ones handed over.
 
 ---
 
@@ -235,22 +261,284 @@ apart.
 
 ## 4. Results
 
-TBD-RESULTS
+### 4.1 The arms, as they landed
+
+Forward fold, `n = 328,009` pooled rows (`325,004` lane A / matched, `3,005` lane B). Three seeds,
+`lgb_deterministic: true`. **[S]** `experiments/experiments.jsonl`, arms `c13_*`.
+
+| arm | model-visible numerics | pooled RMSE | lane A | lane B | wall clock |
+|---|---:|---:|---:|---:|---:|
+| `c13_c1` | 93 | **219.4704** | 198.22 | 1004.04 | 724 s |
+| `c13_gust` | 94 | 219.6865 | 198.45 | 1004.26 | 880 s |
+| `c13_c3wind` | 94 | 219.8352 | 198.51 | 1006.59 | 751 s |
+| `c13_noise3` | 93 | 220.2581 | 198.36 | 1019.80 | 816 s |
+| `c13_noise4` | 94 | 220.3537 | 198.65 | 1015.89 | 657 s |
+| `c13_base` | 90 | 219.7648 | 198.55 | 1004.04 | 835 s |
+
+**[S] Read the two control arms first.** Three signal-free columns and four signal-free columns land
+**0.79 s and 0.88 s worse** than C1, and 0.52 s worse than C3. Nothing in a noise column can explain a
+0.8 s difference: this is the `feature_fraction: 0.8` redraw that `docs/features_log.md` priced at
++/-0.5 s per column, seen again, and it is four to nine times the effects being tested for.
+
+### 4.2 The verdicts, against the arity-matched controls
+
+`prc.compare`'s own functions, 500 bootstrap resamples, the rule unchanged
+(`scripts/c1_c3_verdicts.py`). Negative = B better.
+
+**C1 against three noise columns** [S]
+
+| dropped | A (noise3) | B (C1) | diff | CI95 | P(B better) |
+|---:|---:|---:|---:|---|---:|
+| 0 | 220.2581 | 219.4704 | **-0.788** | **[-2.532, +0.526]** | 0.820 |
+| 20 | 204.1882 | 204.2512 | +0.063 | [-0.291, +0.422] | 0.352 |
+| **200** | 193.9949 | 194.2431 | **+0.248** | **[+0.017, +0.513]** | 0.016 |
+| 2000 | 174.4110 | 174.5244 | +0.113 | [+0.003, +0.256] | 0.024 |
+
+month bootstrap (2 months) -0.788 [-1.422, -0.135]; lane A **-0.138 s**.
+**VERDICT: REJECT** - the full-data CI contains zero, and the sign reverses once twenty rows are gone:
+at K=200 C1 is *worse* by +0.248 [+0.017, +0.513]. The -0.79 s is about twenty rows.
+
+**C3 against four noise columns** [S]
+
+| dropped | A (noise4) | B (C3) | diff | CI95 | P(B better) |
+|---:|---:|---:|---:|---|---:|
+| 0 | 220.3537 | 219.8352 | **-0.518** | **[-1.692, +0.360]** | 0.804 |
+| 20 | 204.6571 | 204.6757 | +0.019 | [-0.235, +0.275] | 0.448 |
+| **200** | 194.5031 | 194.3935 | **-0.110** | **[-0.290, +0.058]** | 0.888 |
+| 2000 | 174.6002 | 174.6305 | +0.030 | [-0.078, +0.141] | 0.282 |
+
+month bootstrap -0.518 [-1.356, +0.339]; lane A **-0.142 s**.
+**VERDICT: REJECT** - neither CI excludes zero.
+
+**The gust repair against four noise columns** [S]
+
+| dropped | A (noise4) | B (gust) | diff | CI95 | P(B better) |
+|---:|---:|---:|---:|---|---:|
+| 0 | 220.3537 | 219.6865 | **-0.667** | **[-1.737, +0.171]** | 0.924 |
+| 20 | 204.6228 | 204.5110 | -0.112 | [-0.368, +0.163] | 0.800 |
+| **200** | 194.4391 | 194.3302 | **-0.109** | **[-0.304, +0.087]** | 0.898 |
+| 2000 | 174.6181 | 174.6731 | +0.055 | [-0.045, +0.171] | 0.114 |
+
+month bootstrap -0.667 [-1.247, -0.072]; lane A -0.199 s.
+**VERDICT: REJECT** - as the note said it would: hygiene, not a gain.
+
+### 4.3 The verdicts against the base arm
+
+This is the comparison the decision rule is written about: A = the production column set, B = the same
+plus the candidate. [S] `scripts/c1_c3_verdicts.py`.
+
+| pair | full-data diff | CI95 | K=200 diff | CI95 | month bootstrap | verdict |
+|---|---:|---|---:|---|---|---|
+| base -> **C1** | **-0.294** | **[-0.553, -0.069]** | **-0.210** | **[-0.381, -0.039]** | -0.294 [-0.501, -0.093] | **ADOPT** |
+| base -> C3 | +0.070 | [-0.412, +0.542] | -0.053 | [-0.211, +0.122] | +0.070 [-0.352, +0.502] | REJECT |
+| base -> gust repair | -0.078 | [-0.579, +0.426] | -0.106 | [-0.263, +0.039] | -0.078 [-0.243, +0.090] | REJECT |
+| base -> noise3 (control) | +0.493 | [-0.778, +2.235] | **-0.418** | **[-0.625, -0.208]** | +0.493 [-0.366, +1.329] | REJECT |
+| base -> noise4 (control) | +0.589 | [-0.503, +1.920] | +0.000 | [-0.218, +0.213] | +0.589 [+0.163, +1.004] | REJECT |
+
+**C1 passes the repository's rule outright.** Both CIs exclude zero on the improving side, P(B better) is
+0.990 or better at all four drop levels, the effect survives every drop level (-0.294 / -0.348 / -0.210 /
+-0.143 at K = 0 / 20 / 200 / 2000), the month bootstrap agrees on both scored months, and lane A moves
+**-0.329 s**. At `dBoard/dOOF = 0.747` that prices at **-0.220 s of board**, about three times the
+pre-registered -0.07.
+
+**And the control arm says the rule cannot be trusted at this size.** Look at the last two rows.
+Three signal-free columns read **+0.493 s on all rows and -0.418 s [-0.625, -0.208] once 200 rows are
+gone** - a *significant improvement* from columns that are a hash of the row id. Four of them read +0.589
+and +0.000. **[S]** A statistic that three hash columns move by 0.4-0.6 s in either direction cannot
+resolve a 0.29 s column, and the K=200 CI excluding zero is not, at this scale, evidence of signal: the
+control did it too, in the improving direction.
+
+**One reading that is not available.** The drop-200 set is computed per pair - the rows removed are those
+where *either* model of that pair errs most - so the retained rows differ between comparisons and the K=200
+numbers are **not transitive**. base->C1 (-0.210), noise3->C1 (+0.248) and base->noise3 (-0.418) are three
+different experiments on three different row sets, and no ordering can be read off them. Each pair is its
+own measurement, and that is how they are reported here.
+
+### 4.4 What the numbers say about the instrument, not about the features
+
+**[S] Every full-data difference in §4.2 is between -0.5 and -0.8 s, and every one of them collapses to
+within +/-0.12 s by K=20.** Twenty rows out of 328,009 carry the whole apparent difference between any two
+of these arms. That is the phenomenon `prc.compare` was written for, and it is why the repository requires
+both CIs.
+
+**[X] The consequence for what can be concluded.** The quantity these arms were aimed at is -0.09 s (C1)
+and -0.06 s (C3) of pooled OOF. The measured lane-A differences are -0.138 s and -0.142 s - the right
+order, the right sign - but they sit inside a full-data CI of +/-1.5 s and beside a control-arm redraw of
+0.5-0.9 s. **The instrument's resolution is about ten times the effect.** A reading of -0.14 s of lane A
+from an instrument whose arm-to-arm scatter is 0.8 s is not evidence of -0.14 s; it is consistent with
+anything between -1 s and +0.5 s.
 
 ---
 
 ## 5. The coverage gate (P8-D)
 
-TBD-COVERAGE
+`src/prc/coverage.py` run five times on the same pair of frames (`scripts/c1_c3_column_checks.py` K4),
+once per column set. The base arm is the control: **this gate already fails on production's own columns**,
+so a raw count means nothing without it.
+
+| column set | model-visible columns | failures | failures on a NEW column |
+|---|---:|---:|---:|
+| base (control) | 100 | **9** | 0 |
+| base + C1 | 103 | **9** | **0** |
+| base + C3 wind | 104 | **9** | **0** |
+| base + gust repair | 104 | **9** | **0** |
+| base + C1 + C3 + gust | 111 | **9** | **0** |
+
+**[S] The failure count is 9 in every arm, and not one failure is on a column built here.** The nine are
+pre-existing: five `DEAD` constants (`runway_null`, `precip_mm`, `temp_x_precip` and the two `_prev1h`
+copies - P8-D's finding, unchanged) and four `NONZERO` collapses on `dewp_spread_c` and its previous-hour
+copy at LEMD and LSZH in January 2026.
+
+**C3 clears the gate the note asked about, and the reason is worth stating.** `drct` is null on 8.5% of
+*rows* (the note's 10.0% is over METAR *observations*; rows are not distributed like observations) and the
+worst airport is LSZH, exactly as the note said - but the number that matters to the gate is the
+train-to-serve *drop*, not the level:
+
+| airport | train-2025 null | 2026-01 null | 2026-07 null | worst non-null drop |
+|---|---:|---:|---:|---:|
+| **LSZH** | **29.8 %** | **40.7 %** | 29.0 % | **10.9 pts** |
+| EDDF | 13.9 % | 9.5 % | 18.1 % | 4.2 pts |
+| LEMD | 14.6 % | 15.8 % | 9.9 % | 1.2 pts |
+| LFPG | 3.8 % | 1.0 % | 9.1 % | 5.3 pts |
+| the other six | 2.5-14.9 % | - | - | < 5 pts |
+
+**[S] The worst drop anywhere is 10.9 points at LSZH in January, against a 20-point threshold.** The feed
+is equally patchy on both sides of the join, which is the condition the gate exists to check. [X] That is
+a real answer to the note's caveat rather than a waiver: the coverage objection to C3 does not survive
+measurement.
 
 ---
 
 ## 6. What the columns contain
 
-TBD-COLUMNS
+### 6.1 C1's mode table, and the construction requirement priced
+
+`scripts/c1_c3_column_checks.py` K1, on the real frames. **[S]**
+
+* **68** (airport, runway) keys on the union; **60** of them occur in the ranking frame.
+* **A table fitted per frame would put a different minute behind the same column name on 21 of those 60
+  keys - 35 % of the serving keys.** Examples: EGLL 09L (union 16, rank-only 27), EDDF "NA" (10 vs 30),
+  LFPG 08R (14 vs 19), LSZH "H" (-46 vs 16).
+* Fitted on the training frame alone the table differs from the union on **3** of 68 keys - the union is
+  dominated by the 2.09M training departures against 344k scored ones. [X] So the practical damage of the
+  wrong fit is on the *ranking* side, which is exactly the side nobody can check after the fact.
+
+### 6.2 What C1's three columns contain
+
+| column | train null | train non-zero | rank null | rank non-zero |
+|---|---:|---:|---:|---:|
+| `proxy_at_mode` | 1.08 % | **19.88 %** | 1.53 % | **19.85 %** |
+| `proxy_minus_mode_min` | 1.08 % | 79.04 % | 1.53 % | 78.62 % |
+| `proxy_sec_in_min` | 1.08 % | 93.87 % | 1.53 % | 93.44 % |
+
+The flag fires on **19.9 % of training rows and 19.9 % of scored rows** - the same share on both sides,
+which is what a parity-safe column should look like. The null share is the `mvt_minus_aobt3` null rate
+(lane B), not a defect.
+
+Per airport, the spike the mechanism predicts is there and it is large where the note said it would be:
+
+| ADEP | modal minute | rows | share | spike vs neighbours | `proxy_at_mode` share |
+|---|---:|---:|---:|---:|---:|
+| **LEBL** | 20 | 47,580 | 26.8 % | **34.4x** | 27.0 % |
+| **LTFM** | 19 | 80,383 | 29.8 % | **14.0x** | 38.5 % |
+| EDDM | 11 | 36,971 | 22.2 % | 4.4x | 27.4 % |
+| LSZH | 11 | 25,568 | 19.3 % | 2.8x | 24.1 % |
+| LEMD | 16 | 38,091 | 18.0 % | 2.6x | 22.0 % |
+| LIRF / EDDF / EHAM / LFPG | 13-14 | - | 11.1-13.8 % | 1.6-1.8x | 13.0-15.4 % |
+| EGLL | 22 | 16,111 | 6.8 % | 1.1x | 6.9 % |
+
+[S] The mechanism reproduces on the full training frame (the note's §2 numbers - LEBL 30.1x, LTFM 19.9x -
+were measured on the pooled OOF rows with a different neighbour window, so the two are close but not the
+same statistic).
+
+**One column is not what the mechanism describes, and it should be said.** `proxy_sec_in_min` is non-zero
+on **93.9 %** of rows. A nominal allowance subtracted from a take-off stamp would leave the *seconds of the
+take-off stamp* in this column, not a zero - the whole-minute property the note cites belongs to `AOBT_3`,
+not to the difference. [X] So the third column is mostly "what second of the minute did this aircraft lift
+off", which is a plausible nuisance regressor and not a statement about the stamp's provenance. The
+mechanism is carried by the first two columns; the third rode along.
+
+### 6.3 C3's columns
+
+| column | train null | train non-zero | rank null | rank non-zero |
+|---|---:|---:|---:|---:|
+| `wind_dir_deg` | 8.49 % | 90.69 % | 8.52 % | 91.30 % |
+| `headwind_kt` | 8.50 % | 90.68 % | 8.54 % | 91.28 % |
+| `crosswind_kt` | 8.50 % | 85.15 % | 8.54 % | 86.05 % |
+| `rwy_wind_misalign` | 8.50 % | 85.32 % | 8.54 % | 86.11 % |
+| `gust_filled` | 0.02 % | 99.16 % | 0.01 % | 99.81 % |
+| `gust_excess` | 0.02 % | **2.29 %** | 0.01 % | **3.38 %** |
+
+`gust_excess` is non-zero on 2.3 % of training rows and 3.4 % of scored rows - it is above the gate's
+0.1 % near-dead tier, and its rarity **is** the repair working: on the other 97 % the wind was steady and
+the answer is a measured zero rather than a null that LightGBM would turn into a zero anyway without
+anyone knowing which it meant.
 
 ---
 
 ## 7. Verdicts, and what I would do
 
-TBD-VERDICTS
+### 7.1 C1 - `proxy_is_nominal`
+
+**Verdict: ADOPT by the rule, UNMEASURABLE by the instrument. I would not ship it on this evidence.**
+
+The rule fires: -0.294 [-0.553, -0.069] on all rows and -0.210 [-0.381, -0.039] at K=200, both CIs
+excluding zero on the improving side, month bootstrap agreeing, -0.220 s of board at 0.747. The mechanism
+is real and reproduces (LEBL 34.4x, LTFM 14.0x), the construction is parity-safe and union-fitted, the
+column set clears the coverage gate, and the measured effect is three times the pre-registration rather
+than a hair under it.
+
+**What stops me recommending a build anyway** is the control arm in the same table: three columns that are
+a hash of the row id read **-0.418 s [-0.625, -0.208] at K=200**, which is *larger* than C1's -0.210 and on
+the improving side. The rule was calibrated on `stand_arrival_gap`, an effect of -3.6 s, where the redraw
+was 15 % of the signal. Here the redraw is bigger than the signal. **[X] A rule that admits C1 on this
+evidence would also admit `noise_control` on the K=200 leg, and this repository has already shipped
+`noise_control` once (v6, 350.62 against v4's 305.03).**
+
+What would change my mind, in order of cost: (a) repeat the base and C1 arms on a second seed set - the
+question is whether -0.294 reproduces or wanders by half a second, and that is two runs; (b) run both on
+all three folds, where the pooled n triples; (c) drop `proxy_sec_in_min`, which §6.2 shows is measuring the
+take-off stamp's seconds rather than the mechanism, and see whether the two-column version holds the effect.
+
+### 7.2 C3 - wind direction relative to the assigned runway
+
+**Verdict: REJECT, and on this evidence it is a clean one.** +0.070 [-0.412, +0.542] against the base,
+-0.110 [-0.290, +0.058] against its noise control at K=200; the full-data CI contains zero on every
+comparison and the point estimate has the wrong sign against the base. The pre-registered band was
+-0.00 to -0.06 s of board and the measurement cannot distinguish that from zero, so **UNMEASURABLE is the
+honest label for the pre-registered effect** and REJECT is the verdict for the column set. The coverage
+objection turned out not to apply (§5), which is worth recording because it removes the reason the note
+gave for not proposing C3 for production - the reason it should not go to production now is that it does
+not measure.
+
+### 7.3 The `gust_ms` hygiene repair
+
+**Verdict: REJECT as a gain, exactly as pre-registered (+0.000 in the note, -0.078 [-0.579, +0.426] here).**
+It is still correct: `gust_ms` is null on 96.6 % of scored rows and the null means "steady", and a column
+that cannot tell "steady" from "unobserved" is a column whose splits mean two things. [X] If a production
+build happens for another reason, the repair should ride along in it. It should never be the reason for one.
+
+### 7.4 Is either worth a production build? My reading
+
+**No - not on today's evidence, and the reason is the instrument rather than the candidates.**
+
+A production build is three folds plus a refit plus a submission slot. What it would buy, at the very best
+reading of these numbers, is -0.22 s of board from C1 and nothing from C3. The base-to-control gap in this
+same experiment is 0.49-0.59 s. [X] Spending a submission on a change whose measured effect is half its own
+instrument's noise is the trade this repository has already lost twice (`queue_ahead`, `bank_position`,
+`stand_rwy_share` - all three "worse than base", all three inside the noise once the control was built).
+
+**What I would do instead, in this order.**
+
+1. **Keep the code.** It is behind flags that default to off, it is tested, the mutation audit kills every
+   mutant, and it costs nothing until someone turns it on.
+2. **If there is cheap compute, buy resolution, not another candidate.** Two more seeds on `c13_base` and
+   `c13_c1` answer the only question that matters about C1 - whether -0.294 is a number or a draw - and
+   cost 25 minutes. That is a far better use of a slot than measuring a fourth column against the same
+   blunt instrument.
+3. **If C1 is ever built for production, build it without `proxy_sec_in_min`** (§6.2) and with the gust
+   repair riding along (§7.3).
+4. **Do not treat the source note's §4 screen as refuted.** It predicted C1 > C3 > gust in that order and
+   that is exactly the order measured here (-0.294 / +0.070 / -0.078 against base). [X] The screen ranked
+   these three candidates correctly; what it could not do - and what this measurement also cannot do - is
+   tell a small real effect from zero.

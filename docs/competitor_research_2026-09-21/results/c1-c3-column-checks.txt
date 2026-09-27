@@ -1,0 +1,146 @@
+K1 mode table: 68 (airport, runway) keys on the union of train and rank
+K1   keys also present in the ranking frame: 60
+K1   a per-frame fit would put a DIFFERENT minute behind the same column name on 21 of them
+K1   train-only vs union disagree on 3 keys
+shape: (21, 5)
+┌──────────┬────────────┬───────┬────────────┬───────────┐
+│ ADEP_mvt ┆ RUNWAY_mvt ┆ union ┆ train_only ┆ rank_only │
+│ ---      ┆ ---        ┆ ---   ┆ ---        ┆ ---       │
+│ str      ┆ str        ┆ f64   ┆ f64        ┆ f64       │
+╞══════════╪════════════╪═══════╪════════════╪═══════════╡
+│ EDDF     ┆ NA         ┆ 10.0  ┆ 10.0       ┆ 30.0      │
+│ EGLL     ┆ 09L        ┆ 16.0  ┆ 16.0       ┆ 27.0      │
+│ EGLL     ┆ 27R        ┆ 23.0  ┆ 23.0       ┆ 22.0      │
+│ EHAM     ┆ 04         ┆ 10.0  ┆ 10.0       ┆ 12.0      │
+│ EHAM     ┆ 06         ┆ 12.0  ┆ 12.0       ┆ 14.0      │
+│ …        ┆ …          ┆ …     ┆ …          ┆ …         │
+│ LIRF     ┆ 16R        ┆ 17.0  ┆ 17.0       ┆ 18.0      │
+│ LIRF     ┆ 34L        ┆ 15.0  ┆ 15.0       ┆ 14.0      │
+│ LIRF     ┆ 34R        ┆ 17.0  ┆ 17.0       ┆ 18.0      │
+│ LSZH     ┆ 32         ┆ 12.0  ┆ 12.0       ┆ 10.0      │
+│ LSZH     ┆ H          ┆ -46.0 ┆ -46.0      ┆ 16.0      │
+└──────────┴────────────┴───────┴────────────┴───────────┘
+============================ K2 ============================
+K2 train: 2,085,047 rows
+K2   proxy_at_mode          null   1.08%   non-zero  19.88%
+K2   proxy_minus_mode_min   null   1.08%   non-zero  79.04%
+K2   proxy_sec_in_min       null   1.08%   non-zero  93.87%
+K2 rank: 344,841 rows
+K2   proxy_at_mode          null   1.53%   non-zero  19.85%
+K2   proxy_minus_mode_min   null   1.53%   non-zero  78.62%
+K2   proxy_sec_in_min       null   1.53%   non-zero  93.44%
+K2 per airport, on the training frame: the modal minute, its share, and the spike ratio
+K2 (spike = rows in the modal minute / median rows in the ten neighbouring minute bins)
+  ADEP  mode_min      rows   share    spike  proxy_at_mode
+  LEBL        20    47,580   26.8%     34.4x          27.0%
+  LTFM        19    80,383   29.8%     14.0x          38.5%
+  EDDM        11    36,971   22.2%      4.4x          27.4%
+  LSZH        11    25,568   19.3%      2.8x          24.1%
+  LEMD        16    38,091   18.0%      2.6x          22.0%
+  LIRF        14    21,940   13.8%      1.8x          14.7%
+  EDDF        14    28,676   12.6%      1.8x          13.0%
+  EHAM        10    28,003   11.5%      1.6x          15.4%
+  LFPG        13    26,247   11.1%      1.6x          13.4%
+  EGLL        22    16,111    6.8%      1.1x           6.9%
+============================ K3 ============================
+K3 train: 2,085,047 rows
+K3   wind_dir_deg           null   8.49%   non-zero  90.69%
+K3   headwind_kt            null   8.50%   non-zero  90.68%
+K3   crosswind_kt           null   8.50%   non-zero  85.15%
+K3   rwy_wind_misalign      null   8.50%   non-zero  85.32%
+K3   gust_filled            null   0.02%   non-zero  99.16%
+K3   gust_excess            null   0.02%   non-zero   2.29%
+K3   gust_filled_prev1h     null   0.02%   non-zero  99.07%
+K3   gust_excess_prev1h     null   0.02%   non-zero   2.28%
+K3 rank: 344,841 rows
+K3   wind_dir_deg           null   8.52%   non-zero  91.30%
+K3   headwind_kt            null   8.54%   non-zero  91.28%
+K3   crosswind_kt           null   8.54%   non-zero  86.05%
+K3   rwy_wind_misalign      null   8.54%   non-zero  86.11%
+K3   gust_filled            null   0.01%   non-zero  99.81%
+K3   gust_excess            null   0.01%   non-zero   3.38%
+K3   gust_filled_prev1h     null   0.01%   non-zero  99.76%
+K3   gust_excess_prev1h     null   0.01%   non-zero   3.33%
+K3 wind_dir_deg null share per airport (train / each scored period)
+    period   ADEP         n   null%
+    202601   EDDF    15,667     9.5
+    202607   EDDF    20,650    18.1
+train-2025   EDDF   230,141    13.9
+    202601   EDDM    10,953    12.9
+    202607   EDDM    15,013    15.7
+train-2025   EDDM   167,334    14.9
+    202601   EGLL    19,283     3.6
+    202607   EGLL    20,557     5.7
+train-2025   EGLL   239,546     4.8
+    202601   EHAM    16,232     0.5
+    202607   EHAM    21,950     2.7
+train-2025   EHAM   247,951     2.9
+    202601   LEBL    12,201     2.9
+    202607   LEBL    17,879     1.6
+train-2025   LEBL   179,705     2.6
+    202601   LEMD    16,802    15.8
+    202607   LEMD    20,152     9.9
+train-2025   LEMD   212,242    14.6
+    202601   LFPG    18,129     1.0
+    202607   LFPG    21,743     9.1
+train-2025   LFPG   239,552     3.8
+    202601   LIRF    11,061     4.2
+    202607   LIRF    15,838     6.3
+train-2025   LIRF   160,704     6.0
+    202601   LSZH     9,995    40.7
+    202607   LSZH    13,155    29.0
+train-2025   LSZH   134,907    29.8
+    202601   LTFM    22,396     2.3
+    202607   LTFM    25,185     2.1
+train-2025   LTFM   272,965     2.5
+============================ K4 ============================
+K4 base (control: what already fails): 100 model-visible columns, 9 failure(s), 0 of them on a new column
+K4       DEAD             runway_null              @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c            @LEMD 202601  non-zero 96.7% (all-2025) / 93.7% (202501) -> 72.5%: -24.2 pts vs all-2025, -21.2 pts month-matched
+K4       NONZERO          dewp_spread_c            @LSZH 202601  non-zero 93.2% (all-2025) / 95.9% (202501) -> 70.4%: -22.8 pts vs all-2025, -25.6 pts month-matched
+K4       DEAD             precip_mm                @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip            @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c_prev1h     @LEMD 202601  non-zero 96.2% (all-2025) / 93.4% (202501) -> 70.6%: -25.7 pts vs all-2025, -22.9 pts month-matched
+K4       NONZERO          dewp_spread_c_prev1h     @LSZH 202601  non-zero 92.0% (all-2025) / 95.5% (202501) -> 69.5%: -22.5 pts vs all-2025, -26.0 pts month-matched
+K4       DEAD             precip_mm_prev1h         @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip_prev1h     @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4 base + C1: 103 model-visible columns, 9 failure(s), 0 of them on a new column
+K4       DEAD             runway_null              @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c            @LEMD 202601  non-zero 96.7% (all-2025) / 93.7% (202501) -> 72.5%: -24.2 pts vs all-2025, -21.2 pts month-matched
+K4       NONZERO          dewp_spread_c            @LSZH 202601  non-zero 93.2% (all-2025) / 95.9% (202501) -> 70.4%: -22.8 pts vs all-2025, -25.6 pts month-matched
+K4       DEAD             precip_mm                @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip            @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c_prev1h     @LEMD 202601  non-zero 96.2% (all-2025) / 93.4% (202501) -> 70.6%: -25.7 pts vs all-2025, -22.9 pts month-matched
+K4       NONZERO          dewp_spread_c_prev1h     @LSZH 202601  non-zero 92.0% (all-2025) / 95.5% (202501) -> 69.5%: -22.5 pts vs all-2025, -26.0 pts month-matched
+K4       DEAD             precip_mm_prev1h         @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip_prev1h     @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4 base + C3 wind: 104 model-visible columns, 9 failure(s), 0 of them on a new column
+K4       DEAD             runway_null              @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c            @LEMD 202601  non-zero 96.7% (all-2025) / 93.7% (202501) -> 72.5%: -24.2 pts vs all-2025, -21.2 pts month-matched
+K4       NONZERO          dewp_spread_c            @LSZH 202601  non-zero 93.2% (all-2025) / 95.9% (202501) -> 70.4%: -22.8 pts vs all-2025, -25.6 pts month-matched
+K4       DEAD             precip_mm                @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip            @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c_prev1h     @LEMD 202601  non-zero 96.2% (all-2025) / 93.4% (202501) -> 70.6%: -25.7 pts vs all-2025, -22.9 pts month-matched
+K4       NONZERO          dewp_spread_c_prev1h     @LSZH 202601  non-zero 92.0% (all-2025) / 95.5% (202501) -> 69.5%: -22.5 pts vs all-2025, -26.0 pts month-matched
+K4       DEAD             precip_mm_prev1h         @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip_prev1h     @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4 base + gust repair: 104 model-visible columns, 9 failure(s), 0 of them on a new column
+K4       DEAD             runway_null              @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c            @LEMD 202601  non-zero 96.7% (all-2025) / 93.7% (202501) -> 72.5%: -24.2 pts vs all-2025, -21.2 pts month-matched
+K4       NONZERO          dewp_spread_c            @LSZH 202601  non-zero 93.2% (all-2025) / 95.9% (202501) -> 70.4%: -22.8 pts vs all-2025, -25.6 pts month-matched
+K4       DEAD             precip_mm                @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip            @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c_prev1h     @LEMD 202601  non-zero 96.2% (all-2025) / 93.4% (202501) -> 70.6%: -25.7 pts vs all-2025, -22.9 pts month-matched
+K4       NONZERO          dewp_spread_c_prev1h     @LSZH 202601  non-zero 92.0% (all-2025) / 95.5% (202501) -> 69.5%: -22.5 pts vs all-2025, -26.0 pts month-matched
+K4       DEAD             precip_mm_prev1h         @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip_prev1h     @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4 base + C1 + C3 + gust: 111 model-visible columns, 9 failure(s), 0 of them on a new column
+K4       DEAD             runway_null              @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c            @LEMD 202601  non-zero 96.7% (all-2025) / 93.7% (202501) -> 72.5%: -24.2 pts vs all-2025, -21.2 pts month-matched
+K4       NONZERO          dewp_spread_c            @LSZH 202601  non-zero 93.2% (all-2025) / 95.9% (202501) -> 70.4%: -22.8 pts vs all-2025, -25.6 pts month-matched
+K4       DEAD             precip_mm                @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip            @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       NONZERO          dewp_spread_c_prev1h     @LEMD 202601  non-zero 96.2% (all-2025) / 93.4% (202501) -> 70.6%: -25.7 pts vs all-2025, -22.9 pts month-matched
+K4       NONZERO          dewp_spread_c_prev1h     @LSZH 202601  non-zero 92.0% (all-2025) / 95.5% (202501) -> 69.5%: -22.5 pts vs all-2025, -26.0 pts month-matched
+K4       DEAD             precip_mm_prev1h         @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant
+K4       DEAD             temp_x_precip_prev1h     @ALL ALL  non-zero on 0.0000% of 2,085,047 training rows (< 0.001%): the model is given a constant

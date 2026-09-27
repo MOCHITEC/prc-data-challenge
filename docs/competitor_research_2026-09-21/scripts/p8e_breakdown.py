@@ -12,6 +12,7 @@ Reads `experiments/oof_<exp_id>.parquet` and the `_folds.parquet` sidecars; writ
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -30,12 +31,14 @@ from prc.compare import (
 )
 from prc.train import LABEL, PROXY
 
-EXP = ROOT / "experiments"
-WORK = ROOT / "data" / "work"
+# The arms were fitted from a pinned git worktree with its own feature cache (see the results note,
+# "the shared working tree changed under the experiment"), so both directories are overridable.
+EXP = Path(os.environ.get("PRC_EXP_DIR", ROOT / "experiments"))
+WORK = Path(os.environ.get("PRC_WORK_DIR", ROOT / "data" / "work"))
 N_BOOT = 500
 
 ARMS = {
-    "base": "p8e_base-798baa7a90",
+    "base": os.environ.get("PRC_BASE_ARM", "p8e_base-798baa7a90"),
     "drop": "p8e_drop-30925f6d13",
     "ctrl": "p8e_ctrl-d7e31c32c6",
 }

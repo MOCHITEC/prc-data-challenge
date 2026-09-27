@@ -291,10 +291,10 @@ def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
     """Attach the weather hour of the take-off time (and the previous hour) to departure features.
 
     If the hourly table carries `drct` - which it does only when the recipe asked for it, since
-    `hourly_weather_table` drops it otherwise - the raw bearing is turned into the four runway-relative
-    columns and then dropped, level hour only. The bearing itself is not a model column: the same 270 deg
-    means a headwind at one airport and a tailwind at the next, so what reaches the model is the angle
-    against the runway this flight was given."""
+    `hourly_weather_table` drops it otherwise - the bearing is turned into the four columns of C3, level
+    hour only, and the `drct` name and its previous-hour copy are dropped. The bearing survives under its
+    own name, `wind_dir_deg`, because the note's C3 specifies it; what carries the mechanism is the other
+    three, since the same 270 degrees is a headwind at one airport and a tailwind at the next."""
     w = hourly.rename({"station": "ADEP_mvt", "hour_utc": WX_KEY})
     prev = w.with_columns((pl.col(WX_KEY) + pl.duration(hours=1)).alias(WX_KEY)).rename(
         {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", WX_KEY)}

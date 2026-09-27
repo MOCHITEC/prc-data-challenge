@@ -354,7 +354,7 @@ def proxy_mode_table(frames) -> pl.DataFrame:
 
 
 def _proxy_minute() -> pl.Expr:
-    """`(MVT_TIME - AOBT_3)` in whole minutes, floored, from whichever of the two forms the frame carries."""
+    """`(MVT_TIME - AOBT_3)` in whole minutes, floored. Raw timestamps only: no label is involved."""
     return (_sec("MVT_TIME_UTC_mvt", "AOBT_3_flt") // 60.0).cast(pl.Float64)
 
 
