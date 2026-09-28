@@ -1,11 +1,11 @@
-"""Open weather data for the 10 competition airports (docs/04 section 4-6, docs/03 section 9).
+"""Open weather data for the 10 competition airports (docs/README).
 
 Primary source: Iowa Environmental Mesonet (IEM) ASOS/METAR archive - public domain, hourly METAR with
 visibility and present-weather codes, which the reanalysis products do not offer. The service asks for at most
 one request per second per IP, so fetches are chunked by station and year and cached on disk.
 
 Secondary source (gap filling / snowfall): Open-Meteo historical API, CC BY 4.0. Attribution and licence notes
-belong in docs/external_data.md.
+belong in docs/README.
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
     """One row per station-hour with the fields the model uses, including a de-icing gate.
 
     De-icing gate: precipitation or a frozen-precipitation code while the temperature is at or below 3 C -
-    the January mechanism reported in docs/03 section 8 (dry vs wet at sub-zero changes taxi-out by 400-1000 s)."""
+    the January mechanism reported in docs/README (dry vs wet at sub-zero changes taxi-out by 400-1000 s)."""
     frozen = pl.fold(pl.lit(False), lambda a, b: a | b, [pl.col("wx").str.contains(c) for c in SNOW_CODES])
     return (
         metar.with_columns(
@@ -162,64 +162,42 @@ def hourly_weather_table(metar: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _align_tz(col: pl.Expr, like: pl.DataType) -> pl.Expr:
-    """Make a datetime column's time zone match `like`.
-
-    The METAR archive is parsed as naive UTC while prc.features produces timezone-aware UTC, and polars refuses
-    to join a datetime[us] key against a datetime[us, UTC] one. Both sides mean UTC, so this only relabels."""
-    tz = getattr(like, "time_zone", None)
-    return col.dt.replace_time_zone(tz) if tz else col.dt.replace_time_zone(None)
+# The join key is named for what it is and never reuses a feature name. An earlier version called it
+# "hour_utc", which is also the integer hour-of-day feature: turning weather on overwrote that column with a
+# timestamp and then dropped it, so every weather run silently trained without hour_utc. v3 and v4 were built
+# that way.
+WX_KEY = "_wx_hour"
 
 
-# The columns with an operational mechanism behind them, and the only ones carried by default.
-#
-# Measured on v11, which carried all twenty (ten fields plus a previous-hour copy of each): decisively better in
-# January (-3.79s, P = 1.000) and probably worse in July (+2.45s, P better = 0.195), for nothing net on the two
-# scored months. De-icing never fires in July, so every winter column is a noise dimension there, and twenty of
-# them across 2M rows buy enough spurious splits to cancel the January gain.
-#
-# Kept: the de-icing gate and its inputs, and visibility, which triggers low-visibility procedures year-round.
-# Dropped: gust_ms (97.7% null - only reported when present), dewp_spread_c and temp_x_precip (collinear with
-# the gate's inputs), frozen_wx (already inside the gate). Only the de-icing gate keeps a previous-hour copy,
-# because a de-icing queue persists past the weather that caused it, which is not true of visibility.
-MECHANISM_COLUMNS = ("deicing_gate", "temp_c", "precip_mm", "vis_km", "low_vis", "wind_ms")
-MECHANISM_PREV1H = ("deicing_gate",)
+def _utc_hour(expr: pl.Expr, like: pl.DataFrame, col: str) -> pl.Expr:
+    """Truncate to the hour, matching the time zone of `like[col]`.
+
+    The official parquet files type their timestamps as UTC-aware while the METAR archive parses naive, and
+    polars refuses to join across the two rather than guessing."""
+    tz = like.schema[col].time_zone if col in like.schema else None
+    e = expr.dt.truncate("1h")
+    return e.dt.replace_time_zone(tz) if tz is None else e.dt.convert_time_zone(tz)
 
 
-def join_weather(
-    dep_feats: pl.DataFrame,
-    hourly: pl.DataFrame,
-    columns: tuple[str, ...] | None = MECHANISM_COLUMNS,
-    prev1h: tuple[str, ...] | None = MECHANISM_PREV1H,
-) -> pl.DataFrame:
-    """Attach the weather hour of the take-off time (and selected previous-hour fields) to departure features.
-
-    `columns=None` keeps every field, which is what v11 did; the default is MECHANISM_COLUMNS."""
-    dep_dtype = dep_feats.schema["MVT_TIME_UTC_mvt"]
-    w = hourly.rename({"station": "ADEP_mvt"}).with_columns(_align_tz(pl.col("hour_utc"), dep_dtype))
-    if columns is not None:
-        missing = [c for c in columns if c not in w.columns]
-        if missing:
-            raise ValueError(f"requested weather columns not in the hourly table: {missing}")
-        w = w.select(["ADEP_mvt", "hour_utc", *columns])
-    prev_cols = [c for c in w.columns if c not in ("ADEP_mvt", "hour_utc")]
-    if prev1h is not None:
-        prev_cols = [c for c in prev_cols if c in prev1h]
-    prev = (
-        w.select(["ADEP_mvt", "hour_utc", *prev_cols])
-        .with_columns((pl.col("hour_utc") + pl.duration(hours=1)).alias("hour_utc"))
-        .rename({c: f"{c}_prev1h" for c in prev_cols})
+def join_weather(dep_feats: pl.DataFrame, hourly: pl.DataFrame) -> pl.DataFrame:
+    """Attach the weather hour of the take-off time (and the previous hour) to departure features."""
+    w = hourly.rename({"station": "ADEP_mvt", "hour_utc": WX_KEY})
+    prev = w.with_columns((pl.col(WX_KEY) + pl.duration(hours=1)).alias(WX_KEY)).rename(
+        {c: f"{c}_prev1h" for c in w.columns if c not in ("ADEP_mvt", WX_KEY)}
     )
-    out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias("hour_utc"))
-    out = out.join(w, on=["ADEP_mvt", "hour_utc"], how="left", maintain_order="left").join(
-        prev, on=["ADEP_mvt", "hour_utc"], how="left", maintain_order="left"
-    )
-    # hourly_weather_table groups by station-hour so the right side is unique today, but a left join that
-    # silently multiplied departures would be invisible downstream: every model here keys on MVT_ID_mvt, so
-    # duplicated rows would be double-counted rather than rejected.
-    if out.height != dep_feats.height:
-        raise AssertionError(
-            f"the weather join changed the row count {dep_feats.height} -> {out.height}; "
-            "the hourly table must have one row per station-hour"
+    dep_tz = dep_feats.schema["MVT_TIME_UTC_mvt"].time_zone
+    w_tz = w.schema[WX_KEY].time_zone
+    if dep_tz != w_tz:  # bring the weather side onto the departures' time zone, never the other way round
+        w = w.with_columns(
+            pl.col(WX_KEY).dt.replace_time_zone(w_tz or "UTC").dt.convert_time_zone(dep_tz)
+            if dep_tz
+            else pl.col(WX_KEY).dt.replace_time_zone(None)
         )
-    return out.drop("hour_utc")
+        prev = prev.with_columns(
+            pl.col(WX_KEY).dt.replace_time_zone(w_tz or "UTC").dt.convert_time_zone(dep_tz)
+            if dep_tz
+            else pl.col(WX_KEY).dt.replace_time_zone(None)
+        )
+    out = dep_feats.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias(WX_KEY))
+    out = out.join(w, on=["ADEP_mvt", WX_KEY], how="left").join(prev, on=["ADEP_mvt", WX_KEY], how="left")
+    return out.drop(WX_KEY)

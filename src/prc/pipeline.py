@@ -1,6 +1,6 @@
-"""One command from raw parquet to a validated submission file (docs/05 section 2).
+"""One command from raw parquet to a validated submission file (docs/README).
 
-    python -m prc.pipeline --config configs/v2_two_clock.yaml [--submit]
+    python -m prc.pipeline --config configs/main.yaml [--submit]
 
 Steps: load raw -> build departure features (parity-masked context) -> optional weather join -> month-blocked CV
 -> fit on all labelled months and predict the ranking set -> write and validate the submission -> optionally
@@ -11,7 +11,6 @@ Everything is written to disk as it goes, so a session that dies mid-way can res
 from __future__ import annotations
 
 import argparse
-import gc
 import hashlib
 import json
 import time
@@ -24,7 +23,7 @@ import yaml
 from .config import data_dir
 from .features import build_departure_features
 from .predict import log_submission, predict_ranking, write_submission
-from .train import TrainConfig, run_cv
+from .train import LABEL, TrainConfig, run_cv
 
 
 def load_raw(raw_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, Path]:
@@ -53,71 +52,55 @@ def maybe_join_weather(feats: pl.DataFrame, enabled: bool, cache: Path) -> pl.Da
     return join_weather(feats, hourly)
 
 
-# Every module whose source decides which columns end up in the cached feature frames.
-FEATURE_SOURCES = ("features.py", "features_extra.py", "weather.py")
+def cache_fingerprint(train: pl.DataFrame, rank: pl.DataFrame, raw_dir: Path, use_weather: bool) -> dict:
+    """What the cached feature frames were built from. A cache hit requires every field to match."""
+    return {
+        "raw_dir": str(raw_dir.resolve()),
+        "files": sorted((p.name, p.stat().st_size) for p in raw_dir.rglob("*.parquet")),
+        "train_rows": train.height,
+        "rank_rows": rank.height,
+        "use_weather": use_weather,
+        "feature_code": _features_version(),
+    }
 
 
-def feature_fingerprint(use_weather: bool) -> str:
-    """Identity of the feature builder, so a stale cache is rebuilt instead of silently used.
+def _features_version() -> str:
+    """Hash of the feature builder source, so editing it invalidates the cache."""
+    from . import features
 
-    Adding a column to prc.features used to leave the cached parquet in place: the new feature simply never
-    reached the model, with no error anywhere.
-
-    weather.py is in the hash because it decides columns too. Leaving it out made exactly the same mistake one
-    level down: restricting the weather join to the mechanism columns changed nothing in features.py, so the
-    fingerprint matched, the twenty-column cache was reused, and v12 would have been a bit-identical rerun of
-    v11 while claiming to test a six-column subset."""
-    src = b"".join((Path(__file__).parent / name).read_bytes() for name in FEATURE_SOURCES)
-    return hashlib.sha1(src + str(use_weather).encode()).hexdigest()[:12]
+    return hashlib.sha256(Path(features.__file__).read_bytes()).hexdigest()[:16]
 
 
 def build_features(
-    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path
+    train: pl.DataFrame, rank: pl.DataFrame, use_weather: bool, work: Path, raw_dir: Path
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Feature frames for the labelled months and for the ranking months, cached on disk.
 
     Context features are computed per source frame: a ranking departure's neighbours are the other movements in
-    ranking.parquet, exactly as at scoring time."""
+    ranking.parquet, exactly as at scoring time.
+
+    The cache is keyed by what produced it, not by path alone. A synthetic run and a real run share the default
+    work directory, and reusing one for the other trains on the wrong data while printing plausible numbers -
+    that happened once (docs/README) and the dtype error that caught it was luck."""
     work.mkdir(parents=True, exist_ok=True)
     f_tr_path, f_rk_path = work / "feat_train.parquet", work / "feat_rank.parquet"
-    stamp_path, stamp = work / "feat_fingerprint.txt", feature_fingerprint(use_weather)
-    if f_tr_path.exists() and f_rk_path.exists():
-        cached = stamp_path.read_text().strip() if stamp_path.exists() else "(none)"
-        if cached == stamp:
+    meta_path = work / "feat_meta.json"
+    want = cache_fingerprint(train, rank, raw_dir, use_weather)
+    if f_tr_path.exists() and f_rk_path.exists() and meta_path.exists():
+        have = json.loads(meta_path.read_text())
+        # json round-trips the file tuples as lists
+        if have == json.loads(json.dumps(want)):
+            print(f"features: reusing the cache in {work}")
             return pl.read_parquet(f_tr_path), pl.read_parquet(f_rk_path)
-        print(f"feature cache is stale ({cached} != {stamp}); rebuilding")
+        differing = sorted(k for k in want if have.get(k) != json.loads(json.dumps(want))[k])
+        print(f"features: cache in {work} was built from different inputs ({', '.join(differing)}); rebuilding")
     wcache = data_dir() / "ref" / "metar_hourly.parquet"
     f_tr = maybe_join_weather(build_departure_features(train), use_weather, wcache)
     f_rk = maybe_join_weather(build_departure_features(rank), use_weather, wcache)
     f_tr.write_parquet(f_tr_path)
     f_rk.write_parquet(f_rk_path)
-    stamp_path.write_text(stamp)
+    meta_path.write_text(json.dumps(want, indent=2, default=str))
     return f_tr, f_rk
-
-
-def _float32(df: pl.DataFrame) -> pl.DataFrame:
-    """Float64 feature columns to Float32. The label and the ID columns keep their dtype: the IDs are Float64 in
-    the raw files, and float32 has 24 bits of mantissa, so casting them would merge distinct movements."""
-    from .train import LABEL
-
-    keep = {LABEL, "MVT_ID_mvt", "FLIGHT_ID_mvt"}
-    return df.with_columns(
-        [pl.col(c).cast(pl.Float32) for c, dt in df.schema.items() if dt == pl.Float64 and c not in keep]
-    )
-
-
-def resolve_predictor(name: str):
-    """Which model the config asks for. The same function is used for CV and for the ranking prediction, so a
-    config change can never validate one model and submit another."""
-    if name == "two_clock":
-        from .train import predict_fold
-
-        return predict_fold
-    if name == "clock_mixture":
-        from .mixture import predict_fold_mixture
-
-        return predict_fold_mixture
-    raise SystemExit(f"unknown model {name!r}; expected 'two_clock' or 'clock_mixture'")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,36 +110,42 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--work-dir", type=Path, default=data_dir() / "work")
     ap.add_argument("--out-dir", type=Path, default=Path("outputs"))
     ap.add_argument("--skip-cv", action="store_true", help="predict only, reusing the last CV record")
-    ap.add_argument("--cv-only", action="store_true", help="stop after CV (ablations): no ranking fit or file")
+    ap.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="log to experiments/synthetic_smoke.jsonl instead of the real-data logs (see experiments/README)",
+    )
+    ap.add_argument(
+        "--skip-predict",
+        action="store_true",
+        help="stop after cross-validation: no full-data refit, no submission file. About a quarter of the "
+        "wall clock of a run, and pure waste for an experiment whose only output is a CV number.",
+    )
     ap.add_argument("--submit", action="store_true", help="upload after the gate passes (uses the daily counter)")
     ap.add_argument("--version", type=int, help="submission version number, required with --submit")
     a = ap.parse_args(argv)
 
     spec = yaml.safe_load(a.config.read_text())
-    cfg = TrainConfig(**{k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__})
+    fields = {k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__}
+    # A config that sets `params` overrides only the keys it names: replacing the whole dict would silently
+    # drop objective/verbose/num_threads and make one experiment differ from the others in ways nobody chose.
+    if "params" in fields:
+        fields["params"] = {**TrainConfig().params, **fields["params"]}
+    for k in ("folds", "exclude_features", "include_candidates", "unmatched_sched_reparam_airports"):
+        if isinstance(fields.get(k), list):
+            fields[k] = tuple(fields[k])
+    cfg = TrainConfig(**fields)
     use_weather = bool(spec.get("use_weather", False))
-    predictor = resolve_predictor(spec.get("model", "two_clock"))
     t0 = time.time()
 
     train, rank, sub_path = load_raw(a.raw_dir)
-    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir)
-    # The raw frames are dead after the feature build, and the feature frames are copied several times per fold
-    # (candidates, clock-source label, encodings), so halving the float columns is what keeps v14 under the
-    # cgroup limit: the v14 build OOM-killed at 14 GB with float64 features. LightGBM trains on float32 anyway.
-    del train, rank
-    gc.collect()
-    f_tr, f_rk = _float32(f_tr), _float32(f_rk)
+    f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
-    # One cached feature build serves every ablation: a config names the column prefixes it leaves out.
-    drop = tuple(spec.get("drop_feature_prefixes") or ())
-    if drop:
-        gone = [c for c in f_tr.columns if c.startswith(drop)]
-        f_tr, f_rk = f_tr.drop(gone), f_rk.drop([c for c in gone if c in f_rk.columns])
-        print(f"dropped {len(gone)} columns with prefixes {list(drop)}")
 
+    log_name = "synthetic_smoke.jsonl" if a.synthetic else "experiments.jsonl"
     cv_rec = None
     if not a.skip_cv:
-        cv_rec = run_cv(f_tr, cfg, predictor=predictor)
+        cv_rec = run_cv(f_tr, cfg, log_name=log_name)
         print(
             f"CV {cv_rec['exp_id']}: full={cv_rec['overall']['rmse_full']:.2f} "
             f"clean={cv_rec['overall']['rmse_clean']:.2f} ({cv_rec['train_seconds']}s)"
@@ -167,23 +156,24 @@ def main(argv: list[str] | None = None) -> int:
                 f"tail20={m['top20_share_of_sse']:.2f}"
             )
 
-    if a.cv_only:
+    if a.skip_predict:
+        print("--skip-predict: stopping after CV")
         return 0
-    pred, info = predict_ranking(f_tr, f_rk, cfg, predictor=predictor)
+
+    pred, info = predict_ranking(f_tr, f_rk, cfg)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     name = spec.get("name", cfg.name)
     out_file = a.out_dir / f"{name}.parquet"
-    write_submission(pred, sub_path, out_file)
+    ref_median = f_tr.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())[LABEL].median()
+    write_submission(pred, sub_path, out_file, reference_median=ref_median)
     print(f"submission written: {out_file} ({info})")
 
     log_submission(
-        Path("experiments/pipeline.jsonl"),
+        Path("experiments") / ("synthetic_smoke.jsonl" if a.synthetic else "pipeline.jsonl"),
         {
             "config": str(a.config),
             "train_config": asdict(cfg),
             "use_weather": use_weather,
-            "drop_feature_prefixes": list(drop),
-            "model": spec.get("model", "two_clock"),
             "cv": cv_rec["overall"] if cv_rec else None,
             "predict_info": info,
             "file": str(out_file),

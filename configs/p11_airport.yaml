@@ -1,0 +1,37 @@
+# P11 stage 1, arm A2: the candidate -- one specialist per departure airport on model A, blended 50/50 with
+# the global model, at all ten airports, with no tuning and no selection.
+#
+# Form, and why this one. Not pure replacement: the only published side-by-side at this group size has the
+# global model ahead at 8 of 10 airports (Filienko et al., KDD 2023 UC, LightGBM 10.7232 vs 10.7686 MAE), so
+# replacing is the arm with the worst prior. Not a per-airport SELECTION either: choosing the k airports that
+# helped, on the fold that measured them, is selection on noise, and this repo has already paid for a
+# 34.8 s CV "win" that the board charged +13.20 for. What is left is the fixed blend, which is what the two
+# teams that shipped per-airport models and reported a transfer both used (NASA pushback 1st place, an
+# unweighted mean of three per-airport CatBoosts and one global; jubilant-vase in this competition, 50/50,
+# 290.488 -> 286.656 official).
+#
+# Model B is NOT split. Per-airport it holds 840-3,539 training rows on the production folds with a 76-379 row
+# inner holdout to early-stop on. See P11 section 3.
+#
+# The weight is 0.5 and is not swept. A second weight is a second pre-registration, not a follow-up.
+name: p11_airport
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [forward]
+airport_models: true
+airport_group_key: adep
+airport_blend_weight: 0.5
+airport_min_group_rows: 20000

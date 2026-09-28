@@ -1,0 +1,17 @@
+# Calibration check, no submission needed: weather is the one change with a known paired leaderboard effect
+# (v2 312.0237 -> v3 306.2942, so -5.73 s). Everything else matches configs/repro_v2.yaml, so the only
+# difference is the weather join. If the matched-rows CV statistic - resolution about 3 s - reads roughly
+# -5.7 s, then CV is usable for changes of this class and we can say so with evidence rather than hope.
+name: weather_check
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+folds: [forward]

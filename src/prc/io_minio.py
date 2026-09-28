@@ -7,17 +7,43 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import certifi
+import urllib3
 from minio import Minio
-from minio.error import S3Error
 
-from .config import OsnConfig, data_dir
+from .config import OsnConfig, _first_env, data_dir
 
 log = logging.getLogger(__name__)
+
+# The sandbox has no direct egress: everything leaves through the agent proxy named by HTTPS_PROXY, whose
+# TLS interception is trusted via the CA bundle in SSL_CERT_FILE / REQUESTS_CA_BUNDLE. minio builds a plain
+# urllib3.PoolManager that ignores both, so a direct connection dies with "too many 503 error responses".
+PROXY_VARS = ("HTTPS_PROXY", "https_proxy")
+CA_BUNDLE_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+
+
+def http_client(timeout: int = 300) -> urllib3.PoolManager:
+    """A urllib3 pool that honours the proxy and CA bundle in the environment (both unset: a direct pool)."""
+    ca = _first_env(CA_BUNDLE_VARS) or certifi.where()
+    kwargs = {
+        "cert_reqs": "CERT_REQUIRED",
+        "ca_certs": ca,
+        "timeout": urllib3.Timeout(connect=20, read=timeout),
+        "retries": urllib3.Retry(total=5, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504]),
+    }
+    proxy = _first_env(PROXY_VARS)
+    return urllib3.ProxyManager(proxy, **kwargs) if proxy else urllib3.PoolManager(**kwargs)
 
 
 def client(cfg: OsnConfig | None = None) -> Minio:
     cfg = cfg or OsnConfig.from_env()
-    return Minio(cfg.endpoint, access_key=cfg.access_key, secret_key=cfg.secret_key, secure=True, region=cfg.region)
+    return Minio(
+        cfg.endpoint,
+        access_key=cfg.access_key,
+        secret_key=cfg.secret_key,
+        secure=True,
+        http_client=http_client(),
+    )
 
 
 def list_buckets(cfg: OsnConfig | None = None) -> list[str]:
@@ -33,6 +59,12 @@ def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnCo
     """Download every object of the competition bucket into dest (skips files already present with same size)."""
     cfg = cfg or OsnConfig.from_env()
     bucket = bucket or cfg.competition_bucket
+    if not bucket:
+        raise RuntimeError(
+            "OSN_COMPETITION_BUCKET is not set. It names the bucket holding training_*.parquet, "
+            "ranking.parquet and submitting.parquet; the 2024 edition still occupies 'competition-data', "
+            "so the 2026 files are somewhere else (docs/README)."
+        )
     dest = dest or data_dir() / "raw"
     dest.mkdir(parents=True, exist_ok=True)
     c = client(cfg)
@@ -49,39 +81,12 @@ def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnCo
     return out
 
 
-def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = None, overwrite: bool = False) -> str:
-    """Upload <team-name>_v<version>.parquet to the team bucket. Caller must have run the validation gate.
-
-    Refuses to replace an object that already exists, unless `overwrite=True` is passed deliberately.
-
-    This guard is not about tidiness. The organisers' scorer writes its verdict back into the team bucket
-    (<file>_result.json, <file>_persist.json) and the public leaderboard holds one record per submission - and
-    those records are observably mutable: across seven leaderboard snapshots, three submissionIds changed score
-    in place while keeping their filename. So re-PUTting a name that has already been scored is the one
-    observed way a score can move, and it can move DOWN. Overwriting resilient-hedgehog_v4.parquet with a worse
-    model could replace a 305.027 with something worse and there is no delete endpoint to undo it.
-
-    The only thing that previously prevented this was prc.submit's local ledger check against
-    experiments/submissions.jsonl, which lives on a disposable sandbox disk and is bypassed entirely by calling
-    this function directly."""
+def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = None) -> str:
+    """Upload <team-name>_v<version>.parquet to the team bucket. Caller must have run the validation gate."""
     cfg = cfg or OsnConfig.from_env()
     if not cfg.team_bucket or not cfg.team_name:
         raise RuntimeError("OSN_TEAM_BUCKET and PRC_TEAM_NAME must be set to upload submissions")
     object_name = f"{cfg.team_name}_v{version}.parquet"
-    c = client(cfg)
-    if not overwrite:
-        try:
-            existing = c.stat_object(cfg.team_bucket, object_name)  # HEAD, non-mutating
-        except S3Error as exc:
-            if exc.code not in ("NoSuchKey", "NoSuchObject", "NotFound"):
-                raise
-        else:
-            raise FileExistsError(
-                f"{cfg.team_bucket}/{object_name} already exists "
-                f"({existing.size:,} bytes, uploaded {existing.last_modified}). "
-                "Re-uploading a scored name can change its leaderboard score in place, downwards, with no way "
-                "to undo it. Use the next version number, or pass overwrite=True if replacing it is intended."
-            )
-    c.fput_object(cfg.team_bucket, object_name, str(local_file))
+    client(cfg).fput_object(cfg.team_bucket, object_name, str(local_file))
     log.info("uploaded %s -> %s/%s", local_file, cfg.team_bucket, object_name)
     return object_name

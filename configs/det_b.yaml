@@ -1,0 +1,16 @@
+# Reproduce v2 (leaderboard 312.02) on the current code, to establish that the refactor between them changed
+# nothing. v2 ran before for_unmatched() existed, so model B used the shared params: 127 leaves, min_data 50,
+# 2000 rounds. One seed, no weather, no linear tree. If CV comes back at 337.70 the code is equivalent and the
+# v2 -> v5 leaderboard regression is attributable to the settings, not to the refactor.
+name: det_b
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1

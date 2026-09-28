@@ -1,0 +1,17 @@
+# Screening at feature_fraction 1.0, candidate-vs-noise so the column count never moves (docs/features_log).
+name: ff1_noise2
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+folds: [forward]
+params:
+  feature_fraction: 1.0
+include_candidates: [noise_control, planned_flight_s]

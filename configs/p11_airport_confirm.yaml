@@ -1,0 +1,30 @@
+# P11 stage 2: the same candidate on the production fold set, run ONLY if stage 1 adopted.
+#
+# The baseline for this stage is the archived production OOF `experiments/oof_main_gap-62dd7c6e88.parquet`
+# (total 277.54, matched 213.13 on 664,050 rows, unmatched 1,606.89 on 8,378), which stage 1's byte-identity
+# gate has already shown the code change does not move. So base is not refitted here: this stage is one run.
+#
+# folds omits `jul_fwd` on purpose. `run_cv` coalesces in fold order and `jul` reaches July first, so
+# jul_fwd's 190,713 predictions never enter `overall` (`folds_shadowed` in the main_gap record says so).
+# Dropping it leaves the pooled OOF identical and saves about 13 minutes.
+name: p11_airport_confirm
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [jan, jul, forward]
+airport_models: true
+airport_group_key: adep
+airport_blend_weight: 0.5
+airport_min_group_rows: 20000

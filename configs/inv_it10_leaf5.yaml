@@ -1,0 +1,18 @@
+# Investigation 2026-09-16, Batch C baseline (items 10 / 11 / 23).
+# configs/main.yaml verbatim + folds [forward] + num_threads 2. No other change: every Batch C comparison is
+# same-code, same-fold, same-threads against this record.
+name: inv_it10_leaf5
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 5
+unmatched_num_rounds: 2000
+n_seeds: 3
+folds: [forward]
+params:
+  num_threads: 2

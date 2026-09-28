@@ -1,0 +1,14 @@
+name: feat_f3_share
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+folds: [forward]
+include_candidates: [stand_rwy_share, active_runways_60m, dep_arr_ratio_30m, congestion_vs_usual_30m, dest_distance_km, planned_flight_s]

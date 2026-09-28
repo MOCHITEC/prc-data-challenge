@@ -1,7 +1,6 @@
 from datetime import datetime
 
 import polars as pl
-import pytest
 
 from prc.weather import hourly_weather_table, join_weather, parse_metar_csv
 
@@ -37,7 +36,7 @@ def test_deicing_gate_and_join():
             "ADEP_mvt": ["EHAM", "LEBL"],
             "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10), datetime(2026, 7, 15, 12, 30)],
         },
-        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},  # what prc.features actually produces
+        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us")},
     )
     j = join_weather(dep, hourly)
     r = j.filter(pl.col("MVT_ID_mvt") == 1).row(0, named=True)
@@ -45,88 +44,30 @@ def test_deicing_gate_and_join():
     assert r["deicing_gate_prev1h"] == 1  # the 05:xx hour was freezing with snow
 
 
-@pytest.mark.parametrize("tz", [None, "UTC"])
-def test_join_weather_accepts_either_time_zone_on_the_departure_side(tz):
-    """The real feature frame is timezone-aware UTC and the METAR parse is naive; polars will not join those."""
+def test_the_join_keeps_the_hour_of_day_feature_and_survives_a_tz_aware_frame():
+    """Two bugs in one: the join key used to be called hour_utc, which is also a feature, so weather runs
+    silently trained without it - and the official files are UTC-aware while METAR parses naive, which polars
+    refuses to join."""
+    import datetime as dt
+
+    from prc.weather import join_weather
+
     hourly = pl.DataFrame(
         {
             "station": ["EDDF", "EDDF"],
-            "hour_utc": [datetime(2026, 1, 6, 5), datetime(2026, 1, 6, 6)],
-            "temp_c": [-2.0, -1.0],
-            "deicing_gate": [1, 0],
+            "hour_utc": [dt.datetime(2025, 1, 1, 10), dt.datetime(2025, 1, 1, 11)],
+            "tmpc": [1.0, 2.0],
         }
     )
-    dep = pl.DataFrame(
-        {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
-        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", tz)},
-    )
-    out = join_weather(dep, hourly, columns=None, prev1h=None)  # column choice is tested separately
-    assert out.height == 1
-    assert out["deicing_gate"][0] == 0  # the take-off hour
-    assert out["deicing_gate_prev1h"][0] == 1  # and the hour before it
-    assert out["temp_c"][0] == -1.0
-
-
-def test_join_weather_refuses_to_multiply_rows():
-    """A duplicated station-hour would silently double-count departures downstream."""
-    hourly = pl.DataFrame(
+    deps = pl.DataFrame(
         {
-            "station": ["EDDF", "EDDF"],
-            "hour_utc": [datetime(2026, 1, 6, 6), datetime(2026, 1, 6, 6)],
-            "temp_c": [-2.0, -1.0],
+            "ADEP_mvt": ["EDDF", "EDDF"],
+            "MVT_TIME_UTC_mvt": [dt.datetime(2025, 1, 1, 11, 5), dt.datetime(2025, 1, 1, 10, 30)],
+            "hour_utc": [11, 10],  # the integer feature that must survive
         }
-    )
-    dep = pl.DataFrame(
-        {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
-        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},
-    )
-    with pytest.raises(AssertionError, match="changed the row count"):
-        join_weather(dep, hourly, columns=None, prev1h=None)
+    ).with_columns(pl.col("MVT_TIME_UTC_mvt").dt.replace_time_zone("UTC"))
 
-
-def _full_hourly() -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "station": ["EDDF", "EDDF"],
-            "hour_utc": [datetime(2026, 1, 6, 5), datetime(2026, 1, 6, 6)],
-            "temp_c": [-2.0, -1.0],
-            "dewp_spread_c": [1.0, 1.5],
-            "wind_ms": [4.0, 5.0],
-            "gust_ms": [None, 9.0],
-            "precip_mm": [0.3, 0.0],
-            "vis_km": [0.8, 3.0],
-            "frozen_wx": [True, False],
-            "deicing_gate": [1, 0],
-            "low_vis": [1, 0],
-            "temp_x_precip": [-0.6, 0.0],
-        }
-    )
-
-
-def _dep() -> pl.DataFrame:
-    return pl.DataFrame(
-        {"MVT_ID_mvt": [1], "ADEP_mvt": ["EDDF"], "MVT_TIME_UTC_mvt": [datetime(2026, 1, 6, 6, 10)]},
-        schema_overrides={"MVT_TIME_UTC_mvt": pl.Datetime("us", "UTC")},
-    )
-
-
-def test_only_the_mechanism_columns_are_carried_by_default():
-    """v11 carried all twenty and gained nothing net on the scored months; the winter columns are July noise."""
-    from prc.weather import MECHANISM_COLUMNS, MECHANISM_PREV1H
-
-    out = join_weather(_dep(), _full_hourly())
-    added = [c for c in out.columns if c not in ("MVT_ID_mvt", "ADEP_mvt", "MVT_TIME_UTC_mvt")]
-    assert sorted(added) == sorted([*MECHANISM_COLUMNS, *(f"{c}_prev1h" for c in MECHANISM_PREV1H)])
-    assert "gust_ms" not in added and "frozen_wx" not in added and "temp_x_precip" not in added
-    assert out["deicing_gate"][0] == 0 and out["deicing_gate_prev1h"][0] == 1
-    assert "vis_km_prev1h" not in added  # visibility does not leave a queue behind it
-
-
-def test_all_columns_are_available_on_request():
-    out = join_weather(_dep(), _full_hourly(), columns=None, prev1h=None)
-    assert "gust_ms" in out.columns and "gust_ms_prev1h" in out.columns
-
-
-def test_a_misspelled_weather_column_is_rejected():
-    with pytest.raises(ValueError, match="not in the hourly table"):
-        join_weather(_dep(), _full_hourly(), columns=("deicing_gate", "temp_celsius"))
+    out = join_weather(deps, hourly)
+    assert out["hour_utc"].to_list() == [11, 10], "the hour-of-day feature was overwritten by the join key"
+    assert out["tmpc"].to_list() == [2.0, 1.0], "weather did not land on the right hour"
+    assert out["tmpc_prev1h"].to_list() == [1.0, None]

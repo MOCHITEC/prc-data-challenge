@@ -1,0 +1,18 @@
+# Replication of experiment 7 on an independent fold (January), same settings otherwise.
+name: rep_jan_off
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_offset_encoding: false
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+folds: [jan]
+params:
+  feature_fraction: 1.0
+include_candidates: [noise_control, dest_distance_km, planned_flight_s]
