@@ -539,3 +539,28 @@ evidence v15's dead-column removal had (−0.13 [−0.25, −0.02], month P = 1.
 on the board and −0.01 on the four-fold CV. Passing on the same two folds cannot be sufficient here by
 construction; SHIP needs the production fold set (`jan`, `jul`, `forward`) to agree.
 
+
+### 9.x Closed without the third arm (2026-09-28)
+
+The replication stopped after two of its three `jul_fwd` arms; the `c13_noise2_jf` control and the paired
+bootstrap were never run, and nothing was left running. Closed on what was recorded rather than re-launched,
+at the user's instruction to move on.
+
+| arm | `jul_fwd` RMSE | lane B |
+|---|---:|---:|
+| `c13_base_jf-919d5fce5b` | 314.4240 | 1333.7191 |
+| `c13_c1_2col_jf-fe53c49187` | 314.3446 | 1333.7191 |
+
+- **jul_fwd point effect −0.079 s**, against **−0.361 s** on forward: same sign, about a quarter of the size.
+  No CI exists for it.
+- **Lane B is identical to four decimals**, reproducing the forward-fold finding that C1 never reaches model
+  B's splits. The harness check passes.
+
+**Verdict: DO-NOT-SHIP.** Not because the effect is shown to be zero - without the bootstrap it is not shown
+to be anything - but because the one thing this replication existed to test has an answer: the forward
+effect does not carry across at its measured size. That is the same shape as v15, whose two-fold −0.13 with
+P = 1.000 scored +0.0163 on the board. A −0.08 on the second fold is inside the ±0.5 s single-column noise
+floor, so a slot spent on it would be spent on a number the instrument cannot separate from zero.
+
+What would reopen it: the `c13_noise2_jf` arm plus the pooled [forward, jul_fwd] bootstrap. About 20 minutes
+and no new code - worth doing only if a later candidate needs C1 as a companion.
