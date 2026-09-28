@@ -662,10 +662,7 @@ def test_the_determinism_flag_reaches_every_booster_on_both_lanes(monkeypatch):
     # several training months so the inner holdout is non-empty and early stopping actually runs, and enough
     # unmatched rows to clear model B's 200-row floor - otherwise the test passes on model A alone.
     tr = pl.concat(
-        [
-            build_departure_features(generate_month(2025, m, seed=60 + m, deps_per_airport_day=16))
-            for m in (1, 2, 3, 4)
-        ]
+        [build_departure_features(generate_month(2025, m, seed=60 + m, deps_per_airport_day=16)) for m in (1, 2, 3, 4)]
     )
     tg = build_departure_features(generate_month(2025, 5, seed=70, deps_per_airport_day=8, blank_dep=True))
     assert tr.filter(pl.col(PROXY).is_null()).height >= 200, "model B must be fitted or this test checks one lane"
