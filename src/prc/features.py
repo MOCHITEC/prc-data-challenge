@@ -15,6 +15,7 @@ import numpy as np
 import polars as pl
 
 from .airports import add_destination_distance
+from .features_extra import EXTRA_COLS, extra_candidate_features
 from .schema import BLANKED_DEP_COLS
 
 AIRPORT_TZ = {
@@ -273,7 +274,7 @@ def add_signed_log(df: pl.DataFrame, cols: tuple[str, ...] = WIDE_RANGE_COLS) ->
 # Candidate columns under test. They are computed always and hidden from the model with
 # TrainConfig.exclude_features, so one feature can be measured at a time without rebuilding the feature cache
 # (a rebuild costs about four minutes; a CV run costs five).
-CANDIDATE_COLS = (
+_BASE_CANDIDATE_COLS = (
     "stand_arrival_gap",
     "stand_aobt_turn",
     "stand_arrival_type_match",
@@ -289,6 +290,8 @@ CANDIDATE_COLS = (
     "dest_distance_km",
     "planned_flight_s",
 )
+# The groups from the multi-perspective analysis (docs/analysis/README.md, prc.features_extra), as candidates.
+CANDIDATE_COLS = _BASE_CANDIDATE_COLS + EXTRA_COLS
 
 
 def stand_arrival_features(departures: pl.DataFrame, arrivals: pl.DataFrame) -> pl.DataFrame:
@@ -515,7 +518,7 @@ def candidate_features(row: pl.DataFrame, ctx: pl.DataFrame, ctx_src: pl.DataFra
             how="left",
             maintain_order="left",
         )
-        .select(["MVT_ID_mvt", *CANDIDATE_COLS])
+        .select(["MVT_ID_mvt", *_BASE_CANDIDATE_COLS])
     )
 
 
@@ -532,7 +535,9 @@ def build_departure_features(movements: pl.DataFrame, context_source: pl.DataFra
     keep = [c for c in KEEP_RAW_COLS if c in row.columns]
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
-    cand = candidate_features(row, ctx, ctx_src)
+    cand = candidate_features(row, ctx, ctx_src).join(
+        extra_candidate_features(ctx_src, dep["MVT_ID_mvt"]), on="MVT_ID_mvt", how="left", maintain_order="left"
+    )
     feats = add_signed_log(
         row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left").join(
             cand, on="MVT_ID_mvt", how="left", maintain_order="left"

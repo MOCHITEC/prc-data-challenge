@@ -143,3 +143,26 @@ def test_stand_arrival_gap_boundaries_and_keys():
     assert result["stand_arrival_gap"].to_list() == [None, 60, 21600, None, None]
     assert "stand_arrival_gap" not in visible_numeric_columns(result, TrainConfig())
     assert "stand_arrival_gap" in visible_numeric_columns(result, TrainConfig(include_candidates=["stand_arrival_gap"]))
+
+
+def test_extra_candidates_ignore_departure_labels():
+    """prc.features_extra groups must not move when departure labels move (they read the masked frame only)."""
+    import numpy as np
+
+    from prc.features import build_departure_features
+    from prc.features_extra import EXTRA_COLS
+    from prc.synth import generate_month
+
+    df = generate_month(2025, 1, seed=7, deps_per_airport_day=3)
+    base = build_departure_features(df)
+    noisy = build_departure_features(
+        df.with_columns(
+            pl.when(pl.col("PHASE_mvt") == "DEP")
+            .then(pl.col("TAXITIME_SEC_mvt") * 3 + 17)
+            .otherwise(pl.col("TAXITIME_SEC_mvt"))
+            .alias("TAXITIME_SEC_mvt")
+        )
+    )
+    for c in EXTRA_COLS:
+        a, b = base[c].to_numpy().astype(float), noisy[c].to_numpy().astype(float)
+        assert np.array_equal(np.nan_to_num(a, nan=-9e9), np.nan_to_num(b, nan=-9e9)), c

@@ -1,0 +1,39 @@
+# clever-bell gate: main_gap + the bk group only
+# The production recipe as of 2026-09-24: configs/main_reparam.yaml + stand_arrival_gap.
+#
+# Why the feature is here. P4 stage A measured it on the forward fold against the baseline we actually ship,
+# with a noise-control arm beside it because a signal-free column moves this model by +/-0.5 s on its own:
+#
+#   base   223.35 full / 201.41 matched / 1028.41 unmatched
+#   noise  223.58        201.49          1032.09
+#   gap    219.72        198.53          1003.60
+#
+# prc.compare, gap against base: -3.62 s at K=0, -2.85 at K=200, P(B better) = 1.000 at all four drop levels,
+# month bootstrap -3.62 [-4.79, -2.43]. VERDICT ADOPT. Against the noise arm it is -3.85 s, so this is not the
+# +0.23 that adding any column buys.
+#
+# Read the number correctly. The -3.2424 recorded for this feature in docs/codex_fe_results was measured
+# against an EIGHT-month baseline; production's forward fold trains on ten, and the ten-month baseline is
+# itself 2.6888 s better. The -3.62 above is on top of that, and is the first measurement of this feature
+# taken on code where two runs of the same config agree (the G11 categorical-encoding fix).
+#
+# Honest caveat: on the unmatched lane this is a large win at LIRF (4124.6 -> 3955.4, 78.4% of the
+# disagreement) outweighing small losses at the eight airports other than LIRF and LFPG. It is not a uniform
+# improvement.
+name: cb_bk
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap, bk_sched_backlog_60m, bk_sched_demand_next30m, bk_sched_demand_prev30m, bk_arr_taxiing_at_tko, bk_arr_taxiing_at_aobt, bk_arr_taxi_in_landed_20m]
+folds: [forward]

@@ -17,6 +17,7 @@ from prc.train import (
     PROXY,
     SCHED_OFFSET,
     TrainConfig,
+    _matrix,
     attach_encodings,
     feature_parity_report,
     fit_encodings,
@@ -25,7 +26,6 @@ from prc.train import (
     sched_reparam_shift,
     unmatched_target,
 )
-from prc.train import _matrix
 
 
 def test_folds_use_year_month_keys():
