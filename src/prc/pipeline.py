@@ -173,6 +173,35 @@ def build_features(
     return f_tr, f_rk
 
 
+# Recipe keys that are not TrainConfig fields and are read by `main` itself (the weather flags, the coverage
+# gate, the submission note). Every recipe in configs/ uses only these and TrainConfig's fields.
+PIPELINE_KEYS = frozenset(
+    {"use_weather", "wx_codes", "wind_dir", "gust_repair", "coverage_gate", "coverage_allow", "note"}
+)
+
+
+def train_config_from_spec(spec: dict) -> TrainConfig:
+    """The TrainConfig a recipe asks for.
+
+    Unknown keys raise. They used to be dropped silently, so `model: catboost` - or a typo of any field - ran
+    the default LightGBM recipe and logged a record that said nothing about it (P10 §1.2); every negative result
+    would have been uninterpretable. The keys `main` reads itself are listed in PIPELINE_KEYS."""
+    unknown = sorted(k for k in spec if k not in TrainConfig.__dataclass_fields__ and k not in PIPELINE_KEYS)
+    if unknown:
+        raise ValueError(f"unknown recipe keys {unknown}: not a TrainConfig field and not in PIPELINE_KEYS")
+    fields = {k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__}
+    # A config that sets `params` overrides only the keys it names: replacing the whole dict would silently
+    # drop objective/verbose/num_threads and make one experiment differ from the others in ways nobody chose.
+    # `params` is LightGBM's; CatBoost's settings live in `cb_params`, merged over CB_DEFAULTS by the config
+    # itself, so the two families never share one merged dict.
+    if "params" in fields:
+        fields["params"] = {**TrainConfig().params, **fields["params"]}
+    for k in ("folds", "exclude_features", "include_candidates", "unmatched_sched_reparam_airports"):
+        if isinstance(fields.get(k), list):
+            fields[k] = tuple(fields[k])
+    return TrainConfig(**fields)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", type=Path, required=True)
@@ -196,15 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     spec = yaml.safe_load(a.config.read_text())
-    fields = {k: v for k, v in spec.items() if k in TrainConfig.__dataclass_fields__}
-    # A config that sets `params` overrides only the keys it names: replacing the whole dict would silently
-    # drop objective/verbose/num_threads and make one experiment differ from the others in ways nobody chose.
-    if "params" in fields:
-        fields["params"] = {**TrainConfig().params, **fields["params"]}
-    for k in ("folds", "exclude_features", "include_candidates", "unmatched_sched_reparam_airports"):
-        if isinstance(fields.get(k), list):
-            fields[k] = tuple(fields[k])
-    cfg = TrainConfig(**fields)
+    cfg = train_config_from_spec(spec)
     # P8-B (`wx_codes`), C3 (`wind_dir`) and C3's hygiene rider (`gust_repair`) are all off by default:
     # with them off `hourly_weather_table` emits exactly the columns it always has, so every archived recipe
     # rebuilds to the same frame it did before.

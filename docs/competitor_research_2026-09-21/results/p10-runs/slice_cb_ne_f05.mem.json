@@ -1,0 +1,41 @@
+{
+ "tag": "slice_cb_ne_f05",
+ "cmd": [
+  ".venv/bin/python",
+  "docs/competitor_research_2026-09-21/scripts/p10_slice.py",
+  "--config",
+  "configs/p10_cb_ne.yaml",
+  "--frac",
+  "0.05",
+  "--tag",
+  "cb_ne_f05"
+ ],
+ "exit_code": 0,
+ "wall_seconds": 126.1,
+ "peak_total_rss_mb": 3086,
+ "peak_at_seconds": 5.0,
+ "baseline_total_rss_mb": 12,
+ "cgroup_limit_mb": 13681,
+ "samples_mb": [
+  [
+   0,
+   12
+  ],
+  [
+   30,
+   2697
+  ],
+  [
+   60,
+   2756
+  ],
+  [
+   90,
+   2659
+  ],
+  [
+   120,
+   2660
+  ]
+ ]
+}

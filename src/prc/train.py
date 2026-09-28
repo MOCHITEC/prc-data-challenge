@@ -65,6 +65,55 @@ OFFSET_COLS = ["op_offset_med", "op_offset_n"]
 #              MVT_ID_mvt alone. The control: it carries the row-count cost and the blending gain of the
 #              candidate and none of its airport information.
 GROUP_KEYS = ("adep", "shuffled")
+# The model family the fitter uses; see TrainConfig.model and
+# docs/competitor_research_2026-09-21/plans/P10-catboost-rival.md. Everything outside `_fit` - folds, encodings,
+# feature selection, routing, target parameterisation, the seed loop, the round-count scaling, assembly,
+# metrics - is shared, so the two families differ in the fitter and in nothing else.
+MODEL_FAMILIES = ("lightgbm", "catboost")
+# CatBoost's settings when a recipe names none. Every key is explicit on purpose, because two of CatBoost's
+# library defaults are not constants: `max_ctr_complexity` resolves to 1 at <= 150 iterations and to 4 at
+# >= 200 (measured on catboost 1.2.10, P10 §2.3), so a short screen and a production-length run would silently
+# run two different categorical algorithms; and the learning rate is chosen from the data size and iteration
+# count when it is not given. `thread_count` matches LightGBM's `num_threads`, which is a determinism setting
+# as well as a speed one. CatBoost has no `deterministic` flag to pass: on CPU a fixed `random_seed` and
+# thread count give a bit-identical model (checked in tests/test_catboost_family.py and on real data).
+CB_DEFAULTS: dict = {
+    "loss_function": "RMSE",
+    # 0.2, not the library's auto rule. That rule gives 0.073-0.076 for 2,000 iterations at 1.43-1.74M rows,
+    # i.e. it plans to spend every round. Measured on the forward fold at a 20% training subsample (P10 results
+    # §2): early stopping's best count was 1,973 of 2,000 at 0.1 and 1,984 of 2,000 at 0.2 - capped both times -
+    # and 2,500 at 0.2 with a 5,000 cap. The higher rate is the one that reaches its own stopping point soonest.
+    "learning_rate": 0.2,
+    "depth": 6,
+    "max_ctr_complexity": 1,
+    "thread_count": 4,
+    "verbose": 0,
+    "allow_writing_files": False,
+}
+# Keys the fitter owns: the iteration count and the stopping rule come from num_rounds / early_stopping and the
+# seed from `seed + k`, exactly as for LightGBM, so a recipe that also set them in cb_params would be setting
+# them twice. `has_time` is refused because it needs the training block sorted by time and this fitter does not
+# sort - silently ignoring the ordering is the failure mode it would have.
+CB_OWNED_KEYS = (
+    "iterations",
+    "n_estimators",
+    "num_boost_round",
+    "num_trees",
+    "random_seed",
+    "random_state",
+    "od_type",
+    "od_wait",
+    "early_stopping_rounds",
+    "use_best_model",
+    "has_time",
+    "cat_features",
+)
+
+
+# TrainConfig fields added after the archive was written, with their defaults. Left out of the hash while they
+# hold their default, so every archived experiment id still names the config that produced it; a recipe that
+# sets one gets a new id.
+_HASH_OPTIONAL: dict = {"model": "lightgbm", "cb_params": {}}
 
 
 @dataclass
@@ -204,12 +253,60 @@ class TrainConfig:
     # five or more, so it is a floor, not a selector - it decides nothing about which airports are used.
     airport_min_group_rows: int = 20_000
     airport_group_seed: int = 20_260_924  # only read by the `shuffled` control
+    # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
+    # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
+    # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
+    # identical frames, feature list, categorical list, target and seeds. The LightGBM-only fields are refused
+    # rather than ignored under CatBoost - see `__post_init__`.
+    model: str = "lightgbm"
+    # CatBoost settings, merged over CB_DEFAULTS. A separate namespace from `params`, because `params` is merged
+    # over the LightGBM defaults and CatBoost rejects those keys outright (`feature_fraction`, `force_row_wise`,
+    # `num_leaves` without Lossguide: P10 §1.2).
+    cb_params: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.model not in MODEL_FAMILIES:
+            raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
+        if self.model == "lightgbm":
+            if self.cb_params:
+                raise ValueError("cb_params is set but model is lightgbm; it would be silently ignored")
+            return
+        # CatBoost. Each refusal is a LightGBM setting that has no CatBoost meaning here and would otherwise be
+        # dropped without a trace, which is how a "CatBoost" arm ends up measuring something nobody chose.
+        if self.use_linear_tree:
+            raise ValueError("use_linear_tree has no CatBoost equivalent; refusing rather than ignoring it")
+        if self.params != TrainConfig.__dataclass_fields__["params"].default_factory():
+            raise ValueError("params are LightGBM's; a CatBoost recipe sets cb_params instead")
+        if (self.unmatched_num_leaves, self.unmatched_min_data_in_leaf) != (
+            self.params["num_leaves"],
+            self.params["min_data_in_leaf"],
+        ):
+            raise ValueError(
+                "model B's capacity override (unmatched_num_leaves / unmatched_min_data_in_leaf) is a LightGBM "
+                "setting CatBoost cannot honour; set them equal to params' num_leaves / min_data_in_leaf so "
+                "model B is sized like model A, as it is in configs/main_v15.yaml"
+            )
+        owned = sorted(k for k in self.cb_params if k in CB_OWNED_KEYS)
+        if owned:
+            raise ValueError(f"cb_params may not set {owned}: the fitter owns them (see CB_OWNED_KEYS)")
 
     def hash(self) -> str:
-        return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
+        d = {k: v for k, v in self.__dict__.items() if not (k in _HASH_OPTIONAL and v == _HASH_OPTIONAL[k])}
+        if self.model == "catboost":
+            # The RESOLVED settings, so an edit to CB_DEFAULTS is a new experiment id rather than a silent one.
+            d["cb_params"] = self.catboost_params()
+        return hashlib.sha1(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:10]
+
+    def catboost_params(self) -> dict:
+        """CB_DEFAULTS with the recipe's cb_params on top. The fitter adds iterations, stopping and the seed."""
+        return {**CB_DEFAULTS, **self.cb_params}
 
     def for_unmatched(self) -> TrainConfig:
         """A copy sized for model B's much smaller training set."""
+        if self.model == "catboost":
+            # `__post_init__` has already required model B's LightGBM capacity to equal model A's, so the only
+            # override left to carry is the round cap - applied exactly as it is for LightGBM.
+            return replace(self, num_rounds=self.unmatched_num_rounds)
         return replace(
             self,
             params={
@@ -468,7 +565,12 @@ def _fit(
     categorical's Enum over the stacked frame's own levels - a separately built matrix would carry a
     different integer coding and be a different model. The appended rows are a subset of `train`, so the
     level set and therefore every existing row's code are unchanged, and `Xall[a:b]` is byte-identical to
-    what it was with `es_rows=None`. Stage 2 never sees the block."""
+    what it was with `es_rows=None`. Stage 2 never sees the block.
+
+    With `cfg.model == "catboost"` the whole call goes to `_fit_catboost`, which keeps this contract item for
+    item; nothing above this function knows which family ran."""
+    if cfg.model == "catboost":
+        return _fit_catboost(train, target_expr, cfg, feature_cols, cat_cols, predict_frames, es_rows=es_rows)
     hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
     n_hold = int(hold.sum())
     es_block = None
@@ -517,6 +619,172 @@ def _fit(
         model = lgb.train(p_k, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
         for i, (s_, e_) in enumerate(offs[1 : 1 + n_pred]):
             acc[i] += model.predict(Xall[s_:e_])
+    preds = [a_ / max(1, cfg.n_seeds) for a_ in acc]
+    return preds, rounds
+
+
+# ---------- the CatBoost fitter (P10) ----------
+
+# What the most recent `_fit_catboost` call resolved, for `predict_fold` to copy into the record: the library's
+# own resolved values of the settings P10 §8 says must be logged rather than assumed (`max_ctr_complexity` is
+# the one whose library default moves with the iteration count), the early-stopping best count and the round
+# count used. Overwritten by every call; read immediately after one.
+_CB_LAST: dict = {}
+_CB_LOGGED = (
+    "max_ctr_complexity",
+    "learning_rate",
+    "depth",
+    "one_hot_max_size",
+    "has_time",
+    "boosting_type",
+    "grow_policy",
+    "l2_leaf_reg",
+    "border_count",
+    "bootstrap_type",
+    "subsample",
+    "nan_mode",
+)
+
+
+def _cb_matrix(df: pl.DataFrame, feature_cols: list[str], cat_cols: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """CatBoost's two blocks: the numeric columns as C-ordered float32, the categoricals as an object array.
+
+    `_matrix` cannot be reused: it codes the categoricals as float32, and CatBoost rejects a real-valued
+    categorical outright (P10 §1.1 row 4). The numeric block is the same float32 matrix `_matrix` builds for
+    the same columns, so the two families read identical numeric values, NaNs included.
+
+    Each categorical is handed over as its level STRING - the same `Utf8 -> fill_null("__NA__")` values
+    `_matrix` codes - so the level set, the null level and the level identities are the ones LightGBM sees.
+    CatBoost hashes the value, so what reaches it is a function of the value alone and cannot depend on how
+    the frame was chunked: the G11 failure (`cast(pl.Categorical)` coding the same column six ways) has no way
+    in. The strings are shared objects from a per-column lookup table indexed by the same sorted-Enum code
+    `_matrix` uses, so the block costs eight bytes a cell rather than a Python string each."""
+    Xnum = np.ascontiguousarray(df.select(feature_cols).cast(pl.Float32).to_numpy(), dtype=np.float32)
+    Xcat = np.empty((df.height, len(cat_cols)), dtype=object)
+    for j, c in enumerate(cat_cols):
+        s = df[c].cast(pl.Utf8).fill_null("__NA__")
+        levels = sorted(s.unique().to_list())
+        codes = s.cast(pl.Enum(levels)).to_physical().to_numpy()
+        Xcat[:, j] = np.array([lv.encode() for lv in levels], dtype=object)[codes]
+    return Xnum, Xcat
+
+
+def _cb_pool(Xnum: np.ndarray, Xcat: np.ndarray, feature_cols: list[str], cat_cols: list[str], label=None):
+    """A CatBoost Pool. `label=None` for every frame that is predicted: a predict pool never carries a label,
+    so there is no route by which a target row's label can reach its own categorical statistics."""
+    from catboost import FeaturesData, Pool
+
+    fd = FeaturesData(
+        num_feature_data=np.ascontiguousarray(Xnum, dtype=np.float32),
+        cat_feature_data=np.ascontiguousarray(Xcat) if cat_cols else None,
+        num_feature_names=list(feature_cols),
+        cat_feature_names=list(cat_cols) if cat_cols else None,
+    )
+    return Pool(fd, label=None if label is None else np.asarray(label, dtype=float))
+
+
+def _fit_catboost(
+    train: pl.DataFrame,
+    target_expr,
+    cfg: TrainConfig,
+    feature_cols: list[str],
+    cat_cols: list[str],
+    predict_frames: list[pl.DataFrame],
+    es_rows=None,
+) -> tuple[list[np.ndarray], int]:
+    """`_fit` with CatBoost as the booster. Same signature, same return, and the same six contract items
+    (P10 §1.3), each done the way `_fit` does it:
+
+    1. early stopping reads the inner holdout of `train` only (`_inner_holdout_mask`, and the P2 Fix 1 block
+       when `es_rows` is given), never the evaluation fold; the final model is refitted on all of `train` at a
+       fixed round count;
+    2. that round count is `_fit`'s formula verbatim - best count scaled by n_train / (n_train - n_hold),
+       floored at 10, capped at num_rounds. CatBoost's `get_best_iteration()` is 0-based, so the best COUNT is
+       it plus one, which is what LightGBM's `best_iteration` already is;
+    3. train and every predict frame are stacked before the categoricals are coded, so all share one level set;
+    4. `n_seeds` refits at `random_seed = seed + k`, predictions averaged;
+    5. predictions are returned per predict frame, in model space;
+    6. the refit Pool is built once and reused across seeds.
+
+    Where the categorical statistics come from, since that is exactly how this project's two leaks happened:
+    CatBoost's ordered target statistics are computed on the learn Pool only, which is the training side of
+    the fold (or its non-holdout part during early stopping). The eval Pool's labels are used to pick the
+    stopping round and for nothing else, and every predict Pool is built with no label at all. At apply time a
+    row's statistics come from the fitted model's tables, not from the other rows it is predicted with -
+    tests/test_catboost_family.py checks that a target frame's labels, and the rows it is batched with, cannot
+    move a prediction."""
+    from catboost import CatBoostRegressor
+
+    hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
+    n_hold = int(hold.sum())
+    es_block = None
+    if es_rows is not None and 0 < n_hold < train.height:
+        es_block = es_rows(train.filter(pl.Series("_es_hold", hold)))
+    frames = [train, *predict_frames] + ([es_block] if es_block is not None else [])
+    n_pred = len(predict_frames)
+    stacked = pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed")
+    Xnum, Xcat = _cb_matrix(stacked, feature_cols, cat_cols)
+    del stacked
+    offs, i = [], 0
+    for f in frames:
+        offs.append((i, i + f.height))
+        i += f.height
+    params = cfg.catboost_params()
+
+    a, b = offs[0]
+    y = target_expr(train)
+    rounds = cfg.num_rounds
+    if 0 < n_hold < train.height:
+        if es_block is not None:
+            s_, e_ = offs[-1]
+            dva = _cb_pool(Xnum[s_:e_], Xcat[s_:e_], feature_cols, cat_cols, y[hold])
+        else:
+            dva = _cb_pool(Xnum[a:b][hold], Xcat[a:b][hold], feature_cols, cat_cols, y[hold])
+        dtr = _cb_pool(Xnum[a:b][~hold], Xcat[a:b][~hold], feature_cols, cat_cols, y[~hold])
+        m = CatBoostRegressor(
+            **params,
+            iterations=cfg.num_rounds,
+            random_seed=cfg.seed,
+            od_type="Iter",
+            od_wait=cfg.early_stopping,
+            use_best_model=False,
+        )
+        m.fit(dtr, eval_set=dva)
+        best_it = m.get_best_iteration()
+        best = int(best_it + 1) if best_it is not None else cfg.num_rounds
+        rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
+        del dtr, dva, m
+
+    else:
+        best = None
+    dfull = _cb_pool(Xnum[a:b], Xcat[a:b], feature_cols, cat_cols, y)
+    dpred = [_cb_pool(Xnum[s_:e_], Xcat[s_:e_], feature_cols, cat_cols) for (s_, e_) in offs[1 : 1 + n_pred]]
+    # The pools hold their own copies; the stacked blocks are the largest thing left and nothing reads them now.
+    del Xnum, Xcat
+    acc = [np.zeros(p.num_row()) for p in dpred]
+    for k in range(max(1, cfg.n_seeds)):
+        model = CatBoostRegressor(**params, iterations=rounds, random_seed=cfg.seed + k)
+        model.fit(dfull)
+        for j, p in enumerate(dpred):
+            acc[j] += model.predict(p)
+        if k == 0:
+            resolved = model.get_all_params()
+            _CB_LAST.clear()
+            _CB_LAST.update(
+                {
+                    # get_all_params() omits thread_count; it is read from what the estimator was given.
+                    "resolved": {
+                        **{key: resolved.get(key) for key in _CB_LOGGED},
+                        "thread_count": model.get_params().get("thread_count"),
+                    },
+                    "es_best_count": best,
+                    "rounds": rounds,
+                    "tree_count": int(model.tree_count_),
+                    "n_cat_features": len(cat_cols),
+                    "n_num_features": len(feature_cols),
+                }
+            )
+        del model
     preds = [a_ / max(1, cfg.n_seeds) for a_ in acc]
     return preds, rounds
 
@@ -642,6 +910,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     n_before = train_f.height
     train_f = train_f.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())
     info: dict = {"train_rows": train_f.height, "dropped_unlabelled": n_before - train_f.height}
+    if cfg.model != "lightgbm":
+        # Only when it is not the default, so a LightGBM record is byte-for-byte what it was before P10.
+        info["model"] = cfg.model
     enc = fit_encodings(train_f, cfg)
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
@@ -677,6 +948,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             else:
                 (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg], es_rows=es_a)
                 info["rounds_matched"] = rounds
+            if cfg.model == "catboost":
+                info["cb_matched"] = dict(_CB_LAST)
         else:
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
@@ -705,6 +978,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             shift_tg = sched_reparam_shift(u_tg, cfg_b)
             g = g + shift_tg
             info["rounds_unmatched"] = rounds
+            if cfg.model == "catboost":
+                info["cb_unmatched"] = dict(_CB_LAST)
             if cfg_b.unmatched_sched_reparam:
                 info["sched_reparam_train_rows"] = int((sched_reparam_shift(u_tr, cfg_b) != 0.0).sum())
                 info["sched_reparam_target_rows"] = int((shift_tg != 0.0).sum())
