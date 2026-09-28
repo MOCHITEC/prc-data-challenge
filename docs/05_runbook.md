@@ -30,7 +30,7 @@ OSN_SECRET_KEY=<シークレット>
 
 キーの名前は複数の表記を受け付ける。アクセスキーは `OSN_ACCESS_KEY` / `OSN_ID` / `OSN_ACCESS_KEY_ID` / `OSN_KEY_ID` のいずれか、シークレットは `OSN_SECRET_KEY` / `OSN_SECRET` / `OSN_SECRET_ACCESS_KEY` のいずれかで良い（運営の表記が MinIO コンソールと OSN アカウント画面で異なるため）。
 
-`OSN_TEAM_BUCKET`（提出先バケット）と `PRC_TEAM_NAME`（提出ファイル名に使うチーム名）は **`make doctor` が接続後に検出して提案する**ので、最初から設定しなくてよい。提出を行う前に環境変数へ追加する。`OSN_S3_ENDPOINT` と `OSN_COMPETITION_BUCKET` は既定値（`s3.opensky-network.org` / `competition-data`）で足りる。
+`OSN_TEAM_BUCKET`（提出先バケット）と `PRC_TEAM_NAME`（提出ファイル名に使うチーム名）は **`make doctor` が接続後に検出して提案する**ので、最初から設定しなくてよい。提出を行う前に環境変数へ追加する。`OSN_S3_ENDPOINT` と `OSN_COMPETITION_BUCKET` は既定値（`s3.opensky-network.org` / `prc-2026-datasets`）で足りる。
 
 ネットワークは確認済み: このクラウド環境から `s3.opensky-network.org` と `mesonet.agron.iastate.edu` に到達できる。
 
@@ -70,15 +70,15 @@ make download
 管理者作業（`sql/000_admin_manual.sql` の 1〜3）が済んでいることを毎セッション確認する。
 
 ```sql
--- MCP から 1 文ずつ。UTC と PRC_WH になっているか
-SHOW PARAMETERS LIKE 'TIMEZONE' IN SESSION;
-SELECT CURRENT_WAREHOUSE();
+-- MCP から 1 文ずつ。PRC_WH で走っているか
+SELECT CURRENT_WAREHOUSE();      -- PRC_WH（TIMEZONE はユーザー単位で変えない方針。STG で UTC に明示変換）
 SHOW WAREHOUSES LIKE 'PRC_WH';   -- resource_monitor が PRC_RM になっているか
 ```
 
-ロード経路は 2 つ。
+ロード経路は 3 つ。
 
-- 案 C（自動）: ユーザーが Snowsight で Secret を作成 → `sql/015_osn_pull.sql` を実行 → `CALL PRC_DC2026.RAW.FETCH_OSN_OBJECT('competition-data', '<file>')` を 1 ファイル 1 コールで（12 ファイルは TASK に包む）→ `sql/020_raw_load.sql`
+- **案 A（採用、Snowflake にキーを置かない）**: `sql/016_osn_presigned_pull.sql`（作成済み）→ サンドボックスで `.venv/bin/python -m prc.io_minio snowflake-fetch` が出力する 1 文を MCP で実行（15 分で失効する署名付き URL）→ `LIST @PRC_DC2026.RAW.OFFICIAL_STAGE` で 14 ファイルを確認 → `sql/020_raw_load.sql`
+- 案 C（自動）: ユーザーが Snowsight で Secret を作成 → `sql/015_osn_pull.sql` を実行 → `CALL PRC_DC2026.RAW.FETCH_OSN_OBJECT('prc-2026-datasets', '<file>')` を 1 ファイル 1 コールで（12 ファイルは TASK に包む）→ `sql/020_raw_load.sql`
 - 案 A′（手動）: ユーザーが Snowsight で 14 ファイルを `@PRC_DC2026.RAW.OFFICIAL_STAGE` にアップロード → `sql/020_raw_load.sql`
 
 Snowflake からサンドボックスへの取り出しは `sql/090_export.sql`（`COPY INTO @stage` → `GET_PRESIGNED_URL` → curl）。**サンドボックスから Snowflake への接続はできない**（プロキシが証明書ピン留めクライアントを非対応）。

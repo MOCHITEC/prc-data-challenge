@@ -57,7 +57,7 @@ class OsnConfig:
             access_key=access,
             secret_key=secret,
             # both of these are discoverable from the buckets themselves - see prc.doctor
-            competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "competition-data"),
+            competition_bucket=os.getenv("OSN_COMPETITION_BUCKET", "prc-2026-datasets"),
             team_bucket=os.getenv("OSN_TEAM_BUCKET", ""),
             team_name=os.getenv("PRC_TEAM_NAME", ""),
             # Pinning the region stops minio from calling GET /<bucket>?location=, which the OpenSky endpoint

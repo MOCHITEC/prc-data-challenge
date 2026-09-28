@@ -77,13 +77,13 @@ def run(session, bucket):
 $$;
 
 -- Usage (one call each):
---   CALL PRC_DC2026.RAW.LIST_OSN_OBJECTS('competition-data');
---   CALL PRC_DC2026.RAW.FETCH_OSN_OBJECT('competition-data', 'ranking.parquet');
+--   CALL PRC_DC2026.RAW.LIST_OSN_OBJECTS('prc-2026-datasets');
+--   CALL PRC_DC2026.RAW.FETCH_OSN_OBJECT('prc-2026-datasets', 'ranking.parquet');
 --   LIST @PRC_DC2026.RAW.OFFICIAL_STAGE;
 -- For the 12 training files, wrap the calls in a TASK so the 60 s client timeout does not matter:
 --   CREATE OR REPLACE TASK PRC_DC2026.RAW.T_FETCH_ALL WAREHOUSE = PRC_WH SCHEDULE = NULL AS
 --     BEGIN
---       CALL PRC_DC2026.RAW.FETCH_OSN_OBJECT('competition-data', 'training_2025-01-01_2025-02-01.parquet');
+--       CALL PRC_DC2026.RAW.FETCH_OSN_OBJECT('prc-2026-datasets', 'training_2025-01-01_2025-02-01.parquet');
 --       ... one line per file ...
 --     END;
 --   EXECUTE TASK PRC_DC2026.RAW.T_FETCH_ALL;

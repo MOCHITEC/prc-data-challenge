@@ -3,18 +3,22 @@
 -- SYSADMIN role used by the MCP connection does not have). Review each block before running.
 -- Nothing here embeds credentials. Replace <...> placeholders.
 
--- 1) Session time zone for the working user (the account default is America/Los_Angeles).
---    User-level setting also applies to the non-persistent MCP sessions.
-ALTER USER <ADMIN_USER> SET TIMEZONE = 'UTC';
---    The MCP session cannot persist USE WAREHOUSE, so make the competition warehouse the default for the
---    working user during the competition (or create a dedicated MCP user with DEFAULT_WAREHOUSE = PRC_WH).
-ALTER USER <ADMIN_USER> SET DEFAULT_WAREHOUSE = PRC_WH;
+-- Budget decided 2026-09-28 (docs/decisions.md): 20 credits for the whole project, hard stop on PRC_WH.
 
--- 2) Resource monitor for the competition warehouse (created in 010_setup_db.sql).
---    Enable e-mail notifications for ACCOUNTADMIN in Snowsight (Admin > Cost Management) beforehand.
+-- 1) Route every MCP query to the competition warehouse. The MCP session cannot persist USE WAREHOUSE, so the
+--    working user's default decides where the credits land (and whether PRC_RM below can stop them).
+--    Side effect: other tools that log in as this user without naming a warehouse also land on PRC_WH and
+--    stop with it at the cap. Revert when the project ends: ALTER USER <ADMIN_USER> SET DEFAULT_WAREHOUSE = <PREVIOUS_WH>;
+ALTER USER <ADMIN_USER> SET DEFAULT_WAREHOUSE = PRC_WH;
+--    Time zone: NOT changed at user level, because the same user runs other work whose LTZ output would move.
+--    The loaders normalise explicitly instead (CONVERT_TIMEZONE('UTC', col)::TIMESTAMP_NTZ in STG, docs/02 §5).
+--    Only if this user is dedicated to the project: ALTER USER <ADMIN_USER> SET TIMEZONE = 'UTC';
+
+-- 2) Resource monitor = the hard stop. FREQUENCY = NEVER: the quota is for the whole project and never resets.
+--    E-mail: Snowsight > your profile > Settings > Notifications, enable resource monitor e-mails beforehand.
 CREATE RESOURCE MONITOR IF NOT EXISTS PRC_RM
-  WITH CREDIT_QUOTA = 50
-  FREQUENCY = MONTHLY
+  WITH CREDIT_QUOTA = 20
+  FREQUENCY = NEVER
   START_TIMESTAMP = IMMEDIATELY
   TRIGGERS ON 50 PERCENT DO NOTIFY
            ON 80 PERCENT DO NOTIFY
@@ -22,8 +26,11 @@ CREATE RESOURCE MONITOR IF NOT EXISTS PRC_RM
            ON 110 PERCENT DO SUSPEND_IMMEDIATE;
 ALTER WAREHOUSE PRC_WH SET RESOURCE_MONITOR = PRC_RM;
 
--- 3) Account budget (covers serverless / compute-pool spend that resource monitors do not).
---    Snowsight: Admin > Cost Management > Budgets > set spending limit and notification e-mail.
+-- 3) Optional: a Budget as a second, notify-only alarm (it also sees serverless spend, which PRC does not plan
+--    to use, and it lags by hours). Snowsight: Admin > Cost Management > Budgets > + Budget,
+--    scope = database PRC_DC2026 + warehouse PRC_WH, limit 20 credits/month, your e-mail.
+--    Not used by this project because PRC_RM cannot stop them: Notebooks on Container Runtime (compute pools),
+--    Cortex AI functions, Snowsight Copilot, serverless tasks, automatic clustering, query acceleration.
 
 -- 4) Optional hardening (recommended before the repository becomes public):
 --    - Network policy restricting logins to known IPs.

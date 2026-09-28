@@ -57,3 +57,12 @@
 - **戦略の前提が実データで確認できた**: Ranking の出発便で離陸時刻は 100% 残存、管制側オフブロック時刻は 98.47% 残存、その標準偏差 171〜430 秒で派生値ではない。`MVT − AOBT_3` 単独の RMSE は 384.9 秒で公開報告と一致。2 つの時計の差分を学習する設計をそのまま進める。
 - 新たに判明した特徴量の機会: `CALLSIGN_flt` は匿名化されておらず、先頭 3 文字が実在の ICAO 航空会社コード（`AIRCRAFT_OPERATOR_flt` はハッシュ）。実航空会社を別の特徴量として使える。
 - メモリ事故と対処: 初回の全量学習が OOM（cgroup 上限、anon RSS 14 GB）。原因は学習行列を連結して重複確保していたこと。共有 `pl.Enum` でカテゴリ符号を固定して frame ごとに行列を作る方式に変更し、float32 化と LightGBM の `Dataset.subset()` で内部ホールドアウトの追加コピーを排除した。
+
+## 2026-09-28: Snowflake にデータを入れて分析する（Track B 再開）
+
+- **予算**: プロジェクト通算 20 クレジット。リソースモニター `PRC_RM`（`FREQUENCY = NEVER`、50/80% 通知、100% 停止、110% 即時停止）を `PRC_WH` に付けて止める。Budget は任意の二次通知。リソースモニターで止められない課金（Notebook の Container Runtime、Cortex AI 関数、Snowsight Copilot、サーバーレスタスク、自動クラスタリング、QAS）はこのプロジェクトでは使わない。見積りは取得・ロード・STG で 1 未満、分析で 1 日 0.5〜1。
+- **課金の行き先**: MCP のクエリは作業ユーザーの既定ウェアハウス（社内用）で走っていたため、リソースモニターが効かなかった。`ALTER USER ... SET DEFAULT_WAREHOUSE = PRC_WH` を管理者作業の 1 番目にした（`sql/000_admin_manual.sql`）。完了までは MCP から重いクエリを実行しない。
+- **タイムゾーンはユーザー単位で変えない**: 作業ユーザーは他業務にも使われており、LTZ の表示が変わる。代わりに STG で `CONVERT_TIMEZONE('UTC', col)::TIMESTAMP_NTZ` と明示する（docs/02 §5 の手順 4 を置き換え）。
+- **取り込みは OpenSky のキーを Snowflake に置かない経路**（`sql/016_osn_presigned_pull.sql`）: サンドボックスがキーで 15 分有効の署名付き URL を作り、Snowflake の Python プロシージャが External Access Integration（secret なし）経由で取得してステージに置く。URL はアクセスキー ID と署名を含み秘密鍵は含まない。クエリ履歴には残るため短命・一度きりで使う。Secret 方式（`sql/015`）は、Claude 不在で再取得が必要になった場合の予備として残す。ネットワークルール・統合・プロシージャは作成済み（ウェアハウス不要の DDL のみ）。
+- **OpenSky の一覧 API が 503 を返し続ける時間帯がある**（オブジェクトの GET は正常）。署名はローカル計算なので、既知の 14 ファイル名（`prc.io_minio.OFFICIAL_FILES`）から一覧なしで URL を作る。公式バケットの既定名を実名 `prc-2026-datasets` に修正した（旧既定の `competition-data` は存在しない）。
+- **提出経路は変えない**: 提出は OpenSky のチームバケットへの parquet アップロードで、Snowflake 経由の提出手段は運営側に無い。Snowflake は保存・分析・SQL 特徴量に使い、学習・検証ゲート・提出はサンドボックスに残す（docs/04 の「副目的をクリティカルパスに置かない」を維持）。

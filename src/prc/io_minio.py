@@ -4,6 +4,7 @@ Credentials come from environment variables only (never from arguments or chat).
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from pathlib import Path
 
@@ -13,6 +14,13 @@ from minio.error import S3Error
 from .config import OsnConfig, data_dir
 
 log = logging.getLogger(__name__)
+
+# The 14 official objects (docs/data_profile.md), so links can be signed without the flaky listing call.
+OFFICIAL_FILES = [
+    "ranking.parquet",
+    "submitting.parquet",
+    *[f"training_2025-{m:02d}-01_{'2026-01' if m == 12 else f'2025-{m + 1:02d}'}-01.parquet" for m in range(1, 13)],
+]
 
 
 def client(cfg: OsnConfig | None = None) -> Minio:
@@ -47,6 +55,38 @@ def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnCo
             c.fget_object(bucket, obj.object_name, str(target))
         out.append(target)
     return out
+
+
+def presigned_urls(
+    names: list[str] | None = None, bucket: str | None = None, minutes: int = 15, cfg: OsnConfig | None = None
+) -> list[tuple[str, str]]:
+    """Short-lived GET links, as (object name, url), for `names` or for every object in the competition bucket.
+
+    This is how Snowflake loads the files without holding the OpenSky key (sql/016_osn_presigned_pull.sql).
+    A link carries the access key id and a signature but not the secret, and is dead after `minutes`; it still
+    lands in Snowflake's query history, so keep the lifetime short and do not paste links anywhere else.
+
+    Signing is local (the region is pinned), so passing `names` needs no request at all - useful because the
+    endpoint's listing call answers 503 for minutes at a time while plain object GETs keep working."""
+    if not 1 <= minutes <= 60:
+        raise ValueError("keep presigned links short-lived: 1-60 minutes")
+    cfg = cfg or OsnConfig.from_env()
+    bucket = bucket or cfg.competition_bucket
+    c = client(cfg)
+    if names is None:
+        names = [o.object_name for o in c.list_objects(bucket, recursive=True)]
+    expires = dt.timedelta(minutes=minutes)
+    return [(n, c.presigned_get_object(bucket, n, expires=expires)) for n in names]
+
+
+def snowflake_fetch_block(minutes: int = 15, names: list[str] | None = None, cfg: OsnConfig | None = None) -> str:
+    """One anonymous block (= one MCP statement) that pulls every file into the stage via fresh links."""
+    calls = []
+    for name, url in presigned_urls(names or OFFICIAL_FILES, minutes=minutes, cfg=cfg):
+        if "'" in url or "$$" in url:  # would break out of the SQL literal / block
+            raise ValueError(f"unexpected character in the link for {name}")
+        calls.append(f"  CALL PRC_DC2026.RAW.FETCH_URL_TO_STAGE('{url}', '{name}');")
+    return "EXECUTE IMMEDIATE $$\nBEGIN\n" + "\n".join(calls) + "\nEND;\n$$"
 
 
 def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = None, overwrite: bool = False) -> str:
@@ -85,3 +125,11 @@ def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = No
     c.fput_object(cfg.team_bucket, object_name, str(local_file))
     log.info("uploaded %s -> %s/%s", local_file, cfg.team_bucket, object_name)
     return object_name
+
+
+if __name__ == "__main__":
+    import sys
+
+    if sys.argv[1:] != ["snowflake-fetch"]:
+        sys.exit("usage: python -m prc.io_minio snowflake-fetch   (prints a 15-minute fetch block, sql/016)")
+    print(snowflake_fetch_block())
