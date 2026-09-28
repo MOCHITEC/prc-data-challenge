@@ -4,6 +4,8 @@
 #   cb_base 219.72 / cb_noise 220.09 / cb_all 216.76 / cb_flseq 217.20
 #   flseq vs base: ADOPT -2.53 s (-0.93 s at 200 rows dropped)
 #   all vs flseq: -0.44 s [-2.16, +1.50], no difference -> the smaller set ships.
+#   Full CV (4 folds): 277.54 -> 272.96; jan 342.16, jul 295.32, jul_fwd 308.29, forward 217.20.
+#   Submitted as v16 (2026-09-28): LB 279.259 against v14 279.5234 (-0.26 s), the team best.
 #   Single groups vs base: fl ADOPT -1.35, seq ADOPT -0.69, occ +0.31 / ta +0.01 / bk +0.16 REJECT.
 # The production recipe as of 2026-09-24: configs/main_reparam.yaml + stand_arrival_gap.
 #
