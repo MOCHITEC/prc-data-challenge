@@ -473,3 +473,69 @@ is not protection; that is the explicit lesson of `4faa313`'s own commit message
 * **`outputs/` untouched**; `experiments/pipeline.jsonl` restored to its pre-probe state; the only tracked
   files this work adds or changes are the three configs, the new script, this note, the three `results/`
   files, and `experiments/experiments.jsonl`'s two new CV records.
+
+---
+
+## 9. Replication on `jul_fwd` (2026-09-28, second session)
+
+§7.3 step 1, run as a replication: the same three arms (`c13_base`, `c13_c1_2col`, `c13_noise2`) on the
+second fold v15 was measured on, then pooled with §1.3's forward OOF. **Nothing submitted, nothing written
+to `outputs/`, no `src/` change.** Marking as above, plus **[P]** = pre-registered in §9.0 before any
+`jul_fwd` number for these arms existed.
+
+### 9.0 Pre-registration (written and hashed before the first `jul_fwd` fit started)
+
+**What is being run.** Three new configs, `configs/c13_base_jf.yaml`, `configs/c13_c1_2col_jf.yaml`,
+`configs/c13_noise2_jf.yaml`: each is its forward-fold sibling byte-for-byte except `name` (so the forward
+records keep their names and `results/c1-2col-verdicts.txt` still reproduces) and `folds: [jul_fwd]`.
+Same `n_seeds: 3`, `es_holdout_encodings: true`, `lgb_deterministic` at its default `True`, `num_threads`
+4, same `exclude_features`, same `data/work_c1c3` frame (fingerprint checked: `feature_code`
+`965e1a5700ab5e71` and `weather_code` `301038f9d74bf881` are what HEAD's `src/` hashes to today, and
+`git diff fd2594d -- src` is empty, so the cache hits without any further edit). `jul_fwd` validates
+July 2025 (190,713 rows) on a model trained on January-June (1,005,519 rows) - 57 % of the forward fold's
+1,757,038 training rows, so memory should be well under the forward arms' 13,134 MB peak and
+`es_holdout_encodings` stays on. One fit at a time, `POLARS_MAX_THREADS=2`, output to a log file, never
+piped.
+
+**Harness checks, pre-registered as pass/fail - if either fails, stop and explain before reading any
+comparison.** [P]
+
+* H1. `c13_base_jf` reproduces `p8e_base-798baa7a90`'s `jul_fwd` fold to every printed digit:
+  full 314.4240, lane A 251.8774, lane B 1333.7191, `rounds_matched` 834, `rounds_unmatched` 149.
+  (Grounds: `c13_base` already reproduced `p8e_base`'s forward fold, 219.7648, on this frame.)
+* H2. Lane B is **1333.7191 with 149 rounds in `c13_c1_2col_jf` as well** - C1's columns never reach a
+  model-B split, as on forward. If it moves, something about `jul_fwd` differs and must be explained before
+  the pooled number means anything.
+
+**What I expect `jul_fwd` to read.** [P]
+
+* base → C1, K=0: **about −0.2 s**, plausible range −0.45 to +0.05, **CI probably containing zero**.
+  Reasons: the fold is 58 % the size of forward, its tail is heavier (full RMSE 314 against 220, lane B
+  1334 against 1004, 3,938 unmatched rows), so the K=0 CI is wider; and the model is trained on six months,
+  which gives C1's mode table no less information (it is fitted on the union frame) but gives model A fewer
+  rows to learn the flag's interaction from. I expect shrinkage from forward's −0.36, not a sign change.
+* base → C1, K=200: **about −0.2 s**, same range.
+* lane A (the only lane C1 can move, by H2): **about −0.25 s**, against forward's −0.40.
+* noise2 → C1: same sign as base → C1, CI containing zero at K=0.
+* pooled [forward, jul_fwd], base → C1: **ADOPT, about −0.28 s**, because forward alone already clears
+  both legs with room to spare and `jul_fwd` would have to be materially positive to undo it.
+* `jul_fwd` alone has one month, so it has **no month bootstrap** (`month_bootstrap_rmse_diff` returns NaN
+  for fewer than two months); the pooled one has three.
+
+**What makes me say DO-NOT-SHIP.** [P] Any one of:
+
+* D1. `jul_fwd` base → C1 reads **≥ −0.10 s at K=0 or at K=200** (point estimate) - i.e. less than about
+  a third of forward's effect, or the wrong sign. That is the v15 pattern: one fold carries the pooled
+  number and the other does not.
+* D2. `jul_fwd` lane-A effect of C1 is no larger in magnitude than `jul_fwd`'s noise2 lane-A draw against
+  base - i.e. the candidate does not beat the refit redraw on the one lane it acts on.
+* D3. `jul_fwd` noise2 → C1 reads **≥ 0 at K=200** (the control beats the candidate once the tail is gone).
+* D4. pooled base → C1 is REJECT under `prc.compare.verdict`.
+* D5. H2 fails and cannot be explained as benign.
+
+**What the best possible outcome is, stated now so it cannot drift.** [P] If none of D1-D5 fires, the
+verdict is **NEEDS-MORE-FOLDS, not SHIP**. `[forward, jul_fwd]` passing both gates is *exactly* the
+evidence v15's dead-column removal had (−0.13 [−0.25, −0.02], month P = 1.000) before it scored +0.0163
+on the board and −0.01 on the four-fold CV. Passing on the same two folds cannot be sufficient here by
+construction; SHIP needs the production fold set (`jan`, `jul`, `forward`) to agree.
+
