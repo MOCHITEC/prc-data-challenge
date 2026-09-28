@@ -480,6 +480,12 @@ anyone knowing which it meant.
 
 ### 7.1 C1 - `proxy_is_nominal`
 
+> **Superseded, 2026-09-28: see `C1-two-column-remeasured.md`.** Step (c) below was run. The two-column
+> build (`proxy_at_mode`, `proxy_minus_mode_min`) is stronger on every reading, and the argument for
+> "UNMEASURABLE" given in this section does not survive: six control pairs show the rule fires on 0 of 6
+> pure-noise comparisons, so the claim that it "would also admit `noise_control`" is true of the K=200 leg
+> only, not of the rule. The verdict is still DO-NOT-SHIP, for a different and newer reason.
+
 **Verdict: ADOPT by the rule, UNMEASURABLE by the instrument. I would not ship it on this evidence.**
 
 The rule fires: -0.294 [-0.553, -0.069] on all rows and -0.210 [-0.381, -0.039] at K=200, both CIs

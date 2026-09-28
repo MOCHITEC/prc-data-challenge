@@ -47,6 +47,7 @@ PAIRS = [
     # C. the instrument's own control
     ("c13_noise3", "c13_noise4", "C1. noise against noise - what the instrument returns for a pure redraw"),
     ("c13_noise2", "c13_noise3", "C2. the same, two noise columns against three"),
+    ("c13_noise2", "c13_noise4", "C3. the same, two noise columns against four"),
 ]
 
 
