@@ -58,11 +58,39 @@ signs; fails the shrinkage rule.
   Optuna-tuned on both sides. A tuned CatBoost could do better; nothing here measures that, and tuning on
   these folds would be selection on the evaluation set.
 - `p10_cb_ne_ctr4` (the library-default `max_ctr_complexity` 4) was configured and not run.
-- `p10_cb_ne_s43_jf`: pending, appended here when it lands.
+- `p10_cb_ne_s43_jf`: landed, see §6.
 
 ## 5. What was built
 
 `src/prc/train.py` and `src/prc/pipeline.py` gain a model-family switch whose default is `"lightgbm"`, the
 only value any archived recipe uses; no `main_*` config sets it, so production is unchanged. Tests in
-`tests/test_catboost_family.py`; mutation audit in `scripts/p10_mutation_audit.py`. **The test suite has not
-yet been re-run against these changes** — the last CatBoost arm is still using the box.
+`tests/test_catboost_family.py`; mutation audit in `scripts/p10_mutation_audit.py`. Suite **166 passed** after the last arm
+finished (15 min 09 s).
+
+## 6. CatBoost's own seed control (`p10_cb_ne_s43_jf`), and why it strengthens the verdict
+
+`jul_fwd`, no encodings, lane A 258.613, full 340.6153, 1,663 rounds (early-stopped, not capped).
+
+| | lane A seed draw | full-fold seed draw |
+|---|---:|---:|
+| CatBoost (s42 vs s43) | **1.439** | **12.367** |
+| LightGBM (s42 vs s43) | 0.223 | 1.187 |
+
+**CatBoost is 6× noisier than LightGBM on lane A and 10× on the full fold**, on the same information.
+
+The pre-registration measured the family gap against LightGBM's seed draw. Re-read against CatBoost's own,
+which is the harder test:
+
+| pairing (`jul_fwd`, lane A) | CatBoost − LightGBM |
+|---|---:|
+| CB s42 vs LGB s42 | +5.980 |
+| CB s42 vs LGB s43 | +5.757 |
+| CB s43 vs LGB s42 | +4.541 |
+| CB s43 vs LGB s43 | +4.318 |
+
+**All four pairings put CatBoost 4.3–6.0 s worse on lane A**, and the smallest of them is 3.0× CatBoost's own
+lane-A seed draw. The lane-A verdict survives the stricter control.
+
+The **full-fold** gap does not: +11.9 s against a CatBoost seed draw of 12.4 s. On full-fold RMSE alone,
+CatBoost versus LightGBM is not distinguishable from CatBoost reshuffling its own seed. That is a second,
+independent reason not to ship it — a model whose score moves 12 s between seeds is not one to spend a slot on.
