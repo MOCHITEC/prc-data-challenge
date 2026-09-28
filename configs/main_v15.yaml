@@ -34,6 +34,14 @@ n_seeds: 3
 unmatched_sched_reparam: true
 unmatched_sched_reparam_airports: [LIRF]
 lobt_bound: true
-es_holdout_encodings: true
+# es_holdout_encodings is OFF here, and the reason is memory, not doubt about the fix.
+# P2 Fix 1 re-encodes the early-stopping holdout and appends it to the same pl.concat, so the full-data
+# refit carries about 200,000 extra rows (+10 %). v14 ran at ~10.9 GB peak with 137 feature columns and
+# the flag off; this session's frame is 143 columns (C1's three are CANDIDATE_COLS and are computed
+# whatever include_candidates says, plus three weather columns), and with the flag on the build was
+# OOM-killed five times at 13.96-13.97 GB against a 13,681 MB cgroup limit - once with --skip-cv, so on
+# the refit alone. The flag's own measurement is +0.04 s [-0.06, +0.17], i.e. no predictive effect, so
+# turning it off for the build costs nothing measurable. It stays true in configs/main_gap.yaml.
+es_holdout_encodings: false
 include_candidates: [stand_arrival_gap]
 exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]
