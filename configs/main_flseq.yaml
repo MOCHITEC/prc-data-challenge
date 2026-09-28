@@ -1,0 +1,44 @@
+# Production candidate: configs/main_gap.yaml (v14, LB 279.52) + the fl and seq groups of prc.features_extra.
+#
+# Gate (forward fold, P4 stage-A layout, prc.compare):
+#   cb_base 219.72 / cb_noise 220.09 / cb_all 216.76 / cb_flseq 217.20
+#   flseq vs base: ADOPT -2.53 s (-0.93 s at 200 rows dropped)
+#   all vs flseq: -0.44 s [-2.16, +1.50], no difference -> the smaller set ships.
+#   Single groups vs base: fl ADOPT -1.35, seq ADOPT -0.69, occ +0.31 / ta +0.01 / bk +0.16 REJECT.
+# The production recipe as of 2026-09-24: configs/main_reparam.yaml + stand_arrival_gap.
+#
+# Why the feature is here. P4 stage A measured it on the forward fold against the baseline we actually ship,
+# with a noise-control arm beside it because a signal-free column moves this model by +/-0.5 s on its own:
+#
+#   base   223.35 full / 201.41 matched / 1028.41 unmatched
+#   noise  223.58        201.49          1032.09
+#   gap    219.72        198.53          1003.60
+#
+# prc.compare, gap against base: -3.62 s at K=0, -2.85 at K=200, P(B better) = 1.000 at all four drop levels,
+# month bootstrap -3.62 [-4.79, -2.43]. VERDICT ADOPT. Against the noise arm it is -3.85 s, so this is not the
+# +0.23 that adding any column buys.
+#
+# Read the number correctly. The -3.2424 recorded for this feature in docs/codex_fe_results was measured
+# against an EIGHT-month baseline; production's forward fold trains on ten, and the ten-month baseline is
+# itself 2.6888 s better. The -3.62 above is on top of that, and is the first measurement of this feature
+# taken on code where two runs of the same config agree (the G11 categorical-encoding fix).
+#
+# Honest caveat: on the unmatched lane this is a large win at LIRF (4124.6 -> 3955.4, 78.4% of the
+# disagreement) outweighing small losses at the eight airports other than LIRF and LFPG. It is not a uniform
+# improvement.
+name: main_flseq
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap, fl_fmt_code, fl_len, fl_nm_rate_other, dup_n, dup_n_unm_twins, dup_n_m_twins, dup_mvt_span, seq_hw_prev_pairq, seq_hw_excess, seq_lead_wtc, seq_burst_pos, seq_burst_len, seq_burst_elapsed, seq_burst_remaining, seq_burst_pos_frac, seq_hw_mean_prev5, seq_hw_mean_next5, seq_hw_min_prev3, seq_arr_since_prevdep, seq_arr_prev_s, seq_arr_next_s, seq_arr_pm10m, seq_rwy_share_pm30]
