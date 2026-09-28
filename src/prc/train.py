@@ -194,6 +194,13 @@ class TrainConfig:
     # External weather v2 (docs/weather_v2_2026-09-25/plan.md): "" off, "B" METAR present-weather columns,
     # "C" those plus Open-Meteo precipitation / snowfall / snow depth. Joined at the take-off hour inside the fold.
     fe_weather_v2: str = ""
+    # OSM stand-to-runway distance (docs/osm_stand_2026-09-28/plan.md): great-circle km from the stand's OpenStreetMap
+    # position to the threshold of the departure runway. The one stand descriptor defined for a stand the model
+    # has never seen.
+    fe_osm_dist: bool = False
+    # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
+    # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
+    sim_unseen_stands: float = 0.0
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -486,6 +493,30 @@ def weather_v2_features(df: pl.DataFrame, mode: str) -> pl.DataFrame:
     return join_hourly(df, _weather_v2_table(mode), cols)
 
 
+@functools.lru_cache(maxsize=1)
+def _osm_tables() -> tuple[pl.DataFrame, pl.DataFrame]:
+    from .osm import fetch_osm_aeroway, fetch_runway_ends, stand_table
+
+    return stand_table(fetch_osm_aeroway()), fetch_runway_ends()
+
+
+def osm_distance_features(df: pl.DataFrame) -> pl.DataFrame:
+    """Attach `osm_stand_rwy_km`. Label-free; the same two tables serve every fold and the ranking set."""
+    from .osm import add_stand_runway_distance
+
+    stands, ends = _osm_tables()
+    return add_stand_runway_distance(df, stands, ends)
+
+
+def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
+    """True for rows whose (airport, stand) is in the held-out share, by a CRC32 that no library version changes."""
+    import zlib
+
+    keys = (df["ADEP_mvt"].cast(pl.Utf8).fill_null("") + "|" + df["STAND_mvt"].cast(pl.Utf8).fill_null("")).to_list()
+    u = np.array([zlib.crc32(k.encode()) / 2**32 for k in keys])
+    return (u < share) & df["STAND_mvt"].is_not_null().to_numpy()
+
+
 def add_fold_features(
     tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, info: dict
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -502,6 +533,8 @@ def add_fold_features(
         tr, tg = noise_features(tr, cfg.fe_noise_cols), noise_features(tg, cfg.fe_noise_cols)
     if cfg.fe_weather_v2:
         tr, tg = weather_v2_features(tr, cfg.fe_weather_v2), weather_v2_features(tg, cfg.fe_weather_v2)
+    if cfg.fe_osm_dist:
+        tr, tg = osm_distance_features(tr), osm_distance_features(tg)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
     return tr, tg
 
@@ -771,11 +804,15 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     n_before = train_f.height
     train_f = train_f.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())
     info: dict = {"train_rows": train_f.height, "dropped_unlabelled": n_before - train_f.height}
+    if cfg.sim_unseen_stands > 0:
+        held = unseen_stand_mask(train_f, cfg.sim_unseen_stands)
+        info["sim_unseen_stands_dropped_train_rows"] = int(held.sum())
+        train_f = train_f.filter(pl.Series("_keep", ~held))
     enc = fit_encodings(train_f, cfg)
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
-    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols or cfg.fe_weather_v2:
+    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols or cfg.fe_weather_v2 or cfg.fe_osm_dist:
         tr, tg = add_fold_features(tr, tg, cfg, info)
 
     num_cols = visible_numeric_columns(tr, cfg)
