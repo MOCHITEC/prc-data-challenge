@@ -19,6 +19,8 @@ Sections
   D  calibrated residual instrument (delay-mechanisms.md S5-S7 recipe) on the new arm, with controls
   E  extended instrument: same, but with mvt_minus_sched and the OOF prediction in every arm's base
   F  LFPG: worst days and the early-off-block rows
+  G  direct mixture test: move the OOF prediction by the change in fill probability that C's arrival arm
+     implies, on LIRF lane-A OOF rows, against the same move driven by C's permuted control (needs C first)
 """
 
 from __future__ import annotations
@@ -420,6 +422,113 @@ def F() -> None:
           .sort("len", descending=True).head(8))
     print(x.with_columns(pl.col("STAND_mvt").str.slice(0, 1).alias("t")).group_by("t").agg(pl.len())
           .sort("len", descending=True).head(8))
+
+
+def G() -> None:
+    """new = oof + (p_arr - p_base) * (ms - oof) / (1 - p_base).
+
+    If the production prediction is the mixture p_base*ms + (1-p_base)*m0 (fill => y = ms exactly), this is
+    the prediction the same mixture gives at p_arr. No parameter is fitted; p comes from C's leave-one-month-out
+    classifier. The control replaces p_arr with p_perm (arrival columns shuffled within month).
+    """
+    P = np.load(SCRATCH + "/lirf_fill_p.npy")
+    p = pl.DataFrame({"MVT_ID_mvt": P[0], "p_base": P[1], "p_arr": P[2], "p_perm": P[3]})
+    A = add_diag_labels(load_lane_a(["MVT_ID_mvt", "ADEP_mvt", "TAXITIME_SEC_mvt", "mvt_minus_aobt3", "month",
+                                     "mvt_minus_sched", "BLOCK_TIME_UTC_mvt", "SCHED_TIME_UTC_mvt", "LOBT_flt",
+                                     "AOBT_3_flt", "MVT_TIME_UTC_mvt"]))
+    tot_n, tot_sse = A.height, float((A["r"] ** 2).sum())
+    L = A.filter(pl.col("ADEP_mvt") == "LIRF").join(p, on="MVT_ID_mvt", how="left")
+    assert L["p_base"].null_count() == 0, "C's probabilities do not cover the LIRF lane-A OOF rows"
+    y = L["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    oof = L["oof"].to_numpy()
+    ms = L["mvt_minus_sched"].to_numpy()
+    pb = L["p_base"].to_numpy()
+    fold = L["fold"].to_numpy()
+    base_sse = ((oof - y) ** 2)
+    print("G LIRF lane-A OOF rows %d; LIRF RMSE %.3f; lane-A RMSE %.4f" % (L.height, np.sqrt(base_sse.mean()),
+                                                                            np.sqrt(tot_sse / tot_n)))
+    # calibration check of the base classifier against the production prediction on fill rows
+    for name in ("p_arr", "p_perm", "p_base"):
+        pa = L[name].to_numpy()
+        new = oof + (pa - pb) * (ms - oof) / np.clip(1 - pb, 0.05, None)
+        d_sse = ((new - y) ** 2) - base_sse
+        lane = np.sqrt((tot_sse + d_sse.sum()) / tot_n) - np.sqrt(tot_sse / tot_n)
+        per = []
+        for f in ("jan", "jul", "forward"):
+            m = fold == f
+            per.append("%s %+.3f" % (f, np.sqrt((base_sse[m] + d_sse[m]).mean()) - np.sqrt(base_sse[m].mean())))
+        print("G %-7s LIRF RMSE %+.3f   lane-A RMSE %+.4f   per fold (LIRF RMSE): %s" % (
+            name, np.sqrt((base_sse + d_sse).mean()) - np.sqrt(base_sse.mean()), lane, "  ".join(per)))
+    # what the production model implicitly assumes: regress oof on ms among rows, compare with p_base
+    fl = L["fill"].to_numpy()
+    print("G mean p_base on fill rows %.3f, on non-fill %.3f; mean p_arr %.3f / %.3f" % (
+        pb[fl].mean(), pb[~fl].mean(), L["p_arr"].to_numpy()[fl].mean(), L["p_arr"].to_numpy()[~fl].mean()))
+
+
+def _blocked_pred(A: pl.DataFrame, feats: list[str], seed: int) -> np.ndarray:
+    """Same recipe as delay_mechanisms.month_blocked_gain (leaves 8), but returns the out-of-quarter prediction."""
+    import lightgbm as lgb
+
+    X = A.select(feats).with_columns([pl.col(c).cast(pl.Float64) for c in feats]).to_numpy()
+    r = A["r"].to_numpy()
+    mo = A["month"].to_numpy()
+    pred = np.zeros(len(r))
+    for k in range(4):
+        te = np.isin(mo, [3 * k + 1, 3 * k + 2, 3 * k + 3])
+        if te.sum() == 0:
+            continue
+        params = dict(objective="regression", learning_rate=0.05, num_leaves=8, min_data_in_leaf=200,
+                      feature_fraction=1.0, bagging_fraction=0.8, bagging_freq=1, verbose=-1, seed=seed,
+                      num_threads=2, deterministic=True, force_row_wise=True)
+        m = lgb.train(params, lgb.Dataset(X[~te], label=r[~te]), num_boost_round=200)
+        pred[te] = m.predict(X[te])
+    return pred
+
+
+def H() -> None:
+    A = _prep_instrument()
+    A = add_diag_labels(A.join(pl.read_parquet(FEAT, columns=["MVT_ID_mvt", "BLOCK_TIME_UTC_mvt",
+                                                              "SCHED_TIME_UTC_mvt", "LOBT_flt", "AOBT_3_flt",
+                                                              "MVT_TIME_UTC_mvt"]),
+                               on="MVT_ID_mvt", how="left", maintain_order="left"))
+    r = A["r"].to_numpy()
+    y = A["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    n, sse0 = len(r), float((r ** 2).sum())
+    base_rmse = np.sqrt(sse0 / n)
+    # oracle ceilings (label-reading, for scale only)
+    ms = A["mvt_minus_sched"].to_numpy()
+    fill = A["fill"].to_numpy()
+    moved = A["sched_ne_lobt"].to_numpy()
+    lirf = (A["ADEP_mvt"] == "LIRF").to_numpy()
+    for name, m in (("LIRF fill & SCHED!=LOBT", lirf & fill & moved), ("LIRF fill, all", lirf & fill),
+                    ("fill & SCHED!=LOBT, all airports", fill & moved)):
+        sse = sse0 - float((r[m] ** 2).sum()) + float(((ms[m] - y[m]) ** 2).sum())
+        print("H ORACLE predict y = mvt_minus_sched on %-34s rows %6d: lane-A RMSE %+.3f" % (
+            name, m.sum(), np.sqrt(sse / n) - base_rmse))
+    BASE = ["adep_code", "hour_local", "mvt_minus_aobt3", "rwy_code", "ms_minus_pred", "lobt_minus_sched_v"]
+    NC = ["noise_control", "noise_control_2", "noise_control_3", "noise_control_4"]
+    arms = {"control4": NC, "arrival": ARR_COLS, "permuted": [c + "_perm" for c in ARR_COLS]}
+    mo = A["month"].to_numpy()
+    folds = {"jan": mo == 1, "jul": mo == 7, "nov-dec": np.isin(mo, [11, 12])}
+    res = {}
+    for name, extra in arms.items():
+        preds = [_blocked_pred(A, BASE + extra, s) for s in range(3)]
+        res[name] = np.mean(preds, axis=0)
+    for scope, sel in (("all", np.ones(n, bool)), ("LIRF", lirf), ("non-LIRF", ~lirf)):
+        line = []
+        for f, fm in folds.items():
+            m = fm & sel
+            e = {k: np.sqrt(((r[m] - v[m]) ** 2).mean()) for k, v in res.items()}
+            line.append("%s: arr-perm %+.3f arr-ctl %+.3f" % (f, e["arrival"] - e["permuted"],
+                                                              e["arrival"] - e["control4"]))
+        print("H %-8s %s" % (scope, " | ".join(line)))
+    # contribution in lane-A seconds from LIRF rows alone
+    for f, fm in folds.items():
+        sse_a = float(((r - res["arrival"]) ** 2)[fm].sum())
+        sse_p = float(((r - res["permuted"]) ** 2)[fm].sum())
+        print("H lane-A RMSE in fold %-7s arrival %.4f permuted %.4f delta %+.4f" % (
+            f, np.sqrt(sse_a / fm.sum()), np.sqrt(sse_p / fm.sum()), np.sqrt(sse_a / fm.sum()) - np.sqrt(
+                sse_p / fm.sum())))
 
 
 if __name__ == "__main__":
