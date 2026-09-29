@@ -45,7 +45,8 @@ GO4 = ["EDDM", "EHAM", "LEBL", "LSZH"]
 GUARD = 900.0
 B = 2000
 EGLL_MIN_GAIN = 5000.0  # pre-registered: include EGLL iff LOO gain >= this and the row-bootstrap CI lower bound > 0
-OUT = os.path.join(SCR, "adsb_override_candidate.parquet")
+OUT = (sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else os.path.join(SCR, "adsb_override_candidate.parquet"))
+BASE = (sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else ROOT + "outputs/main_gap.parquet")  # default v14; pass --base to override on another submission
 AUDIT = os.path.join(SCR, "adsb_override_rows.parquet")
 KEEP26 = ["MVT_ID_mvt", "ADEP_mvt", "t_mvt", "join", "AOBT_3_flt", "push", "post_dwell", "t_move", "t_move_lo"]
 
@@ -203,7 +204,7 @@ def main(write: bool = True) -> None:
     days, missing = analysed_days()
     print(f"days analysed {len(days)} / 62; MISSING {missing or 'none'}")
     tpl = pl.read_parquet(ROOT + "data/raw/submitting.parquet")
-    base = pl.read_parquet(ROOT + "outputs/main_gap.parquet")
+    base = pl.read_parquet(BASE)
     assert base.schema == tpl.schema and base.height == tpl.height and (base["MVT_ID_mvt"] == tpl["MVT_ID_mvt"]).all()
     rk = (pl.scan_parquet(ROOT + "data/raw/ranking.parquet")
           .select("MVT_ID_mvt", "ADEP_mvt", "MVT_TIME_UTC_mvt", "CALLSIGN_flt", "AOBT_3_flt").collect())
@@ -321,7 +322,7 @@ def main(write: bool = True) -> None:
         n_diff = back.with_columns(base["TAXITIME_SEC_mvt"].alias("b0")).filter(
             pl.col("TAXITIME_SEC_mvt") != pl.col("b0")).height
         print(f"wrote {OUT} ({os.path.getsize(OUT) / 1e6:.2f} MB): re-read schema {back.schema}, rows {back.height}, "
-              f"rows differing from outputs/main_gap.parquet {n_diff}")
+              f"rows differing from {BASE} {n_diff}")
         print(f"wrote {AUDIT} ({ov.height} overridden rows)")
 
 
