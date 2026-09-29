@@ -531,6 +531,86 @@ def H() -> None:
                 sse_p / fm.sum())))
 
 
+def I() -> None:
+    cols = ["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "AIRCRAFT_OPERATOR_flt", "MVT_TIME_UTC_mvt", "SCHED_TIME_UTC_mvt",
+            "LOBT_flt", "mvt_minus_aobt3", "month"]
+    R = pl.read_parquet(W + "data/work/feat_rank.parquet", columns=cols)
+    assert pl.read_parquet(W + "data/work/feat_rank.parquet", columns=["BLOCK_TIME_UTC_mvt"])[
+        "BLOCK_TIME_UTC_mvt"].null_count() == R.height, "departure BLOCK is not blanked in feat_rank"
+    f = build_arrival_fill(R, arrivals("rank"))
+    R = R.join(f, on="MVT_ID_mvt", how="left", maintain_order="left").with_columns(
+        (secs("SCHED_TIME_UTC_mvt", "LOBT_flt").abs() > FILL_TOL).alias("moved"))
+    T = pl.read_parquet(FEAT, columns=cols).join(build_arrival_fill(pl.read_parquet(FEAT, columns=cols),
+                                                                    arrivals("train")), on="MVT_ID_mvt", how="left")
+    T = T.with_columns((secs("SCHED_TIME_UTC_mvt", "LOBT_flt").abs() > FILL_TOL).alias("moved"))
+    for name, X in (("train 2025", T), ("rank 2026", R)):
+        L = X.filter((pl.col("ADEP_mvt") == "LIRF") & pl.col("mvt_minus_aobt3").is_not_null())
+        print("I %-10s LIRF lane-A rows %6d (%.4f of all rows), SCHED!=LOBT %.4f, link coverage %.3f,"
+              " link-fill rate %.4f, mean arr_opday_fill %.4f" % (
+                  name, L.height, L.height / X.height, L["moved"].mean(), L["arr_link_fill"].is_not_null().mean(),
+                  L["arr_link_fill"].mean(), L["arr_opday_fill"].mean()))
+        print(L.group_by("month").agg(pl.len(), pl.col("moved").mean(), pl.col("arr_link_fill").mean(),
+                                      pl.col("arr_opday_fill").mean()).sort("month"))
+
+
+def J() -> None:
+    import lightgbm as lgb
+
+    sys.path.insert(0, W + "src")
+    sys.path.insert(0, W + "docs/competitor_research_2026-09-21/scripts")
+    from p1_stage2_fill_auc import PARAMS, ROUNDS, auc, logloss  # the recipe's own constants and metrics
+    from prc.features import CATEGORICALS, numeric_feature_columns
+    from prc.train import PROXY, _matrix
+
+    params = dict(PARAMS, num_threads=2)
+    feats = pl.read_parquet(FEAT).filter(pl.col("ADEP_mvt") == "LIRF")
+    num_all = numeric_feature_columns(feats)  # taken before any label or helper is attached (P1's own lesson)
+    feats = feats.join(build_arrival_fill(feats, arrivals("train")), on="MVT_ID_mvt", how="left",
+                       maintain_order="left")
+    lirf = feats.with_columns(
+        ((pl.col("BLOCK_TIME_UTC_mvt") - pl.col("SCHED_TIME_UTC_mvt")).dt.total_seconds().abs() <= 10)
+        .cast(pl.Int8).alias("f10"),
+        pl.col(PROXY).is_null().alias("unm"),
+        (pl.col("MVT_TIME_UTC_mvt").dt.year() * 100 + pl.col("MVT_TIME_UTC_mvt").dt.month()).alias("ym"),
+        pl.col("FLIGHT_mvt").cast(pl.Utf8).str.slice(0, 3).alias("flight_prefix"),
+        pl.col("FLIGHT_mvt").cast(pl.Utf8).alias("flight_identity"))
+    rng = np.random.default_rng(3)
+    ym = lirf["ym"].to_numpy()
+    for c in ARR_COLS:
+        v = lirf[c].to_numpy().astype(np.float64).copy()
+        for m in np.unique(ym):
+            ix = np.where(ym == m)[0]
+            v[ix] = v[rng.permutation(ix)]
+        lirf = lirf.with_columns(pl.Series(c + "_perm", v))
+    num = [c for c in num_all if not c.startswith(("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt",
+                                                   "mvt_minus_eobt1", "mvt_minus_iobt"))]
+    assert "f10" not in num and "TAXITIME_SEC_mvt" not in num and not set(ARR_COLS) & set(num)
+    cats = [c for c in CATEGORICALS if c in lirf.columns] + ["flight_prefix", "flight_identity"]
+    u = lirf.filter(pl.col("unm"))
+    print("J LIRF unmatched rows %d, fill %.4f" % (u.height, u["f10"].mean()))
+    months = sorted(lirf["ym"].unique().to_list())
+    for name, extra in (("(c-) as recorded", []), ("(c-) + arrival", ARR_COLS),
+                        ("(c-) + arrival permuted", [c + "_perm" for c in ARR_COLS])):
+        nn = num + extra
+        ss, yy = [], []
+        for mo in months:
+            tr = lirf.filter(pl.col("ym") != mo)
+            va = u.filter(pl.col("ym") == mo)
+            if va.height < 20:
+                continue
+            stacked = pl.concat([tr.select(nn + cats), va.select(nn + cats)], how="vertical_relaxed")
+            X, cols = _matrix(stacked, nn, cats)
+            ci = [cols.index(c) for c in cats]
+            w = np.where(tr["unm"].to_numpy(), 8.0, 1.0)
+            dset = lgb.Dataset(X[: tr.height], label=tr["f10"].to_numpy(), weight=w, categorical_feature=ci,
+                               params=params)
+            ss.append(lgb.train(params, dset, num_boost_round=ROUNDS).predict(X[tr.height:]))
+            yy.append(va["f10"].to_numpy())
+        s_, y_ = np.concatenate(ss), np.concatenate(yy)
+        print("J %-26s pooled LOMO AUC on LIRF unmatched %.4f  logloss %.4f  (n %d)  rss %.0f MB" % (
+            name, auc(y_, s_), logloss(y_, s_), len(y_), rss_mb()), flush=True)
+
+
 if __name__ == "__main__":
     todo = [a for a in sys.argv[1:]] or ["A", "B", "C", "D", "E", "F"]
     for s in todo:
