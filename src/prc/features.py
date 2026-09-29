@@ -15,6 +15,7 @@ import numpy as np
 import polars as pl
 
 from .airports import add_destination_distance
+from .features_extra import EXTRA_COLS, extra_candidate_features
 from .schema import BLANKED_DEP_COLS
 
 AIRPORT_TZ = {
@@ -285,7 +286,7 @@ PROXY_MODE_COLS = ("proxy_at_mode", "proxy_minus_mode_min", "proxy_sec_in_min")
 PROXY_MODE_KEYS = ("ADEP_mvt", "RUNWAY_mvt")
 PROXY_MODE_VALUE = "_proxy_mode_min"
 
-CANDIDATE_COLS = (
+_BASE_CANDIDATE_COLS = (
     "stand_arrival_gap",
     "stand_aobt_turn",
     "stand_arrival_type_match",
@@ -305,6 +306,8 @@ CANDIDATE_COLS = (
     "planned_flight_s",
     *PROXY_MODE_COLS,
 )
+# The groups from the multi-perspective analysis (docs/analysis/README.md, prc.features_extra), as candidates.
+CANDIDATE_COLS = _BASE_CANDIDATE_COLS + EXTRA_COLS
 
 
 def proxy_mode_table(frames) -> pl.DataFrame:
@@ -632,7 +635,7 @@ def candidate_features(
             how="left",
             maintain_order="left",
         )
-        .select(["MVT_ID_mvt", *CANDIDATE_COLS])
+        .select(["MVT_ID_mvt", *_BASE_CANDIDATE_COLS])
     )
 
 
@@ -657,7 +660,9 @@ def build_departure_features(
     keep = [c for c in KEEP_RAW_COLS if c in row.columns]
     derived = [c for c in row.columns if c not in KEEP_RAW_COLS and c not in ("_t",)]
     row = row.select(keep + derived)
-    cand = candidate_features(row, ctx, ctx_src, proxy_mode=proxy_mode)
+    cand = candidate_features(row, ctx, ctx_src, proxy_mode=proxy_mode).join(
+        extra_candidate_features(ctx_src, dep["MVT_ID_mvt"]), on="MVT_ID_mvt", how="left", maintain_order="left"
+    )
     feats = add_signed_log(
         row.join(ctx, on="MVT_ID_mvt", how="left", maintain_order="left").join(
             cand, on="MVT_ID_mvt", how="left", maintain_order="left"

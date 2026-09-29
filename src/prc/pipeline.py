@@ -119,9 +119,10 @@ def cache_fingerprint(
 
 def _features_version() -> str:
     """Hash of the feature builder source, so editing it invalidates the cache."""
-    from . import features
+    from . import features, features_extra
 
-    return hashlib.sha256(Path(features.__file__).read_bytes()).hexdigest()[:16]
+    src = Path(features.__file__).read_bytes() + Path(features_extra.__file__).read_bytes()
+    return hashlib.sha256(src).hexdigest()[:16]
 
 
 def _weather_version() -> str:
