@@ -391,3 +391,12 @@ ingest, and should wait.
 - **If only July holds:** ingest July 2026 only, 31 days and ≈ 115 GB.
 - **Kill:** a guarded gain below ≈ 2,000 s² per row out of sample (the k = 5 level of §6.2), or coverage below 5 %
   on the census days.
+
+---
+
+## 9. Out-of-sample result (added 2026-09-29)
+
+The §8 criteria were applied on 3 new labelled 2025 days and 4 new 2026 census days, with rules, bias and guard
+frozen: see `adsb-oos-validation.md`. The gain is **+16,400 s² per covered row [14,100, 18,700]**, with every day at
++11,400 or more. Coverage is 17.6 % in January and 22.3 % in July. **Verdict: GO.** EGLL is negative under the frozen
+pooled bias (−6,100 per row), because its true offset is ≈ +175 s against the +27 s used.
