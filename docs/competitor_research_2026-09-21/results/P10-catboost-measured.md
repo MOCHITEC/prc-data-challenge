@@ -1,4 +1,4 @@
-# P10 — CatBoost against LightGBM: **DO-NOT-SHIP**
+# P10 — CatBoost against LightGBM: **DO-NOT-SHIP as run; ON HOLD, not closed**
 
 Written 2026-09-28 from the arms recorded in `experiments/experiments.jsonl`. The executing agent was stopped
 by a container restart after five of its arms had finished and before it wrote this note; the verdict below
@@ -38,7 +38,13 @@ reading of E1 in which CatBoost wins lane A.
 **E2 — with encodings.** CatBoost − LightGBM, lane A: `jul_fwd` **+4.032**, `forward` **−0.776**. Opposite
 signs; fails the shrinkage rule.
 
-## 3. Verdict: DO-NOT-SHIP
+## 3. Verdict: DO-NOT-SHIP as run — and ON HOLD, not closed
+
+**Status set by the user on 2026-09-29: on hold.** The measurement below rejects *this configuration* of
+CatBoost (untuned, `learning_rate` 0.1, depth 6, `max_ctr_complexity` 1, capped on `forward`). It does not
+reject the family. The open items in §4 — the pre-registered `learning_rate` 0.2 re-run for the capped
+`forward` arms, the `max_ctr_complexity` 4 arm, and tuning — are the ones to pick up when it resumes. The code
+path (`model_family`, default `"lightgbm"`) stays in the tree for that.
 
 - **On the one fold where CatBoost converged, it is clearly worse.** `jul_fwd` early-stopped at 1,267 rounds
   (C−E) and 978 (C+E); lane A is +5.98 and +4.03 worse, full-fold **+11.9** and **+15.4** worse.
