@@ -231,7 +231,8 @@ def extract(tag: str) -> None:
                     out = {c: [] for c in cols}
             if n_files % 10000 == 0:
                 print(f"  {n_files} traces, {n_kept} kept, {n_fix} fixes", flush=True)
-    chunks.append(pa.table(out))
+    if out["t"] or not chunks:  # an empty final chunk has all-null column types and breaks concat_tables
+        chunks.append(pa.table(out))
     tbl = pa.concat_tables(chunks)
     dst = os.path.join(SCRATCH, f"{tag}.parquet")
     pq.write_table(tbl, dst, compression="zstd")

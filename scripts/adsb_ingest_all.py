@@ -232,14 +232,30 @@ def main() -> None:
     except BlockingIOError:
         sys.exit("another ingest is running (lock held)")
     log(f"=== run start: {len(days)} days; free {free_b() / 1e9:.2f} GB")
+    with open(os.path.join(ING, "pid"), "w") as f:
+        f.write(str(os.getpid()))
     counter = [0]
     failed = []
+
+    def safe(d):
+        try:
+            return do_day(d, stop_after, counter)
+        except RuntimeError as e:  # extract / analyse failed: keep the raw parts for a retry, record, go on
+            st = load_state(d)
+            st["step_error"] = str(e)
+            save_state(st)
+            log(f"{d}: step failed: {e}; raw parts kept on disk? {bool(s1.local_parts(st['tag']))} -> purging")
+            s1.purge(st["tag"])
+            st["fetched"] = False
+            save_state(st)
+            return "failed"
+
     for d in days:
-        if do_day(d, stop_after, counter) == "failed":
+        if safe(d) == "failed":
             failed.append(d)
     if failed:
         log(f"second pass over failed days: {failed}")
-        failed = [d for d in failed if do_day(d, stop_after, counter) == "failed"]
+        failed = [d for d in failed if safe(d) == "failed"]
     done = [d for d in days if load_state(d).get("analysed")]
     log(f"=== run end: {len(done)}/{len(days)} days analysed; MISSING {failed or 'none'}; free {free_b() / 1e9:.2f} GB")
 
