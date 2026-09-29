@@ -31,6 +31,7 @@ Invariants enforced here (each one was a real bug caught in review):
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import subprocess
@@ -113,7 +114,20 @@ CB_OWNED_KEYS = (
 # TrainConfig fields added after the archive was written, with their defaults. Left out of the hash while they
 # hold their default, so every archived experiment id still names the config that produced it; a recipe that
 # sets one gets a new id.
-_HASH_OPTIONAL: dict = {"model": "lightgbm", "cb_params": {}}
+_HASH_OPTIONAL: dict = {
+    "model": "lightgbm",
+    "cb_params": {},
+    # The fold-time families merged from the article-FE / weather-v2 / OSM screens. Left out of the hash at their
+    # off values so every experiment id recorded before the merge is still the id of the same recipe.
+    "fe_freq": False,
+    "fe_aggdiff": False,
+    "fe_cyclic": False,
+    "fe_meta_prior": False,
+    "fe_noise_cols": 0,
+    "fe_weather_v2": "",
+    "fe_osm_dist": False,
+    "sim_unseen_stands": 0.0,
+}
 
 
 @dataclass
@@ -253,6 +267,30 @@ class TrainConfig:
     # five or more, so it is a floor, not a selector - it decides nothing about which airports are used.
     airport_min_group_rows: int = 20_000
     airport_group_seed: int = 20_260_924  # only read by the `shuffled` control
+    # ---- fold-time candidate families from two general feature-engineering articles, pre-registered in
+    # docs/article_fe_2026-09-24/plan.md. All off by default: with every flag off `predict_fold` runs exactly the
+    # code it ran before these fields existed. They are built inside the fold, after the encodings, so the
+    # feature cache - and therefore the base arm - is untouched.
+    #   fe_freq       label-free frequency encodings (share within airport, counted over train + target rows)
+    #   fe_aggdiff    group aggregate minus the row's own value, and the group's label spread
+    #   fe_cyclic     sin/cos of the local minute of day
+    #   fe_meta_prior an out-of-fold "taxi prior" from a no-NM model fitted on every labelled row, as a feature
+    #   fe_noise_cols this many hashed-id columns, the column-count control for the families above
+    fe_freq: bool = False
+    fe_aggdiff: bool = False
+    fe_cyclic: bool = False
+    fe_meta_prior: bool = False
+    fe_noise_cols: int = 0
+    # External weather v2 (docs/weather_v2_2026-09-25/plan.md): "" off, "B" METAR present-weather columns,
+    # "C" those plus Open-Meteo precipitation / snowfall / snow depth. Joined at the take-off hour inside the fold.
+    fe_weather_v2: str = ""
+    # OSM stand-to-runway distance (docs/osm_stand_2026-09-28/plan.md): great-circle km from the stand's OpenStreetMap
+    # position to the threshold of the departure runway. The one stand descriptor defined for a stand the model
+    # has never seen.
+    fe_osm_dist: bool = False
+    # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
+    # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
+    sim_unseen_stands: float = 0.0
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -397,6 +435,252 @@ def attach_encodings(df: pl.DataFrame, enc: dict[str, pl.DataFrame]) -> pl.DataF
             pl.col("ref_n").is_null().cast(pl.Int8).alias("ref_missing"),
         ]
     )
+
+
+# ---------- fold-time candidate families (docs/article_fe_2026-09-24/plan.md) ----------
+
+# Frequency-encoding keys, each counted within the departure airport.
+FREQ_KEYS: dict[str, tuple[str, ...]] = {
+    "freq_stand": ("STAND_mvt",),
+    "freq_stand_rwy": ("STAND_mvt", "RUNWAY_mvt"),
+    "freq_operator": ("AIRCRAFT_OPERATOR_flt",),
+    "freq_actype": ("AIRCRAFT_TYPE_mvt",),
+    "freq_ades": ("ADES_mvt",),
+    "freq_rwy_hour": ("RUNWAY_mvt", "hour_local"),
+}
+_CELL = ["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"]
+# Built from the NM off-block proxy, so null on every row model B sees; kept out of model B's column set.
+LANE_A_ONLY_PREFIXES = ("agg_proxy_", "meta_prior_minus_proxy")
+# Model B's exclusions: every column derived from an NM clock, which is null on its rows.
+_NM_CLOCK_PREFIXES = ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
+# The meta prior must not read a label-derived column: those tables are fitted on every training row, including
+# the rows the prior is predicting out of fold, and would carry their labels back in.
+_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_")
+META_ROUNDS = 300
+META_NOISE_SEED = 20_260_924
+
+
+def unmatched_columns(num_cols: list[str]) -> list[str]:
+    """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones."""
+    return [c for c in num_cols if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES)]
+
+
+def _check_same_rows(before: pl.DataFrame, after: pl.DataFrame, what: str) -> None:
+    if after.height != before.height or not after["MVT_ID_mvt"].equals(before["MVT_ID_mvt"]):
+        raise AssertionError(f"{what} changed the row count or order")
+
+
+def frequency_features(tr: pl.DataFrame, tg: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Share of the airport's departures that carry this row's key, counted over the training AND target rows.
+
+    No label is read, so counting the target rows is legitimate: at scoring time the ranking rows' stands,
+    operators and runways are all known. A share rather than a count because the pool is 12 months in CV and
+    12 + 2 in production. A row whose key is null gets null (a null key is not a category)."""
+    keys = sorted({"ADEP_mvt", *(k for ks in FREQ_KEYS.values() for k in ks)})
+    both = pl.concat([tr.select(keys), tg.select(keys)], how="vertical_relaxed")
+    apt_n = both.drop_nulls("ADEP_mvt").group_by("ADEP_mvt").len().rename({"len": "_apt_n"})
+    out = []
+    for f in (tr, tg):
+        g = f
+        for name, ks in FREQ_KEYS.items():
+            k = ["ADEP_mvt", *ks]
+            tab = (
+                both.drop_nulls(k)
+                .group_by(k)
+                .len()
+                .join(apt_n, on="ADEP_mvt")
+                .with_columns((pl.col("len") / pl.col("_apt_n")).cast(pl.Float32).alias(name))
+                .select([*k, name])
+            )
+            g = g.join(tab, on=k, how="left", maintain_order="left")
+        _check_same_rows(f, g, "frequency_features")
+        out.append(g)
+    return out[0], out[1]
+
+
+def aggdiff_features(tr: pl.DataFrame, tg: pl.DataFrame, min_count: int) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """A group statistic minus the row's own value, and the group's label spread.
+
+    Needs the encodings attached first (ref_med, ref_p10, arh_med). A tree approximates `a - b` only with a
+    staircase of axis-parallel splits, and model A is data-limited, so handing it the difference is the one
+    thing a group encoding alone cannot do. `agg_ref_iqr` is fitted on the training side's labels, with the same
+    label window and minimum count as `reference_table`; `agg_proxy_cell_dev` reads no label and pools both
+    sides, like the frequency encodings."""
+    lab = tr.filter(pl.col(LABEL).is_not_null() & (pl.col(LABEL) > 0) & (pl.col(LABEL) < 7200))
+    iqr = (
+        lab.group_by(_CELL)
+        .agg(
+            (pl.col(LABEL).quantile(0.75) - pl.col(LABEL).quantile(0.25)).alias("agg_ref_iqr"),
+            pl.len().alias("_n"),
+        )
+        .filter(pl.col("_n") >= min_count)
+        .drop("_n")
+    )
+    both = pl.concat([tr.select([*_CELL, PROXY]), tg.select([*_CELL, PROXY])], how="vertical_relaxed")
+    cell_proxy = (
+        both.drop_nulls(PROXY)
+        .group_by(_CELL)
+        .agg(pl.col(PROXY).median().alias("_proxy_cell_med"), pl.len().alias("_n"))
+        .filter(pl.col("_n") >= min_count)
+        .drop("_n")
+    )
+    out = []
+    for f in (tr, tg):
+        g = f.join(iqr, on=_CELL, how="left", maintain_order="left").join(
+            cell_proxy, on=_CELL, how="left", maintain_order="left"
+        )
+        g = g.with_columns(
+            (pl.col(PROXY) - pl.col("ref_med")).alias("agg_proxy_minus_ref_med"),
+            (pl.col(PROXY) - pl.col("ref_p10")).alias("agg_proxy_minus_ref_p10"),
+            (pl.col(PROXY) - pl.col("arh_med")).alias("agg_proxy_minus_arh_med"),
+            (pl.col(PROXY) - pl.col("_proxy_cell_med")).alias("agg_proxy_cell_dev"),
+            (pl.col(SCHED_OFFSET) - pl.col("ref_med")).alias("agg_sched_minus_ref_med"),
+            pl.col("agg_ref_iqr").cast(pl.Float64),
+        ).drop("_proxy_cell_med")
+        _check_same_rows(f, g, "aggdiff_features")
+        out.append(g)
+    return out[0], out[1]
+
+
+def cyclic_features(df: pl.DataFrame) -> pl.DataFrame:
+    """sin/cos of the local minute of day, so 23:59 and 00:00 are neighbours. None of the ten airports has a
+    half-hour offset, so the UTC minute is the local minute."""
+    minute = pl.col("hour_local").cast(pl.Float64) * 60.0 + pl.col("MVT_TIME_UTC_mvt").dt.minute().cast(pl.Float64)
+    angle = minute * (2.0 * np.pi / 1440.0)
+    return df.with_columns(angle.sin().alias("cyc_sin"), angle.cos().alias("cyc_cos"))
+
+
+def noise_features(df: pl.DataFrame, n: int) -> pl.DataFrame:
+    """`n` hashed-id columns that cannot carry signal: the price of adding n columns to the model."""
+    return df.with_columns(
+        [
+            (pl.col("MVT_ID_mvt").hash(seed=META_NOISE_SEED + k) % 1_000_000).cast(pl.Float64).alias(f"noise_{k}")
+            for k in range(1, n + 1)
+        ]
+    )
+
+
+def meta_prior_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, num_cols: list[str], cat_cols: list[str], info: dict
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """An out-of-fold taxi prior from a model that never sees an NM clock, fitted on every labelled row.
+
+    Model B has 22k training rows; this prior is fitted on all ~2M, on model B's own columns, so what it adds
+    is the matched rows' evidence about taxi times that model B cannot see. On the training side the prior is
+    cross-fitted by calendar month mod 3, so a row's prior never comes from a model that saw its label; the
+    target side gets the model fitted on every training row. Label-derived columns are excluded from its input
+    (see _LABEL_DERIVED_PREFIXES) - with them in, the training-side prior would not be out of fold."""
+    cols = [c for c in unmatched_columns(num_cols) if not c.startswith(_LABEL_DERIVED_PREFIXES)]
+    stacked = pl.concat([tr.select(cols + cat_cols), tg.select(cols + cat_cols)], how="vertical_relaxed")
+    X, names = _matrix(stacked, cols, cat_cols)
+    del stacked
+    ntr = tr.height
+    y = tr[LABEL].to_numpy().astype(float)
+    grp = tr["MVT_TIME_UTC_mvt"].dt.month().to_numpy() % 3
+    cat_idx = [names.index(c) for c in cat_cols]
+    params = dict(
+        cfg.params,
+        num_leaves=63,
+        learning_rate=0.1,
+        seed=cfg.seed,
+        bagging_seed=cfg.seed,
+        feature_fraction_seed=cfg.seed,
+    )
+    groups = np.unique(grp)
+    info["meta_prior_input_cols"] = len(cols) + len(cat_cols)
+    if len(groups) < 2:
+        # one calendar-month group cannot be cross-fitted; a prior filled on one side only would break parity
+        info["meta_prior_warning"] = "fewer than two month groups; prior left null on both sides"
+        prior_tr, prior_tg = np.full(ntr, np.nan), np.full(tg.height, np.nan)
+    else:
+        prior_tr = np.full(ntr, np.nan)
+        Xtr = X[:ntr]
+        for gk in groups:
+            m = grp == gk
+            d = lgb.Dataset(Xtr[~m], label=y[~m], categorical_feature=cat_idx, params=params)
+            booster = lgb.train(params, d, num_boost_round=META_ROUNDS, callbacks=[lgb.log_evaluation(0)])
+            prior_tr[m] = booster.predict(Xtr[m])
+            del d, booster
+        d = lgb.Dataset(Xtr, label=y, categorical_feature=cat_idx, params=params)
+        booster = lgb.train(params, d, num_boost_round=META_ROUNDS, callbacks=[lgb.log_evaluation(0)])
+        prior_tg = booster.predict(X[ntr:])
+        del d, booster, Xtr
+    del X
+    out = []
+    for f, p in ((tr, prior_tr), (tg, prior_tg)):
+        g = f.with_columns(pl.Series("meta_prior", p, dtype=pl.Float64)).with_columns(
+            (pl.col("meta_prior") - pl.col(PROXY)).alias("meta_prior_minus_proxy")
+        )
+        out.append(g)
+    return out[0], out[1]
+
+
+@functools.lru_cache(maxsize=2)
+def _weather_v2_table(mode: str) -> pl.DataFrame:
+    """The station-hour table for a weather-v2 mode, loaded once per process from the on-disk caches."""
+    from .weather import fetch_metar, fetch_openmeteo, wx_code_table
+
+    table = wx_code_table(fetch_metar())
+    if mode == "C":
+        om = fetch_openmeteo()
+        table = table.join(om, on=["station", "hour_utc"], how="full", coalesce=True)
+    elif mode != "B":
+        raise ValueError(f"fe_weather_v2 must be '', 'B' or 'C', got {mode!r}")
+    return table
+
+
+def weather_v2_features(df: pl.DataFrame, mode: str) -> pl.DataFrame:
+    """Join the weather-v2 columns at the take-off hour. No label is read; the same table serves every fold."""
+    from .weather import OM_COLS, WX_V2_COLS, join_hourly
+
+    cols = WX_V2_COLS + (OM_COLS if mode == "C" else [])
+    return join_hourly(df, _weather_v2_table(mode), cols)
+
+
+@functools.lru_cache(maxsize=1)
+def _osm_tables() -> tuple[pl.DataFrame, pl.DataFrame]:
+    from .osm import fetch_osm_aeroway, fetch_runway_ends, stand_table
+
+    return stand_table(fetch_osm_aeroway()), fetch_runway_ends()
+
+
+def osm_distance_features(df: pl.DataFrame) -> pl.DataFrame:
+    """Attach `osm_stand_rwy_km`. Label-free; the same two tables serve every fold and the ranking set."""
+    from .osm import add_stand_runway_distance
+
+    stands, ends = _osm_tables()
+    return add_stand_runway_distance(df, stands, ends)
+
+
+def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
+    """True for rows whose (airport, stand) is in the held-out share, by a CRC32 that no library version changes."""
+    import zlib
+
+    keys = (df["ADEP_mvt"].cast(pl.Utf8).fill_null("") + "|" + df["STAND_mvt"].cast(pl.Utf8).fill_null("")).to_list()
+    u = np.array([zlib.crc32(k.encode()) / 2**32 for k in keys])
+    return (u < share) & df["STAND_mvt"].is_not_null().to_numpy()
+
+
+def add_fold_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, info: dict
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """The label-free and encoding-derived families; the meta prior is added separately, after the column set
+    is known. Records which columns it added, because a silent no-op here would read as a null result."""
+    before = set(tr.columns)
+    if cfg.fe_freq:
+        tr, tg = frequency_features(tr, tg)
+    if cfg.fe_aggdiff:
+        tr, tg = aggdiff_features(tr, tg, cfg.reference_min_count)
+    if cfg.fe_cyclic:
+        tr, tg = cyclic_features(tr), cyclic_features(tg)
+    if cfg.fe_noise_cols:
+        tr, tg = noise_features(tr, cfg.fe_noise_cols), noise_features(tg, cfg.fe_noise_cols)
+    if cfg.fe_weather_v2:
+        tr, tg = weather_v2_features(tr, cfg.fe_weather_v2), weather_v2_features(tg, cfg.fe_weather_v2)
+    if cfg.fe_osm_dist:
+        tr, tg = osm_distance_features(tr), osm_distance_features(tg)
+    info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
+    return tr, tg
 
 
 def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
@@ -913,10 +1197,16 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if cfg.model != "lightgbm":
         # Only when it is not the default, so a LightGBM record is byte-for-byte what it was before P10.
         info["model"] = cfg.model
+    if cfg.sim_unseen_stands > 0:
+        held = unseen_stand_mask(train_f, cfg.sim_unseen_stands)
+        info["sim_unseen_stands_dropped_train_rows"] = int(held.sum())
+        train_f = train_f.filter(pl.Series("_keep", ~held))
     enc = fit_encodings(train_f, cfg)
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
+    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols or cfg.fe_weather_v2 or cfg.fe_osm_dist:
+        tr, tg = add_fold_features(tr, tg, cfg, info)
 
     # P2 Fix 1. One factory per lane so the two lanes' records stay separable in `info`; the month-keyed
     # cache lives inside each factory, and the encoder build is shared within a lane, not across them.
@@ -932,6 +1222,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         if cfg.use_categoricals
         else []
     )
+    if cfg.fe_meta_prior:
+        tr, tg = meta_prior_features(tr, tg, cfg, num_cols, cat_cols, info)
+        info.setdefault("fold_feature_cols", [])
+        info["fold_feature_cols"] += ["meta_prior", "meta_prior_minus_proxy"]
+        num_cols = visible_numeric_columns(tr, cfg)
     parts = []
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
@@ -958,13 +1253,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
-        cols_b = [
-            c
-            for c in num_cols
-            if not c.startswith(
-                ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
-            )
-        ]
+        cols_b = unmatched_columns(num_cols)
         # Model A's and model B's visible column counts have differed by one in past records without the
         # record saying which, so log both rather than inferring them from the config.
         info["n_features_unmatched"] = len(cols_b)

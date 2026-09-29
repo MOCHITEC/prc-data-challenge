@@ -270,6 +270,149 @@ def hourly_weather_table(
     )
 
 
+# ---- weather v2 (docs/weather_v2_2026-09-25/plan.md): candidate columns, joined inside the fold ----
+#
+# IEM serves no precipitation amount for non-US stations ("precipitation data is unavailable for non-US
+# sites", IEM download page), so `precip_mm` above is zero on every station-hour and the precipitation term of
+# `deicing_gate` never fires. The present-weather codes are served, and they say whether it is raining.
+WET_CODES = ("RA", "DZ")  # rain, drizzle; substring match also catches -RA, +RA, SHRA, TSRA, FZRA, RADZ
+SHOWER_CODES = ("SH", "TS")  # showers, thunderstorms
+OBSCURE_CODES = ("FG", "BR", "HZ", "FU")  # fog, mist, haze, smoke
+WX_V2_COLS = ["wxv2_wet", "wxv2_shower", "wxv2_obscure", "wxv2_frozen", "wxv2_deicing_gate"]
+
+OPENMETEO_URL = "https://archive-api.open-meteo.com/v1/archive"
+OPENMETEO_LICENCE = "Open-Meteo historical weather API, data CC BY 4.0 (https://open-meteo.com/en/license)"
+OPENMETEO_FIELDS = ("precipitation", "snowfall", "snow_depth")
+# ECMWF IFS 9 km: covers both scored months, where ERA5-Land returns nulls for January 2026 (P8 §4.2). Pinned so
+# the cache is reproducible rather than whatever `best_match` resolves to on the day.
+OPENMETEO_MODEL = "ecmwf_ifs"
+# om_snow_depth_m is fetched but NOT given to the model: it is null on most of 2025 (the IFS field starts
+# being served part-way through the year, last null 2025-10-03) and populated on all of 2026, which is the
+# dense-in-one-period / empty-in-the-other shape the coverage rule excludes (plan.md §3, §5).
+OM_COLS = ["om_precip_mm", "om_snowfall_cm"]
+
+
+def _any_code(codes: tuple[str, ...]) -> pl.Expr:
+    return pl.fold(pl.lit(False), lambda a, b: a | b, [pl.col("wx").str.contains(c, literal=True) for c in codes])
+
+
+def wx_code_table(metar: pl.DataFrame) -> pl.DataFrame:
+    """One row per station-hour: which kinds of weather any METAR of that hour reported, as Int8."""
+    hourly = (
+        metar.with_columns(pl.col("obs_time_utc").dt.truncate("1h").alias("hour_utc"))
+        .group_by(["station", "hour_utc"])
+        .agg(
+            pl.col("temp_c").mean().alias("_temp_c"),
+            _any_code(WET_CODES).any().alias("wxv2_wet"),
+            _any_code(SHOWER_CODES).any().alias("wxv2_shower"),
+            _any_code(OBSCURE_CODES).any().alias("wxv2_obscure"),
+            _any_code(SNOW_CODES).any().alias("wxv2_frozen"),
+        )
+    )
+    return (
+        hourly.with_columns(
+            ((pl.col("_temp_c") <= 3.0) & (pl.col("wxv2_frozen") | pl.col("wxv2_wet"))).alias("wxv2_deicing_gate")
+        )
+        .with_columns([pl.col(c).cast(pl.Int8) for c in WX_V2_COLS])
+        .select(["station", "hour_utc", *WX_V2_COLS])
+        .sort(["station", "hour_utc"])
+    )
+
+
+def fetch_openmeteo(
+    stations: list[str] | None = None,
+    start: str = "2025-01-01",
+    end: str = "2026-07-31",
+    cache_dir: Path | None = None,
+    refresh: bool = False,
+    retries: int = 5,
+) -> pl.DataFrame:
+    """Hourly precipitation, snowfall and snow depth at each airport's coordinates, one cached request per station.
+
+    The free tier's daily call budget is per IP and shared, so every station is fetched once and cached; a
+    response carrying `"error"` raises instead of being written, because a partially-null column that looks
+    like data is the failure mode the coverage gate exists for."""
+    import json
+
+    from .airports import airport_coords
+
+    stations = stations or TARGET_AIRPORTS
+    cache_dir = cache_dir or (data_dir() / "ref" / "openmeteo")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    coords = airport_coords().filter(pl.col("icao").is_in(stations))
+    where = {r["icao"]: (r["lat"], r["lon"]) for r in coords.iter_rows(named=True)}
+    frames = []
+    for st in stations:
+        cache = cache_dir / f"{st}_{OPENMETEO_MODEL}_{start}_{end}.json"
+        if refresh or not cache.exists() or cache.stat().st_size < 200:
+            if st not in where:
+                raise KeyError(f"no coordinates for {st}")
+            lat, lon = where[st]
+            params = {
+                "latitude": lat,
+                "longitude": lon,
+                "start_date": start,
+                "end_date": end,
+                "hourly": ",".join(OPENMETEO_FIELDS),
+                "models": OPENMETEO_MODEL,
+                "timezone": "UTC",
+            }
+            for attempt in range(retries):
+                try:
+                    r = requests.get(OPENMETEO_URL, params=params, timeout=120)
+                    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+                    status, reason = r.status_code, body.get("reason", "")
+                except requests.exceptions.RequestException as e:  # a dropped connection mid-transfer
+                    body, status, reason = {}, None, repr(e)
+                if status == 200 and not body.get("error") and "hourly" in body:
+                    cache.write_text(json.dumps(body))
+                    break
+                if attempt == retries - 1:
+                    raise RuntimeError(f"Open-Meteo {st}: HTTP {status} {reason}")
+                time.sleep(20 * (attempt + 1))
+            time.sleep(REQUEST_SLEEP_S)
+        frames.append(parse_openmeteo(json.loads(cache.read_text()), st))
+    return pl.concat(frames) if frames else pl.DataFrame()
+
+
+def parse_openmeteo(body: dict, station: str) -> pl.DataFrame:
+    """Open-Meteo's hourly block as station-hour rows. Its `time` is naive UTC (we ask for timezone=UTC)."""
+    h = body["hourly"]
+    return pl.DataFrame(
+        {
+            "station": [station] * len(h["time"]),
+            "hour_utc": pl.Series(h["time"]).str.to_datetime("%Y-%m-%dT%H:%M"),
+            "om_precip_mm": pl.Series(h["precipitation"], dtype=pl.Float64),
+            "om_snowfall_cm": pl.Series(h["snowfall"], dtype=pl.Float64),
+            "om_snow_depth_m": pl.Series(h["snow_depth"], dtype=pl.Float64),
+        }
+    )
+
+
+def join_hourly(dep: pl.DataFrame, table: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
+    """Attach `cols` of a station-hour table at the take-off hour. Refuses to change the row count or order."""
+    key = "_wxv2_hour"
+    tz = dep.schema["MVT_TIME_UTC_mvt"].time_zone
+    t = table.rename({"station": "ADEP_mvt", "hour_utc": key}).select(["ADEP_mvt", key, *cols])
+    t_tz = t.schema[key].time_zone
+    if tz != t_tz:
+        t = t.with_columns(
+            pl.col(key).dt.replace_time_zone(t_tz or "UTC").dt.convert_time_zone(tz)
+            if tz
+            else pl.col(key).dt.replace_time_zone(None)
+        )
+    if t.select(pl.struct(["ADEP_mvt", key]).is_duplicated().any()).item():
+        raise AssertionError("station-hour table has duplicate keys; the join would multiply rows")
+    out = (
+        dep.with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias(key))
+        .join(t, on=["ADEP_mvt", key], how="left", maintain_order="left")
+        .drop(key)
+    )
+    if out.height != dep.height or not out["MVT_ID_mvt"].equals(dep["MVT_ID_mvt"]):
+        raise AssertionError("join_hourly changed the row count or order")
+    return out
+
+
 # The join key is named for what it is and never reuses a feature name. An earlier version called it
 # "hour_utc", which is also the integer hour-of-day feature: turning weather on overwrote that column with a
 # timestamp and then dropped it, so every weather run silently trained without hour_utc. v3 and v4 were built
