@@ -67,6 +67,8 @@ OFFSET_COLS = ["op_offset_med", "op_offset_n"]
 #              MVT_ID_mvt alone. The control: it carries the row-count cost and the blending gain of the
 #              candidate and none of its airport information.
 GROUP_KEYS = ("adep", "shuffled")
+# Model A's target; see TrainConfig.matched_target.
+MATCHED_TARGETS = ("anchored", "plain")
 # The model family the fitter uses; see TrainConfig.model and
 # docs/competitor_research_2026-09-21/plans/P10-catboost-rival.md. Everything outside `_fit` - folds, encodings,
 # feature selection, routing, target parameterisation, the seed loop, the round-count scaling, assembly,
@@ -131,6 +133,7 @@ _HASH_OPTIONAL: dict = {
     "fe_arr_fill": False,
     "fe_arr_fill_permute": False,
     "sim_unseen_stands": 0.0,
+    "matched_target": "anchored",
 }
 
 
@@ -306,6 +309,14 @@ class TrainConfig:
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
+    # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
+    # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
+    # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
+    # output as it is. Features, categoricals, parameters, seeds, early stopping, the round rule, the zero floor
+    # and the LOBT bound are the same; the only change is the target and the add-back. It exists to build the
+    # plain-y member of a 50/50 blend with the anchored model, which is done on the two runs' outputs, not here.
+    # Model B is untouched. Left out of the hash at "anchored", so every existing experiment id is unchanged.
+    matched_target: str = "anchored"
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -322,6 +333,8 @@ class TrainConfig:
             raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
         if self.fe_arr_fill_permute and not self.fe_arr_fill:
             raise ValueError("fe_arr_fill_permute is set but fe_arr_fill is off; it would be silently ignored")
+        if self.matched_target not in MATCHED_TARGETS:
+            raise ValueError(f"matched_target must be one of {MATCHED_TARGETS}, got {self.matched_target!r}")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
         if self.model == "lightgbm":
@@ -1275,12 +1288,20 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["fold_feature_cols"] += ["meta_prior", "meta_prior_minus_proxy"]
         num_cols = visible_numeric_columns(tr, cfg)
     parts = []
+    plain_a = cfg.matched_target == "plain"
+    if plain_a:
+        # Only when it is not the default, so an anchored record is byte-for-byte what it was.
+        info["matched_target"] = cfg.matched_target
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
+        # What the model's output is added to: the proxy for the anchored target, nothing for the plain one.
+        add_back = m_tg[PROXY].to_numpy().astype(float)
         if m_tr.height >= 200:
             cols_a = [c for c in num_cols if c != PROXY] + [PROXY]
 
             def _target_a(f: pl.DataFrame) -> np.ndarray:
+                if plain_a:
+                    return f[LABEL].to_numpy().astype(float)
                 return f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
 
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
@@ -1292,11 +1313,13 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
                 info["rounds_matched"] = rounds
             if cfg.model == "catboost":
                 info["cb_matched"] = dict(_CB_LAST)
+            if plain_a:
+                add_back = np.zeros(m_tg.height)
         else:
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
             g = np.zeros(m_tg.height)
-        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": m_tg[PROXY].to_numpy().astype(float) + g}))
+        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": add_back + g}))
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
