@@ -38,7 +38,8 @@ def boot_diff(y: np.ndarray, pa: np.ndarray, pb: np.ndarray, seed: int = 0) -> t
 
 def main(base: str, ctl: str, b255: str, md5: str) -> None:
     feats = pl.read_parquet(WORK / "feat_train.parquet", columns=["MVT_ID_mvt", LABEL, PROXY, "ADEP_mvt"])
-    d = feats.join(oof(base, "p_base"), on="MVT_ID_mvt", how="inner")
+    # An OOF file carries every training row, null outside the pooled validation folds: keep what the base scored.
+    d = feats.join(oof(base, "p_base"), on="MVT_ID_mvt", how="inner").filter(pl.col("p_base").is_not_null())
     for name, eid in (("ctl", ctl), ("b255", b255), ("md5", md5)):
         d = d.join(oof(eid, f"p_{name}"), on="MVT_ID_mvt", how="left")
     unm = d[PROXY].is_null().to_numpy()
