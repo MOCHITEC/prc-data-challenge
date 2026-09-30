@@ -287,3 +287,59 @@ submitted.
 - **Against v21 (`hybrid_H2_adsb_learned`).** 330,283 rows differ, with RMS 29.6 s and max 1,902 s.
 - In the committed script, the log line "changed vs hybrid_H2" was relabelled "changed vs base". The count is
   against `hybrid_H2_plainy`.
+
+## 6. Re-run on the `hybrid_plainy_cb` base (2026-09-30, after v22 scored 254.2739)
+
+**Setup.** The design is unchanged from section 0/0a. Only the base is swapped.
+- `b` follows `catboost-blend.md`:
+  - matched lane: `(oof_main_flseq_osm_nolirf-926741d779 + oof_main_flseq_osm_nolirf_plainy-b971f4b81b +
+    oof_main_flseq_osm_nolirf_cb-6297d62f5f) / 3`;
+  - unmatched lane: `oof_main_flseq-8615e6a194`.
+- It equals `$SCRATCH/cbx/oof_hybrid_plainy_cb.parquet` on all 344,419 rows (max |diff| 0.0).
+  - `$SCRATCH/dry/oof_hybrid_plainy_cb.parquet` differs from that file (max 1,726 s) and was not used.
+  - The CB run's jan/jul folds equal H2's.
+- Commands: `adsb_learn_cv.py --base cb` and `adsb_learn_apply.py --base cb`. Logs:
+  `$SCRATCH/adsb/learn_cv_cb.log` and `learn_apply_cb.log`.
+- **Restart checks.**
+  - After the container restart, the memory cgroup path was re-read from `/proc/self/cgroup` (it is now
+    `/process_api/01a0f24a-…/claude-code-bash`). The root `total_rss` was about 220 MB during the runs.
+  - `feat_2025.parquet`, `feat_2026.parquet` and `cv_rows_plainy.parquet` were still in the scratchpad.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the cb base | **8,503.7** | [7,492.2, 9,631.2] | 314.771 → **300.961** (−13.811) |
+| rule on the cb base | 1,807.9 | [1,632.7, 2,003.2] | 314.771 → 311.886 (−2.885) |
+| paired: learned − rule | 6,695.7 | [5,747.4, 7,786.3] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 415, 245, 432, 401 and 135, so the final fit uses **401 rounds**.
+- Every airport's learned CI excludes 0 except LTFM. The per-airport gains are within a few % of section 5.
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| plainy | 316.334 |
+| cb | 314.771 |
+| plainy + learned (section 5) | 302.421 |
+| **cb + learned** | **300.961** |
+
+**(cb + learned) − (plainy + learned) = −1.461 s, CI95 [−1.974, −1.030].** As MSE: 881.3 s² [705.3, 1,074.0].
+cb's base advantage on these rows is −1.56 s, and about 1.46 s of it survives the residual model.
+
+**Production file** `outputs/hybrid_plainy_cb_adsb_learned.parquet`. It is the final fit (286,008 rows, 62 days,
+401 rounds) applied to `outputs/hybrid_plainy_cb.parquet`, with c = 0 at LTFM. It is git-ignored and not
+submitted.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. **2 negatives were reverted to base.**
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 283,203 rows (82.13 %) are changed.
+  - Over the changed rows, the RMS change is 118.6 s, with median |Δ| 45 s, p90 173, p99 429 and max 1,744.
+  - The signed change quantiles are p1 −300, p10 −116, p50 −12, p90 +118 and p99 +363.
+  - The mean prediction goes from 1,039.29 to 1,033.91 s.
+- **Against v22 (`hybrid_H2_plainy_adsb_learned`).** 331,137 rows differ, with RMS 29.5 s and max 946 s.

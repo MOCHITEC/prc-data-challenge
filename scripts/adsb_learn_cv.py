@@ -39,11 +39,17 @@ PARAMS = dict(objective="regression", learning_rate=0.03, num_leaves=63, min_dat
 H2_A = "oof_main_flseq_osm_nolirf-926741d779"   # matched lane
 H2_B = "oof_main_flseq-8615e6a194"               # unmatched lane
 PLAIN = "oof_main_flseq_osm_nolirf_plainy-b971f4b81b"  # plain-y member of the hybrid_H2_plainy blend
+CB = "oof_main_flseq_osm_nolirf_cb-6297d62f5f"          # anchored CatBoost member of hybrid_plainy_cb
 # base choice: `--base h2` (default, the pre-registered run) or `--base plainy` (hybrid_H2_plainy: matched lane
-# = 0.5 x anchored + 0.5 x plain OOF, unmatched = main_flseq; plainy-blend.md). Only the base and file names change.
+# = 0.5 x anchored + 0.5 x plain OOF, unmatched = main_flseq; plainy-blend.md) or `--base cb` (hybrid_plainy_cb:
+# matched = (anchored + plain + CatBoost) / 3, unmatched = main_flseq; catboost-blend.md). Only the base and file
+# names change. S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy.
 BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
-assert BASE_NAME in ("h2", "plainy"), BASE_NAME
+assert BASE_NAME in ("h2", "plainy", "cb"), BASE_NAME
 SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
+PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy")}.get(BASE_NAME)  # (name, file suffix) for S4
+REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
+           "cb": "cbx/oof_hybrid_plainy_cb.parquet"}[BASE_NAME]
 
 pl.Config.set_tbl_rows(60)
 pl.Config.set_tbl_width_chars(250)
@@ -66,20 +72,29 @@ def load_labelled() -> pl.DataFrame:
     ob = pl.read_parquet(ROOT + f"experiments/{H2_B}.parquet").rename({"oof": "ob"})
     D = (fold.select("MVT_ID_mvt", "fold").join(ft, on="MVT_ID_mvt", how="left")
          .join(oa, on="MVT_ID_mvt", how="left").join(ob, on="MVT_ID_mvt", how="left"))
-    if BASE_NAME == "plainy":
+    if BASE_NAME in ("plainy", "cb"):
         foldp = pl.read_parquet(ROOT + f"experiments/{PLAIN}_folds.parquet").filter(
             pl.col("pooled") & pl.col("fold").is_in(["jan", "jul"]))
         assert fold.sort("MVT_ID_mvt").equals(foldp.sort("MVT_ID_mvt")), "plain run's jan/jul folds differ"
         op = pl.read_parquet(ROOT + f"experiments/{PLAIN}.parquet").rename({"oof": "op"})
-        D = D.join(op, on="MVT_ID_mvt", how="left").with_columns((0.5 * pl.col("oa") + 0.5 * pl.col("op")).alias("oa"))
+        D = D.join(op, on="MVT_ID_mvt", how="left")
+        if BASE_NAME == "plainy":
+            D = D.with_columns((0.5 * pl.col("oa") + 0.5 * pl.col("op")).alias("oa"))
+        else:
+            foldc = pl.read_parquet(ROOT + f"experiments/{CB}_folds.parquet").filter(
+                pl.col("pooled") & pl.col("fold").is_in(["jan", "jul"]))
+            assert fold.sort("MVT_ID_mvt").equals(foldc.sort("MVT_ID_mvt")), "CB run's jan/jul folds differ"
+            oc = pl.read_parquet(ROOT + f"experiments/{CB}.parquet").rename({"oof": "oc"})
+            D = D.join(oc, on="MVT_ID_mvt", how="left").with_columns(
+                ((pl.col("oa") + pl.col("op") + pl.col("oc")) / 3.0).alias("oa"))
+            assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
     D = D.with_columns(pl.when(pl.col("mvt_minus_aobt3").is_not_null()).then("oa").otherwise("ob").alias("b"),
                        pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
                        pl.col("MVT_TIME_UTC_mvt").dt.date().cast(pl.String).alias("day"))
     print("labelled rows", D.height, dict(D.group_by("fold").len().iter_rows()),
           "| null y", D["y"].null_count(), "null b", D["b"].null_count(), "| days", D["day"].n_unique(),
           "| lane A", int(D["mvt_minus_aobt3"].is_not_null().sum()))
-    ref = os.path.join(os.path.dirname(L.SCR), "exp", "oof_hybrid_H2.parquet" if BASE_NAME == "h2"
-                       else "oof_hybrid_H2_plainy.parquet")
+    ref = os.path.join(os.path.dirname(L.SCR), REF_OOF)
     if os.path.exists(ref):
         R = pl.read_parquet(ref)
         c = D.select("MVT_ID_mvt", "b").join(R.rename({R.columns[-1]: "ref"}), on="MVT_ID_mvt", how="inner")
@@ -236,9 +251,11 @@ def main() -> None:
         print(f"  {feats[i]:28s} {imp[i] / imp.sum():.3f}")
     print("\nbest iterations", best_its, "median", int(np.median(best_its)))
 
-    if BASE_NAME != "h2" and os.path.exists(os.path.join(OUT, "cv_rows.parquet")):
-        head("S4  comparability: (this base + its learned model) vs (H2 + learned model), same rows, paired")
-        H = pl.read_parquet(os.path.join(OUT, "cv_rows.parquet")).select(
+    if PREV and os.path.exists(os.path.join(OUT, f"cv_rows{PREV[1]}.parquet")):
+        head(f"S4  comparability: ({BASE_NAME} + its learned model) vs ({PREV[0]} + its learned model), same rows, "
+             "paired ['H2' below = the previous base]")
+        print(f"previous base: {PREV[0]} (cv_rows{PREV[1]}.parquet)")
+        H = pl.read_parquet(os.path.join(OUT, f"cv_rows{PREV[1]}.parquet")).select(
             "MVT_ID_mvt", pl.col("b").alias("b_h2"), pl.col("c_learned").alias("c_h2"))
         P = D.select("MVT_ID_mvt", "y", "day_idx").with_columns(pl.Series("p_new", bv + c_learn)).join(
             H, on="MVT_ID_mvt", how="inner")

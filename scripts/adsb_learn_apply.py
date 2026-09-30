@@ -24,7 +24,9 @@ import adsb_learn_features as L
 
 ROOT = L.s1.REPO_DIR
 # `--base plainy` (see adsb_learn_cv.py): base outputs/hybrid_H2_plainy.parquet, CV json cv_plainy.json
-BASE_TAG = "H2" if CV.BASE_NAME == "h2" else "H2_" + CV.BASE_NAME
+BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb"}[CV.BASE_NAME]
+PREV_OUT = {"plainy": "outputs/hybrid_H2_adsb_learned.parquet",
+            "cb": "outputs/hybrid_H2_plainy_adsb_learned.parquet"}.get(CV.BASE_NAME)
 OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
 BASE_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}.parquet"
 V20_FILE = ROOT + "outputs/v20_hybridH2_adsb.parquet"
@@ -128,11 +130,11 @@ def main() -> None:
         x26 = G.filter(pl.col("ADEP_mvt") == a)["c"].to_numpy()
         f = lambda x: "/".join(f"{np.quantile(x, p):.0f}" for p in (0.1, 0.5, 0.9)) if len(x) else "-"  # noqa: E731
         print(f"  {a}: 2025 n {len(x25):6d} {f(x25):>14s} | 2026 n {len(x26):6d} {f(x26):>14s}")
-    v21 = ROOT + "outputs/hybrid_H2_adsb_learned.parquet"
-    if CV.BASE_NAME != "h2" and os.path.exists(v21):
+    v21 = ROOT + PREV_OUT if PREV_OUT else ""
+    if PREV_OUT and os.path.exists(v21):
         W = M.join(pl.read_parquet(v21).rename({"TAXITIME_SEC_mvt": "v21"}), on="MVT_ID_mvt")
         dv = (W["new"] - W["v21"]).cast(pl.Float64)
-        print(f"vs {v21} (v21): rows differing {int((dv != 0).sum())}; RMS diff {float(np.sqrt((dv ** 2).mean())):.1f} s; "
+        print(f"vs {v21} (previous base + learned): rows differing {int((dv != 0).sum())}; RMS diff {float(np.sqrt((dv ** 2).mean())):.1f} s; "
               f"max |diff| {int(dv.abs().max())}")
     if CV.BASE_NAME == "h2" and os.path.exists(V20_FILE):
         v20 = pl.read_parquet(V20_FILE).rename({"TAXITIME_SEC_mvt": "v20"})
