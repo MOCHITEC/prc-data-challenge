@@ -57,3 +57,13 @@
 ## 4. 範囲
 
 本番（`configs/main_gap.yaml`）と提出は変えない。
+
+## 5. 追記（2026-09-30、確認の測定の前に）: 3 fold での確認
+
+段階 1 の 3 条件を満たしたので、本番に渡す前に既知のスタンドでの効果を fold を増やして確かめる。
+
+- 群: `osm_full_base` / `osm_full_noise1` / `osm_full_dist`。すべて `main_gap` ＋ `folds: [jan, jul, forward]`
+  （`jul_fwd` は `overall` に入らない fold なので省く）。
+- **本番への推奨**: `prc.compare osm_full_noise1 osm_full_dist` が ADOPT（全行と K=200 の CI がともに改善側でゼロを除外）、
+  かつ `prc.compare osm_full_base osm_full_dist` が「B is worse」にならないこと。
+- そうでなければ「未知スタンドへの頑健性のための任意採用。平均の LB 効果は測定限界以下」と記録して、判断を渡す。
