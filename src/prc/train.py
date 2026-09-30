@@ -46,6 +46,7 @@ import polars as pl
 from .arrival_fill import ARR_FILL_COLS
 from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
 from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
+from .levers import L1_COLS, L2_COLS, L3_COLS, LEVER_COLS
 
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
@@ -134,6 +135,11 @@ _HASH_OPTIONAL: dict = {
     "fe_arr_fill_permute": False,
     "sim_unseen_stands": 0.0,
     "matched_target": "anchored",
+    # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
+    "fe_plan_nm_taxi": False,
+    "fe_fwd_nm": False,
+    "fe_fwd_nm_unmatched": False,
+    "fe_push_queue": False,
 }
 
 
@@ -317,6 +323,17 @@ class TrainConfig:
     # plain-y member of a 50/50 blend with the anchored model, which is done on the two runs' outputs, not here.
     # Model B is untouched. Left out of the hash at "anchored", so every existing experiment id is unchanged.
     matched_target: str = "anchored"
+    # ---- the public-code levers (prc.levers; docs/competitor_research_2026-09-21/results/feature-levers-L1-L4.md).
+    # All off by default: with every flag off the columns are never built (prc.pipeline.main) and are hidden if
+    # present, so an existing recipe's id, design matrix and predictions are unchanged.
+    #   fe_plan_nm_taxi      L1, `plan_nm_taxi`, model A only (null on every unmatched row)
+    #   fe_fwd_nm            L2, the eight forward NM-clock window columns, into model A
+    #   fe_fwd_nm_unmatched  L2 into model B; independent of fe_fwd_nm, so model B can be tested with model A fixed
+    #   fe_push_queue        L3, the six AOBT_3-anchored queue counts, model A only (null on every unmatched row)
+    fe_plan_nm_taxi: bool = False
+    fe_fwd_nm: bool = False
+    fe_fwd_nm_unmatched: bool = False
+    fe_push_queue: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -492,11 +509,28 @@ META_ROUNDS = 300
 META_NOISE_SEED = 20_260_924
 
 
+def lever_columns(cfg: TrainConfig) -> list[str]:
+    """The prc.levers columns a recipe asks for, in LEVER_COLS order (empty with every lever flag off)."""
+    want = set()
+    if cfg.fe_plan_nm_taxi:
+        want |= set(L1_COLS)
+    if cfg.fe_fwd_nm or cfg.fe_fwd_nm_unmatched:
+        want |= set(L2_COLS)
+    if cfg.fe_push_queue:
+        want |= set(L3_COLS)
+    return [c for c in LEVER_COLS if c in want]
+
+
 def unmatched_columns(num_cols: list[str]) -> list[str]:
     """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones, and the A1
     arrival-fill columns (model A only, by the note's specification)."""
     return [
-        c for c in num_cols if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES) and c not in ARR_FILL_COLS
+        c
+        for c in num_cols
+        if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES)
+        and c not in ARR_FILL_COLS
+        and c not in L1_COLS
+        and c not in L3_COLS
     ]
 
 
@@ -744,6 +778,12 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     hidden = set(CANDIDATE_COLS) - set(cfg.include_candidates) | set(cfg.exclude_features)
     if not cfg.fe_arr_fill:
         hidden |= set(ARR_FILL_COLS)
+    if not cfg.fe_plan_nm_taxi:
+        hidden |= set(L1_COLS)
+    if not (cfg.fe_fwd_nm or cfg.fe_fwd_nm_unmatched):
+        hidden |= set(L2_COLS)
+    if not cfg.fe_push_queue:
+        hidden |= set(L3_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:
@@ -1254,6 +1294,13 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         if missing:
             raise ValueError(f"fe_arr_fill is on but {missing} are not in the frames (built by prc.pipeline.main)")
         info["arr_fill_cols"] = list(ARR_FILL_COLS) + (["permuted"] if cfg.fe_arr_fill_permute else [])
+    lever_cols = lever_columns(cfg)
+    if lever_cols:
+        # Only when a lever is on, so a record without one is byte-for-byte what it was.
+        missing = [c for c in lever_cols if c not in train_f.columns or c not in target_f.columns]
+        if missing:
+            raise ValueError(f"a lever flag is on but {missing} are not in the frames (built by prc.pipeline.main)")
+        info["lever_cols"] = lever_cols
     if cfg.model != "lightgbm":
         # Only when it is not the default, so a LightGBM record is byte-for-byte what it was before P10.
         info["model"] = cfg.model
@@ -1297,7 +1344,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         # What the model's output is added to: the proxy for the anchored target, nothing for the plain one.
         add_back = m_tg[PROXY].to_numpy().astype(float)
         if m_tr.height >= 200:
-            cols_a = [c for c in num_cols if c != PROXY] + [PROXY]
+            # L2 is visible when either lane asks for it; model A takes it only when fe_fwd_nm is on.
+            a_hidden = set() if cfg.fe_fwd_nm else set(L2_COLS)
+            cols_a = [c for c in num_cols if c != PROXY and c not in a_hidden] + [PROXY]
 
             def _target_a(f: pl.DataFrame) -> np.ndarray:
                 if plain_a:
@@ -1324,6 +1373,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
         cols_b = unmatched_columns(num_cols)
+        if not cfg.fe_fwd_nm_unmatched:
+            cols_b = [c for c in cols_b if c not in L2_COLS]
         # Model A's and model B's visible column counts have differed by one in past records without the
         # record saying which, so log both rather than inferring them from the config.
         info["n_features_unmatched"] = len(cols_b)
