@@ -201,6 +201,11 @@ class TrainConfig:
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
+    # OPDI airframe turnaround (docs/opdi_2026-09-30/plan.md). LICENCE FLAG, see src/prc/opdi.py.
+    fe_opdi: bool = False
+    # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
+    # way the January 2026 OPDI file has no flights on 10 of its 31 days.
+    opdi_target_null_day_share: float = 0.0
 
     def hash(self) -> str:
         return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -508,6 +513,43 @@ def osm_distance_features(df: pl.DataFrame) -> pl.DataFrame:
     return add_stand_runway_distance(df, stands, ends)
 
 
+@functools.lru_cache(maxsize=1)
+def _opdi_table() -> pl.DataFrame:
+    from .opdi import build_turnaround_cache
+
+    path = data_dir_work() / "opdi_turnaround.parquet"
+    if not path.exists():
+        build_turnaround_cache(out=path)
+    return pl.read_parquet(path)
+
+
+def data_dir_work():
+    from .config import data_dir
+
+    return data_dir() / "work"
+
+
+def day_null_mask(df: pl.DataFrame, share: float) -> np.ndarray:
+    """True on rows whose take-off date (UTC) falls in the `share` of days picked by CRC32 of 'YYYY-MM-DD'."""
+    import zlib
+
+    days = df["MVT_TIME_UTC_mvt"].dt.strftime("%Y-%m-%d").fill_null("").to_list()
+    return np.array([zlib.crc32(d.encode()) / 2**32 < share for d in days], dtype=bool)
+
+
+def opdi_features(df: pl.DataFrame, null_day_share: float = 0.0) -> pl.DataFrame:
+    """Attach the OPDI turnaround columns by MVT_ID_mvt (the cache covers every training and ranking departure)."""
+    from .opdi import OPDI_COLS
+
+    out = df.join(_opdi_table(), on="MVT_ID_mvt", how="left", maintain_order="left")
+    if out.height != df.height:
+        raise AssertionError("opdi_features changed the row count")
+    if null_day_share > 0:
+        blank = pl.Series("_blank", day_null_mask(out, null_day_share))
+        out = out.with_columns([pl.when(blank).then(None).otherwise(pl.col(c)).alias(c) for c in OPDI_COLS])
+    return out
+
+
 def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
     """True for rows whose (airport, stand) is in the held-out share, by a CRC32 that no library version changes."""
     import zlib
@@ -535,6 +577,8 @@ def add_fold_features(
         tr, tg = weather_v2_features(tr, cfg.fe_weather_v2), weather_v2_features(tg, cfg.fe_weather_v2)
     if cfg.fe_osm_dist:
         tr, tg = osm_distance_features(tr), osm_distance_features(tg)
+    if cfg.fe_opdi:
+        tr, tg = opdi_features(tr), opdi_features(tg, cfg.opdi_target_null_day_share)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
     return tr, tg
 
@@ -812,7 +856,15 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
-    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols or cfg.fe_weather_v2 or cfg.fe_osm_dist:
+    if (
+        cfg.fe_freq
+        or cfg.fe_aggdiff
+        or cfg.fe_cyclic
+        or cfg.fe_noise_cols
+        or cfg.fe_weather_v2
+        or cfg.fe_osm_dist
+        or cfg.fe_opdi
+    ):
         tr, tg = add_fold_features(tr, tg, cfg, info)
 
     num_cols = visible_numeric_columns(tr, cfg)
