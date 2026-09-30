@@ -1,0 +1,32 @@
+# main_flseq_osm_nolirf with CatBoost as the booster (`model: catboost`), anchored target (the default
+# matched_target), as the third member of an equal-weight matched-lane blend with main_flseq_osm_nolirf (anchored
+# LightGBM) and main_flseq_osm_nolirf_plainy (plain-y LightGBM). The blend is built from the runs' outputs by
+# scripts/catboost_blend.py, not by this recipe; this run's model B is not used.
+# Differences from configs/main_flseq_osm_nolirf.yaml (besides the name), all taken from P10's C+E arm
+# (configs/p10_cb_e.yaml, the better of the two measured CatBoost arms on lane A on both folds):
+#   model: catboost   - CB_DEFAULTS: learning_rate 0.2, depth 6, SymmetricTree, max_ctr_complexity 1, 4 threads
+#   num_rounds: 5000  - P10's model-A cap; at 2000 CatBoost is capped (P10 forward early-stopped at 4,090 rounds)
+#   n_seeds: 1        - as in every P10 arm (the only CatBoost setting with measured numbers; budget)
+#   folds: [jan, jul, forward] - the three pooled OOF folds; jul_fwd is shadowed by jul in the pooled OOF
+# Pre-registration and results: docs/competitor_research_2026-09-21/results/catboost-blend.md.
+# External data: OpenStreetMap (ODbL 1.0) and OurAirports runways (public domain); docs/external_data.md.
+name: main_flseq_osm_nolirf_cb
+num_rounds: 5000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap, fl_fmt_code, fl_len, fl_nm_rate_other, dup_n, dup_n_unm_twins, dup_n_m_twins, dup_mvt_span, seq_hw_prev_pairq, seq_hw_excess, seq_lead_wtc, seq_burst_pos, seq_burst_len, seq_burst_elapsed, seq_burst_remaining, seq_burst_pos_frac, seq_hw_mean_prev5, seq_hw_mean_next5, seq_hw_min_prev3, seq_arr_since_prevdep, seq_arr_prev_s, seq_arr_next_s, seq_arr_pm10m, seq_rwy_share_pm30]
+fe_osm_dist: true
+fe_osm_null_airports: [LIRF]
+model: catboost
+folds: [jan, jul, forward]
