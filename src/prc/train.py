@@ -43,8 +43,10 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 
+from .arrival_fill import ARR_FILL_COLS
 from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
 from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
+from .levers import L1_COLS, L2_COLS, L3_COLS, LEVER_COLS
 
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
@@ -66,6 +68,8 @@ OFFSET_COLS = ["op_offset_med", "op_offset_n"]
 #              MVT_ID_mvt alone. The control: it carries the row-count cost and the blending gain of the
 #              candidate and none of its airport information.
 GROUP_KEYS = ("adep", "shuffled")
+# Model A's target; see TrainConfig.matched_target.
+MATCHED_TARGETS = ("anchored", "plain")
 # The model family the fitter uses; see TrainConfig.model and
 # docs/competitor_research_2026-09-21/plans/P10-catboost-rival.md. Everything outside `_fit` - folds, encodings,
 # feature selection, routing, target parameterisation, the seed loop, the round-count scaling, assembly,
@@ -127,9 +131,17 @@ _HASH_OPTIONAL: dict = {
     "fe_weather_v2": "",
     "fe_osm_dist": False,
     "fe_osm_null_airports": [],
+    "fe_arr_fill": False,
+    "fe_arr_fill_permute": False,
     "sim_unseen_stands": 0.0,
     "fe_opdi": False,
     "opdi_target_null_day_share": 0.0,
+    "matched_target": "anchored",
+    # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
+    "fe_plan_nm_taxi": False,
+    "fe_fwd_nm": False,
+    "fe_fwd_nm_unmatched": False,
+    "fe_push_queue": False,
 }
 
 
@@ -295,6 +307,13 @@ class TrainConfig:
     # missing there. Empty (the default) changes nothing. Requires fe_osm_dist. Added for
     # configs/main_flseq_osm_nolirf.yaml, whose LIRF exclusion was chosen after the LIRF result was seen (post hoc).
     fe_osm_null_airports: list = field(default_factory=list)
+    # A1, the arrival mirror of LIRF's schedule fill (docs/competitor_research_2026-09-21/results/
+    # lirf-lfpg-mechanisms.md §5): the four `prc.arrival_fill.ARR_FILL_COLS`, attached to the feature frames by
+    # `prc.pipeline.main` from each frame's own ARRIVAL rows, and given to model A only (the note found nothing
+    # for the unmatched lane, §2.5). Off (the default): the columns are never built and are hidden if present.
+    fe_arr_fill: bool = False
+    # The note's kill condition (c): the same four columns, each shuffled within calendar month. Requires fe_arr_fill.
+    fe_arr_fill_permute: bool = False
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
@@ -303,6 +322,25 @@ class TrainConfig:
     # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
     # way the January 2026 OPDI file has no flights on 10 of its 31 days.
     opdi_target_null_day_share: float = 0.0
+    # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
+    # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
+    # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
+    # output as it is. Features, categoricals, parameters, seeds, early stopping, the round rule, the zero floor
+    # and the LOBT bound are the same; the only change is the target and the add-back. It exists to build the
+    # plain-y member of a 50/50 blend with the anchored model, which is done on the two runs' outputs, not here.
+    # Model B is untouched. Left out of the hash at "anchored", so every existing experiment id is unchanged.
+    matched_target: str = "anchored"
+    # ---- the public-code levers (prc.levers; docs/competitor_research_2026-09-21/results/feature-levers-L1-L4.md).
+    # All off by default: with every flag off the columns are never built (prc.pipeline.main) and are hidden if
+    # present, so an existing recipe's id, design matrix and predictions are unchanged.
+    #   fe_plan_nm_taxi      L1, `plan_nm_taxi`, model A only (null on every unmatched row)
+    #   fe_fwd_nm            L2, the eight forward NM-clock window columns, into model A
+    #   fe_fwd_nm_unmatched  L2 into model B; independent of fe_fwd_nm, so model B can be tested with model A fixed
+    #   fe_push_queue        L3, the six AOBT_3-anchored queue counts, model A only (null on every unmatched row)
+    fe_plan_nm_taxi: bool = False
+    fe_fwd_nm: bool = False
+    fe_fwd_nm_unmatched: bool = False
+    fe_push_queue: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -317,6 +355,10 @@ class TrainConfig:
     def __post_init__(self) -> None:
         if self.fe_osm_null_airports and not self.fe_osm_dist:
             raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
+        if self.fe_arr_fill_permute and not self.fe_arr_fill:
+            raise ValueError("fe_arr_fill_permute is set but fe_arr_fill is off; it would be silently ignored")
+        if self.matched_target not in MATCHED_TARGETS:
+            raise ValueError(f"matched_target must be one of {MATCHED_TARGETS}, got {self.matched_target!r}")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
         if self.model == "lightgbm":
@@ -474,9 +516,29 @@ META_ROUNDS = 300
 META_NOISE_SEED = 20_260_924
 
 
+def lever_columns(cfg: TrainConfig) -> list[str]:
+    """The prc.levers columns a recipe asks for, in LEVER_COLS order (empty with every lever flag off)."""
+    want = set()
+    if cfg.fe_plan_nm_taxi:
+        want |= set(L1_COLS)
+    if cfg.fe_fwd_nm or cfg.fe_fwd_nm_unmatched:
+        want |= set(L2_COLS)
+    if cfg.fe_push_queue:
+        want |= set(L3_COLS)
+    return [c for c in LEVER_COLS if c in want]
+
+
 def unmatched_columns(num_cols: list[str]) -> list[str]:
-    """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones."""
-    return [c for c in num_cols if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES)]
+    """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones, and the A1
+    arrival-fill columns (model A only, by the note's specification)."""
+    return [
+        c
+        for c in num_cols
+        if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES)
+        and c not in ARR_FILL_COLS
+        and c not in L1_COLS
+        and c not in L3_COLS
+    ]
 
 
 def _check_same_rows(before: pl.DataFrame, after: pl.DataFrame, what: str) -> None:
@@ -760,6 +822,14 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     ship nine screening columns."""
     cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month")]
     hidden = set(CANDIDATE_COLS) - set(cfg.include_candidates) | set(cfg.exclude_features)
+    if not cfg.fe_arr_fill:
+        hidden |= set(ARR_FILL_COLS)
+    if not cfg.fe_plan_nm_taxi:
+        hidden |= set(L1_COLS)
+    if not (cfg.fe_fwd_nm or cfg.fe_fwd_nm_unmatched):
+        hidden |= set(L2_COLS)
+    if not cfg.fe_push_queue:
+        hidden |= set(L3_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:
@@ -1263,6 +1333,20 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     n_before = train_f.height
     train_f = train_f.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())
     info: dict = {"train_rows": train_f.height, "dropped_unlabelled": n_before - train_f.height}
+    if cfg.fe_arr_fill:
+        # Only when on, so a record without A1 is byte-for-byte what it was. A missing column would otherwise
+        # read as a null result: the flag on, nothing given to the model.
+        missing = [c for c in ARR_FILL_COLS if c not in train_f.columns or c not in target_f.columns]
+        if missing:
+            raise ValueError(f"fe_arr_fill is on but {missing} are not in the frames (built by prc.pipeline.main)")
+        info["arr_fill_cols"] = list(ARR_FILL_COLS) + (["permuted"] if cfg.fe_arr_fill_permute else [])
+    lever_cols = lever_columns(cfg)
+    if lever_cols:
+        # Only when a lever is on, so a record without one is byte-for-byte what it was.
+        missing = [c for c in lever_cols if c not in train_f.columns or c not in target_f.columns]
+        if missing:
+            raise ValueError(f"a lever flag is on but {missing} are not in the frames (built by prc.pipeline.main)")
+        info["lever_cols"] = lever_cols
     if cfg.model != "lightgbm":
         # Only when it is not the default, so a LightGBM record is byte-for-byte what it was before P10.
         info["model"] = cfg.model
@@ -1305,12 +1389,22 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["fold_feature_cols"] += ["meta_prior", "meta_prior_minus_proxy"]
         num_cols = visible_numeric_columns(tr, cfg)
     parts = []
+    plain_a = cfg.matched_target == "plain"
+    if plain_a:
+        # Only when it is not the default, so an anchored record is byte-for-byte what it was.
+        info["matched_target"] = cfg.matched_target
     m_tr, m_tg = tr.filter(pl.col(PROXY).is_not_null()), tg.filter(pl.col(PROXY).is_not_null())
     if m_tg.height:
+        # What the model's output is added to: the proxy for the anchored target, nothing for the plain one.
+        add_back = m_tg[PROXY].to_numpy().astype(float)
         if m_tr.height >= 200:
-            cols_a = [c for c in num_cols if c != PROXY] + [PROXY]
+            # L2 is visible when either lane asks for it; model A takes it only when fe_fwd_nm is on.
+            a_hidden = set() if cfg.fe_fwd_nm else set(L2_COLS)
+            cols_a = [c for c in num_cols if c != PROXY and c not in a_hidden] + [PROXY]
 
             def _target_a(f: pl.DataFrame) -> np.ndarray:
+                if plain_a:
+                    return f[LABEL].to_numpy().astype(float)
                 return f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
 
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
@@ -1322,15 +1416,19 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
                 info["rounds_matched"] = rounds
             if cfg.model == "catboost":
                 info["cb_matched"] = dict(_CB_LAST)
+            if plain_a:
+                add_back = np.zeros(m_tg.height)
         else:
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
             g = np.zeros(m_tg.height)
-        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": m_tg[PROXY].to_numpy().astype(float) + g}))
+        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": add_back + g}))
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
         cols_b = unmatched_columns(num_cols)
+        if not cfg.fe_fwd_nm_unmatched:
+            cols_b = [c for c in cols_b if c not in L2_COLS]
         # Model A's and model B's visible column counts have differed by one in past records without the
         # record saying which, so log both rather than inferring them from the config.
         info["n_features_unmatched"] = len(cols_b)
