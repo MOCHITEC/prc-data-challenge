@@ -43,6 +43,7 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 
+from .arrival_fill import ARR_FILL_COLS
 from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
 from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
 
@@ -127,6 +128,8 @@ _HASH_OPTIONAL: dict = {
     "fe_weather_v2": "",
     "fe_osm_dist": False,
     "fe_osm_null_airports": [],
+    "fe_arr_fill": False,
+    "fe_arr_fill_permute": False,
     "sim_unseen_stands": 0.0,
 }
 
@@ -293,6 +296,13 @@ class TrainConfig:
     # missing there. Empty (the default) changes nothing. Requires fe_osm_dist. Added for
     # configs/main_flseq_osm_nolirf.yaml, whose LIRF exclusion was chosen after the LIRF result was seen (post hoc).
     fe_osm_null_airports: list = field(default_factory=list)
+    # A1, the arrival mirror of LIRF's schedule fill (docs/competitor_research_2026-09-21/results/
+    # lirf-lfpg-mechanisms.md §5): the four `prc.arrival_fill.ARR_FILL_COLS`, attached to the feature frames by
+    # `prc.pipeline.main` from each frame's own ARRIVAL rows, and given to model A only (the note found nothing
+    # for the unmatched lane, §2.5). Off (the default): the columns are never built and are hidden if present.
+    fe_arr_fill: bool = False
+    # The note's kill condition (c): the same four columns, each shuffled within calendar month. Requires fe_arr_fill.
+    fe_arr_fill_permute: bool = False
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
@@ -310,6 +320,8 @@ class TrainConfig:
     def __post_init__(self) -> None:
         if self.fe_osm_null_airports and not self.fe_osm_dist:
             raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
+        if self.fe_arr_fill_permute and not self.fe_arr_fill:
+            raise ValueError("fe_arr_fill_permute is set but fe_arr_fill is off; it would be silently ignored")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
         if self.model == "lightgbm":
@@ -468,8 +480,11 @@ META_NOISE_SEED = 20_260_924
 
 
 def unmatched_columns(num_cols: list[str]) -> list[str]:
-    """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones."""
-    return [c for c in num_cols if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES)]
+    """The numeric columns model B is given: everything except the NM-clock and proxy-derived ones, and the A1
+    arrival-fill columns (model A only, by the note's specification)."""
+    return [
+        c for c in num_cols if not c.startswith(_NM_CLOCK_PREFIXES + LANE_A_ONLY_PREFIXES) and c not in ARR_FILL_COLS
+    ]
 
 
 def _check_same_rows(before: pl.DataFrame, after: pl.DataFrame, what: str) -> None:
@@ -714,6 +729,8 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     ship nine screening columns."""
     cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month")]
     hidden = set(CANDIDATE_COLS) - set(cfg.include_candidates) | set(cfg.exclude_features)
+    if not cfg.fe_arr_fill:
+        hidden |= set(ARR_FILL_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:
@@ -1217,6 +1234,13 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     n_before = train_f.height
     train_f = train_f.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())
     info: dict = {"train_rows": train_f.height, "dropped_unlabelled": n_before - train_f.height}
+    if cfg.fe_arr_fill:
+        # Only when on, so a record without A1 is byte-for-byte what it was. A missing column would otherwise
+        # read as a null result: the flag on, nothing given to the model.
+        missing = [c for c in ARR_FILL_COLS if c not in train_f.columns or c not in target_f.columns]
+        if missing:
+            raise ValueError(f"fe_arr_fill is on but {missing} are not in the frames (built by prc.pipeline.main)")
+        info["arr_fill_cols"] = list(ARR_FILL_COLS) + (["permuted"] if cfg.fe_arr_fill_permute else [])
     if cfg.model != "lightgbm":
         # Only when it is not the default, so a LightGBM record is byte-for-byte what it was before P10.
         info["model"] = cfg.model

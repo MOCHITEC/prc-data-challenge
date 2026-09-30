@@ -424,3 +424,14 @@ C3 の `drct` 欠損は行ベースで 8.5%、最悪 LSZH 2026-01 で 40.7% だ�
 | LIRF を除く全行 / マッチ行 | −0.51 [−0.75, −0.30] / −0.09 [−0.21, +0.04] |
 
 `prc.compare.verdict`: REJECT（全行で悪化）。forward fold 単独では見えなかった LIRF 未マッチ行の悪化が jan・jul に出た。
+
+# 追記（2026-09-30）: A1 LIRF 到着ミラー（`fe_arr_fill`）を v16 と OSM model A の上で全 fold 測定 → **両方とも棄却**
+
+詳細は `docs/competitor_research_2026-09-21/results/A1-lirf-arrival-mirror.md`。仕様は `lirf-lfpg-mechanisms.md` §5 A1。model A のみに 4 列（`arr_link_fill`, `arr_link_bs_abs`, `arr_link_same_op`, `arr_opday_fill`）。
+
+| 測定 | K=0 | K=200 | 判定 |
+|---|---|---|---|
+| main_flseq → main_flseq_a1 | −0.09 [−0.21, +0.03] | −0.09 [−0.21, +0.04] | REJECT |
+| main_flseq_osm_nolirf → main_flseq_osm_nolirf_a1 | −0.04 [−0.14, +0.06] | −0.07 [−0.18, +0.05] | REJECT |
+
+両方とも jul で LIRF マッチ行が悪化し、kill 条件 (a) も不成立。レーンハイブリッドは規則どおり H2 と同一（`outputs/hybrid_A1.parquet`）。

@@ -246,6 +246,13 @@ def main(argv: list[str] | None = None) -> int:
 
     train, rank, sub_path = load_raw(a.raw_dir)
     f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir, wx_codes, wind_dir, gust_repair)
+    if cfg.fe_arr_fill:
+        # A1 (prc.arrival_fill). Needs the raw ARRIVAL rows, so it runs before they are freed; each frame is
+        # linked to its own arrivals. Not cached and not in features.py, so a recipe without it is untouched.
+        from .arrival_fill import attach_arrival_fill
+
+        f_tr = attach_arrival_fill(f_tr, train, permute=cfg.fe_arr_fill_permute)
+        f_rk = attach_arrival_fill(f_rk, rank, permute=cfg.fe_arr_fill_permute)
     # Memory only; no prediction changes. The raw frames are dead once the features exist, and a candidate
     # column the recipe does not include is never given to the model (`visible_numeric_columns`), yet it is
     # copied with the frame on every fold. main_flseq OOM-killed at 13.9 GB in its first fold without this.
