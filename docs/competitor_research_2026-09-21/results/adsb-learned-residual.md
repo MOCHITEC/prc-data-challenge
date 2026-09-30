@@ -1,0 +1,233 @@
+# Learned ADS-B residual model on top of hybrid H2 (2026-09-30)
+
+Sibling note to `adsb-ingest-2025-labelled.md`, `adsb-full-ingest-candidate.md`, `adsb-coverage-breakdown.md`.
+The only outside fact used is from `public-code-deep-dive-2026-09-30.md`: one competitor shipped a learned ADS-B
+residual model. No competitor code was opened. The features, the model and the code are our own
+(`scripts/adsb_learn_features.py`, `scripts/adsb_learn_cv.py`, `scripts/adsb_learn_apply.py`).
+
+## 0. Pre-registration (written before any result was looked at)
+
+This section was written and saved before the feature build or any model was run. It is not edited afterwards.
+Anything added later goes in the sections below it.
+
+**Rows.**
+- Labelled set: all Jan 2025 and Jul 2025 departures, the OOF folds `jan` and `jul` of the H2 runs
+  (153,706 + 190,713 = 344,419 rows).
+- H2 OOF (`b`): taken by lane. A row is matched when `mvt_minus_aobt3` is non-null in
+  `data/work_flseq/feat_train.parquet`. Matched rows take `oof` from `experiments/oof_main_flseq_osm_nolirf-926741d779`.
+  Unmatched rows take it from `experiments/oof_main_flseq-8615e6a194`. Both fold files have `pooled` = true for
+  the `jan` and `jul` entries.
+- Label `y` = `TAXITIME_SEC_mvt` (= MVT − BLOCK). Target `r = y − b`.
+- **ADS-B row**: the departure is in a `<tag>_joined.parquet` and has an aircraft (`icao` non-null, `join` ∈ {cs, fn}).
+  All other rows get correction 0 but stay in every metric.
+
+**Features** (per departure; label-free; nothing reads BLOCK, `g`, `fill`, `e_aobt3` or `e_to`).
+- `ADEP` (categorical), `join` type, the stage-1 `stand_rule` (categorical), and the base prediction `b`.
+- Stage-1 per-flight columns of the joined file: `ground_fix`, `n_ground`, `stand_dur`, `stand_nfix`, `dep1_gs`,
+  `gap_before_dep1`, `opens_with_landing`, `push` (tail-first share), `post_dwell`, a flag for the gated `t_push`,
+  and the stand-exit resolution `t_move − t_move_lo`.
+- New raw-fix features, computed here from the aircraft's fixes at ADEP. The anchor is
+  `a = coalesce(t_move_lo, t_dep1)` and the end is `e = coalesce(t_to, t_mvt + 120 s)`. Over the ground fixes in
+  `[a, e]` they are:
+  - times of the first fix with gs ≥ 3, ≥ 10 and ≥ 25 kt, the last ground fix, and the first airborne fix after `a`;
+  - fix count, path length, straight displacement, stopped time (gs < 2 kt, steps ≤ 120 s), number of stops,
+    maximum inter-fix gap and mean moving gs;
+  - x/y in metres (east and north of the ARP) of the anchor fix and of the last ground fix.
+  - Also counted: all fixes, and ground fixes, of this aircraft at ADEP within `[t_mvt − 4 h, t_mvt + 30 min]`.
+- Every event time T ∈ {`t_first`, `t_dep1`, `t_move_lo`, `t_move`, `t_to`, the three gs thresholds, last ground
+  fix, first airborne fix} enters three ways: `t_mvt − T`, `(t_mvt − T) − b`, and `T − t_aobt3` (null in lane B).
+
+**Model.**
+- LightGBM regression, L2 objective, trained on the ADS-B rows only.
+- Target `r` clipped to ±3,600 s for training.
+- Parameters: learning_rate 0.03, num_leaves 63, min_data_in_leaf 100, feature_fraction 0.8, bagging_fraction 0.8
+  (freq 1), lambda_l2 10, num_threads 2, seed 20260930. Early stopping is 200 rounds, with a cap of 5,000.
+- Correction `c` = the prediction clipped to ±1,800 s. There is no other shrinkage and no guard. Rows that are not
+  ADS-B rows get `c = 0`. New prediction = `b + c`.
+
+**CV.**
+- Leave-days-out over the 62 labelled days, all 10 airports. Five folds of days, seed 20260930: each month's days
+  are permuted and dealt round-robin, so every fold holds 6–7 Jan and 6–7 Jul days.
+- In each outer fold, 20 % of the training days (dealt the same way from a second seeded permutation) are the
+  early-stopping set. The early-stopped model predicts the held-out days, with no refit.
+- **Final model**: all 62 days, with `num_boost_round` = the median best iteration of the 5 folds and no early
+  stopping.
+
+**Rule override on the same 2025 rows (the comparator).** This is the v20 rule, recomputed on the same 2025 rows.
+- It fires at EDDM, EHAM, LEBL, LSZH and EGLL when `AOBT_3_flt` is non-null, `join` = cs and the gated `t_push` is
+  non-null.
+- `y_a = round(t_mvt − t_push + bias[ADEP])`. It applies only when `|y_a − b| ≤ 900 s`.
+- `bias[ADEP]` = median(`t_push − t_block`) over the eligible rows of the **training days of the same outer fold**
+  (leave-days-out).
+
+**Metric.**
+- Per row, `d = (y − b)² − (y − b − c)²` (s²). The gain is the mean of `d` over **all 344,419 rows**, i.e. the pooled
+  MSE reduction. RMSE before and after are also reported.
+- 95 % CI by a day-block bootstrap: 62 days resampled with replacement, B = 2,000, seed 20260930, gain = Σd / Σn.
+- Reported for the learned model and for the rule. Also reported per airport (same bootstrap, the airport's own rows).
+- **Paired difference** `d_learned − d_rule` per row, with the same day-block bootstrap.
+
+**Decision rule.** ADOPT the learned model iff (1) the 2.5 % bound of its gain CI is > 0 and (2) the 2.5 % bound of
+the paired difference (learned − rule) is > 0. Otherwise REJECT (keep v20 = H2 + rule).
+
+**Production file.**
+- The final model is applied to the 2026 scored rows, with the same feature code on the 2026 joined and fix files.
+- The base is `outputs/hybrid_H2.parquet`, with no rule override.
+- Output: `outputs/hybrid_H2_adsb_learned.parquet` = round(base + c). A negative value is reverted to base and
+  counted. The file is written whatever the verdict, and it is not submitted.
+
+### 0a. Addendum, still before any model result (coverage fact from the feature build)
+
+The feature build gives these ADS-B rows (joined, with an aircraft): **2025: 286,008** (LTFM **38**) and
+**2026: 290,822** (LTFM **5,161**). The model sees almost no LTFM training rows, and the CV cannot measure LTFM.
+- **The production file sets c = 0 at LTFM.**
+- The CV metric is unchanged: LTFM's 38 rows are scored as pre-registered.
+
+This was fixed before any fold was trained. It is the only change to section 0.
+
+---
+
+## 1. Data checks (after the pre-registration)
+
+- **Labelled rows.** 344,419: `jan` 153,706 and `jul` 190,713. Every row has a label and a base. There are 62 days
+  and 339,046 lane-A rows.
+- **H2 OOF.** Rebuilt by lane as in section 0. It equals `$SCRATCH/exp/oof_hybrid_H2.parquet` on all 344,419 rows
+  (max |diff| 0.0).
+- **ADS-B rows.** 286,008 in 2025 and 290,822 in 2026. In both years `t_mvt` in the joined files equals
+  `MVT_TIME_UTC_mvt` exactly.
+- **2026 inputs.**
+  - The 2026 fixes and joined files come from the same `adsb_stage1_feasibility.py` `extract` and `analyse`, with
+    the same filter: 10 airports, ≤ 8 km, ground or ≤ 4,000 ft. The join window is also the same:
+    MVT in [D 02:00, D+1 00:00).
+  - Between the 2026 analysis (2026-09-29) and the 2025 one (2026-09-30), `analyse` did not change. The only code
+    change in between is the empty-final-chunk guard in `extract` (commit 416ef93).
+  - The 2026 joined files have the same columns, minus the four label-derived ones (`g`, `fill`, `e_aobt3`,
+    `e_to`). None of those four is read here.
+- **Folds.** Each fold holds 12–14 days, 6–7 from each month. The day lists are in `$SCRATCH/adsb/learn/cv.json`.
+- **Best iterations.** 393, 235, 395, 358 and 147, so the final fit uses **358 rounds**.
+
+## 2. CV result (leave-days-out, all 344,419 rows, day-block bootstrap B = 2,000)
+
+`gain` is the pooled MSE reduction in s² per row over all labelled rows. Rows without ADS-B count with d = 0.
+
+| | gain (s²) | CI95 | RMSE (s) | rows changed |
+|---|---:|---|---|---:|
+| learned residual model | **8,697.9** | [7,691.4, 9,828.8] | 316.97 → **302.94** (−14.03) | 286,008 |
+| rule override (v20 rule, bias leave-days-out) | 1,853.8 | [1,681.3, 2,046.1] | 316.97 → 314.03 (−2.94) | 37,482 |
+| **paired: learned − rule** | **6,844.2** | **[5,902.7, 7,907.4]** | | |
+
+**Verdict under the pre-registered rule: ADOPT.** Both CI lower bounds are > 0. The gain is 8,258 s² in Jan and
+9,052 s² in Jul. The rule gains 2,271 s² in Jan and 1,517 s² in Jul.
+
+- **Rule biases.** The rule's leave-days-out biases are stable across folds: EDDM +49, EHAM −3, LEBL +41–42, LSZH +31
+  and EGLL +169–173 s.
+- **Test folds.** The learned gain per test fold is 9,715, 8,777, 8,133, 7,818 and 8,899 s².
+
+### Per airport (gain over that airport's rows, s²; day-block CI; RMSE change in s)
+
+| ADEP | n | ADS-B rows | learned | CI95 | rule | CI95 | learned − rule | CI95 | ΔRMSE learned | ΔRMSE rule |
+|---|---:|---:|---:|---|---:|---|---:|---|---:|---:|
+| EDDF | 36,830 | 35,719 | 13,059 | [11,579, 14,655] | 0 | – | 13,059 | [11,579, 14,655] | −39.67 | 0 |
+| EDDM | 27,091 | 26,762 | 13,114 | [9,976, 16,615] | 7,022 | [5,450, 8,690] | 6,091 | [4,353, 8,133] | −42.18 | −21.16 |
+| EGLL | 40,210 | 39,862 | 8,447 | [6,160, 11,355] | 1,692 | [1,184, 2,306] | 6,755 | [4,782, 9,221] | −16.56 | −3.23 |
+| EHAM | 40,949 | 39,702 | 15,145 | [13,603, 17,013] | 5,772 | [5,287, 6,300] | 9,373 | [8,035, 11,016] | −47.50 | −16.50 |
+| LEBL | 28,986 | 28,489 | 11,657 | [10,167, 13,243] | 2,643 | [1,995, 3,304] | 9,013 | [7,846, 10,285] | −28.25 | −6.08 |
+| LEMD | 35,328 | 29,667 | 3,383 | [2,492, 4,260] | 0 | – | 3,383 | [2,492, 4,260] | −9.97 | 0 |
+| LFPG | 39,612 | 38,675 | 832 | [173, 1,531] | 0 | – | 832 | [173, 1,531] | −0.73 | 0 |
+| LIRF | 26,528 | 25,339 | 14,404 | [3,926, 26,906] | 0 | – | 14,404 | [3,926, 26,906] | −12.28 | 0 |
+| LSZH | 22,346 | 21,755 | 14,641 | [12,746, 16,859] | 3,009 | [2,603, 3,452] | 11,632 | [9,838, 13,711] | −40.44 | −7.62 |
+| LTFM | 46,539 | 38 | 2 | [0, 5] | 0 | – | 2 | [0, 5] | −0.00 | 0 |
+
+- Every airport's learned CI excludes zero, except LTFM, which has 38 rows.
+- At each of the five rule airports, the learned model beats the rule and the paired CI excludes zero.
+- **Top features by split gain, summed over the folds.**
+  - The strongest are the base-relative ADS-B times: `res_t_move_lo` 0.113, `res_t_gs10` 0.092 and
+    `res_t_gs3` 0.056.
+  - Next come `ADEP` 0.049, `gap_before_dep1` 0.047, `mvt_m_t_gs10` 0.044, `res_t_dep1` 0.042,
+    `t_to_m_aobt3` 0.037 and `base` 0.027.
+- **CV corrections on ADS-B rows.**
+  - Quantiles: p1 −253, p10 −97, p25 −40, p50 −12, p75 +11, p90 +87 and p99 +308 s.
+  - The mean |c| is 58 s, and 3 rows hit the ±1,800 s clip.
+
+## 3. Production file
+
+`outputs/hybrid_H2_adsb_learned.parquet` (git-ignored, not submitted).
+- **Model.** The final model was fitted on 286,008 ADS-B rows from all 62 days, with 358 rounds. It is saved as
+  `$SCRATCH/adsb/learn/final_model.txt`.
+- **Base.** The model is applied to `outputs/hybrid_H2.parquet` with no rule override, and c = 0 at LTFM (0a).
+- **Validation.**
+  - 344,841 rows. The schema `{MVT_ID_mvt: Float64, TAXITIME_SEC_mvt: Int32}` equals the template, and so do the
+    ids and their order.
+  - 0 nulls and 0 negatives. **2 rows came out negative and were reverted to base.**
+  - Rows without ADS-B are identical to H2. LTFM is unchanged.
+  - `python -m prc.validate_submission` prints OK, with only the usual > 10,800 s max warning.
+- **Changes.**
+  - **282,749 rows differ from hybrid_H2**, i.e. 81.99 % of scored rows, out of 290,822 with ADS-B features.
+  - Over the changed rows, the RMS change is 119.9 s, the maximum |change| is 1,662 s, and the median |change| is
+    46 s (p90 175, p99 429).
+  - The signed change quantiles are p1 −299, p10 −119, p25 −57, p50 −12, p75 +27, p90 +118 and p99 +361.
+  - The mean prediction goes from 1,039.04 to 1,033.16 s.
+- **Against v20 (H2 + rule).**
+  - On the 63,544 rows the rule changed, the learned change correlates 0.953 with the rule's change. The median
+    learned change is −3 s, and the median rule change is −10 s.
+  - RMS(new − v20) over all rows is 92.3 s.
+
+| ADEP | scored | changed | mean Δ | median Δ | median \|Δ\| (changed) | p99 \|Δ\| | max \|Δ\| |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| EDDF | 36,317 | 34,541 | −14.1 | −18 | 42 | 371 | 1,082 |
+| EDDM | 25,966 | 25,186 | −0.6 | −7 | 71 | 544 | 974 |
+| EGLL | 39,840 | 38,649 | +1.0 | −7 | 81 | 440 | 1,112 |
+| EHAM | 38,182 | 36,070 | −1.1 | 0 | 63 | 512 | 1,394 |
+| LEBL | 30,080 | 29,007 | +6.2 | −3 | 52 | 387 | 1,310 |
+| LEMD | 36,954 | 34,941 | −26.9 | −22 | 54 | 364 | 1,001 |
+| LFPG | 39,872 | 37,745 | −6.1 | −11 | 14 | 272 | 1,446 |
+| LIRF | 26,899 | 24,591 | −11.9 | +1 | 15 | 398 | 1,662 |
+| LSZH | 23,150 | 22,019 | −5.6 | −18 | 68 | 445 | 1,154 |
+| LTFM | 47,581 | 0 | 0 | 0 | – | 0 | 0 |
+
+### Caveat the CV cannot measure: ADS-B coverage differs between 2025 and 2026
+
+Shares below are of ADS-B rows. `ground` = a ground fix before take-off. `stand` = a stand episode (`t_move`).
+`push` = the gated `t_push`.
+
+| ADEP | ground 2025 → 2026 | stand 2025 → 2026 | push 2025 → 2026 |
+|---|---|---|---|
+| EDDF | 0.99 → 0.94 | 0.47 → **0.28** | 0.09 → 0.04 |
+| EDDM | **0.64 → 1.00** | 0.53 → 0.88 | 0.36 → 0.63 |
+| EGLL | **0.61 → 0.98** | 0.19 → 0.71 | 0.06 → 0.44 |
+| EHAM | 1.00 → 1.00 | 0.82 → 0.85 | 0.38 → 0.45 |
+| LEBL | 0.99 → 0.99 | 0.52 → 0.65 | 0.24 → 0.33 |
+| LEMD | **0.31 → 0.93** | 0.12 → 0.52 | 0.04 → 0.16 |
+| LFPG | 0.18 → 0.58 | 0.00 → 0.03 | 0.00 → 0.00 |
+| LIRF | 0.58 → **0.39** | 0.34 → 0.14 | 0.01 → 0.03 |
+| LSZH | 0.98 → 0.99 | 0.72 → 0.72 | 0.18 → 0.26 |
+
+- **The 2026 receiver coverage is much denser** at EDDM, EGLL, LEMD and LFPG, and thinner at EDDF (stand) and
+  LIRF. The model was trained on the 2025 mix.
+- **The correction spread moves with coverage.** 2025 CV vs 2026 production, p10/p50/p90 in s:
+  - EGLL: −91/−15/+68 in the CV, −165/−10/+179 in 2026.
+  - LEMD: −45/−10/+2 in the CV, −137/−26/+75 in 2026.
+  - Elsewhere the spread is similar.
+- **What the CV does and does not show.** It shows that the model extracts the signal when the coverage is there.
+  It does not measure the 2026 coverage mix. The per-flight features (stand exit, speed thresholds) mean the same
+  thing in both years, so denser coverage should help rather than hurt, but this is unverified.
+- **Other caveats.**
+  - The residual model is fitted on fold-OOF bases and applied to the full-fit H2 base. The base error
+    distributions differ slightly.
+  - The five rule airports were chosen earlier on 4 labelled days, 3 of which (01-22, 07-13, 07-21) are in this
+    2025 set. The comparator is therefore, if anything, favoured.
+
+## 4. Reproduce
+
+```
+export POLARS_MAX_THREADS=2 POLARS_UNKNOWN_EXTENSION_TYPE_BEHAVIOR=load_as_storage
+.venv/bin/python scripts/adsb_learn_features.py build && .venv/bin/python scripts/adsb_learn_features.py concat
+.venv/bin/python scripts/adsb_learn_cv.py      # log: $SCRATCH/adsb/learn_cv.log
+.venv/bin/python scripts/adsb_learn_apply.py   # log: $SCRATCH/adsb/learn_apply.log
+```
+
+- The feature build takes about 1 s per day.
+- Peak RSS is below 1 GB for the feature build and below 1.5 GB for the CV.
+- `num_threads` = 2.
+
+Data: adsb.lol, Open Database License (ODbL) 1.0. "Contains data from adsb.lol, made available under the ODbL 1.0."
