@@ -11,6 +11,7 @@ Everything is written to disk as it goes, so a session that dies mid-way can res
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import time
@@ -174,6 +175,16 @@ def build_features(
     return f_tr, f_rk
 
 
+def drop_hidden_candidates(frame: pl.DataFrame, cfg: TrainConfig) -> pl.DataFrame:
+    """The frame without the candidate columns this recipe hides. `visible_numeric_columns` filters them out
+    of the design matrix anyway and keeps the remaining columns in frame order, so the model sees exactly the
+    same matrix; the columns only cost memory. `exclude_features` is left alone on purpose."""
+    from .features import CANDIDATE_COLS
+
+    hidden = [c for c in CANDIDATE_COLS if c not in set(cfg.include_candidates) and c in frame.columns]
+    return frame.drop(hidden)
+
+
 # Recipe keys that are not TrainConfig fields and are read by `main` itself (the weather flags, the coverage
 # gate, the submission note). Every recipe in configs/ uses only these and TrainConfig's fields.
 PIPELINE_KEYS = frozenset(
@@ -235,6 +246,12 @@ def main(argv: list[str] | None = None) -> int:
 
     train, rank, sub_path = load_raw(a.raw_dir)
     f_tr, f_rk = build_features(train, rank, use_weather, a.work_dir, a.raw_dir, wx_codes, wind_dir, gust_repair)
+    # Memory only; no prediction changes. The raw frames are dead once the features exist, and a candidate
+    # column the recipe does not include is never given to the model (`visible_numeric_columns`), yet it is
+    # copied with the frame on every fold. main_flseq OOM-killed at 13.9 GB in its first fold without this.
+    del train, rank
+    gc.collect()
+    f_tr, f_rk = drop_hidden_candidates(f_tr, cfg), drop_hidden_candidates(f_rk, cfg)
     print(f"features: train {f_tr.height:,} rows, ranking {f_rk.height:,} rows ({time.time() - t0:.0f}s)")
 
     # Coverage parity, before CV, because CV cannot see this class of defect: it validates on the training

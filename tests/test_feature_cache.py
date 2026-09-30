@@ -80,3 +80,20 @@ def test_the_wx_codes_flag_is_part_of_the_key(frames, tmp_path):
     assert cache_fingerprint(train, rank, raw, True, True) != cache_fingerprint(train, rank, raw, True, False)
     # ... and is ignored when there is no weather join to vary
     assert cache_fingerprint(train, rank, raw, False, True) == cache_fingerprint(train, rank, raw, False, False)
+
+
+def test_drop_hidden_candidates_keeps_what_the_model_sees(frames, tmp_path):
+    """Dropping the hidden candidates is a memory measure only: the visible columns, and their order, must not
+    change, and an included candidate must survive."""
+    from prc.features import CANDIDATE_COLS
+    from prc.pipeline import drop_hidden_candidates
+    from prc.train import TrainConfig, visible_numeric_columns
+
+    raw, train, rank = frames
+    f_tr, _ = build_features(train, rank, False, tmp_path / "work", raw)
+    cfg = TrainConfig(include_candidates=("stand_arrival_gap",))
+    slim = drop_hidden_candidates(f_tr, cfg)
+    assert "stand_arrival_gap" in slim.columns
+    assert not [c for c in CANDIDATE_COLS if c != "stand_arrival_gap" and c in slim.columns]
+    assert visible_numeric_columns(slim, cfg) == visible_numeric_columns(f_tr, cfg)
+    assert slim.height == f_tr.height

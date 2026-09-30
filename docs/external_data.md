@@ -20,3 +20,31 @@ licence. This file lists what we use, where it comes from, under which licence, 
 
 The airport reference points used by the 8 km filter come from **OurAirports** (`https://ourairports.com/data/`,
 public domain), via `src/prc/airports.py`, cached at `data/external/airports.parquet`.
+
+## OpenStreetMap stand positions and OurAirports runway ends (stand-to-runway distance)
+
+| | |
+|---|---|
+| **Source** | OpenStreetMap (OSM), elements tagged `aeroway=parking_position` (stand `ref` and position) and `aeroway=runway` inside each of our 10 airports. Runway-end coordinates from OurAirports `runways.csv`. |
+| **URL** | OSM through the Overpass API (`https://overpass-api.de/api/interpreter`) or, where Overpass drops the connection from this environment, the main OSM API `map` call (`https://api.openstreetmap.org/api/0.6/map`) over a box around the aerodrome split into tiles. Both serve the same OSM database. OurAirports: `https://davidmegginson.github.io/ourairports-data/runways.csv` (`https://ourairports.com/data/`). |
+| **Licence** | OSM: **Open Database License (ODbL) 1.0** (`https://www.openstreetmap.org/copyright`). OurAirports: public domain (`https://ourairports.com/data/`). |
+| **Attribution** (to carry in any write-up, report or submission that uses it) | **"© OpenStreetMap contributors, available under the Open Database License (ODbL) 1.0."** |
+| **Fetch date** | The caches behind `outputs/main_flseq_osm.parquet` were fetched 2026-09-29 23:42 – 2026-09-30 00:14 UTC (EDDF, EDDM, EGLL, EHAM, LIRF, LTFM via Overpass; LEBL, LEMD, LFPG, LSZH via the `map` API). OSM changes daily, so a later fetch can give a slightly different stand table. |
+| **What was extracted** | Per airport, one row per normalised stand `ref` with the mean position of the elements carrying it (`prc.osm.stand_table`); per runway end, its designator and threshold coordinates. |
+| **How** | `scripts/fetch_osm_stands.py` fills the caches (`data/external/osm/parking_<ICAO>.json`, `data/external/runways.csv`; not in git). `src/prc/osm.py` holds the fetchers and the join. Written from scratch for this repository. |
+| **Join to the competition data** | `STAND_mvt` (normalised: upper case, no spaces/hyphens, no leading zeros) at `ADEP_mvt` to the OSM stand ref, and `RUNWAY_mvt` to the OurAirports runway-end designator. |
+| **How it enters the prediction** | One feature, `osm_stand_rwy_km`: great-circle km from the stand's OSM position to the threshold of the departure runway, null when either side is unknown (`fe_osm_dist: true`, `configs/main_flseq_osm.yaml`). Non-null on 90.7% of the labelled rows and 91.5% of the scored rows (EDDM 57.4% / 57.6%, lowest). |
+| **Derived database** | The stand-position table is a derived database of OSM. If it is published, it must be released under ODbL with the attribution above. A prediction file (a "produced work") needs only the attribution notice. |
+
+## Iowa Environmental Mesonet ASOS/METAR archive (weather, `use_weather: true`)
+
+| | |
+|---|---|
+| **Source** | Iowa Environmental Mesonet (IEM), Iowa State University: its ASOS/METAR archive. Its download page names its upstream sources as Unidata IDD, NCEI ISD and MADIS One Minute ASOS. |
+| **URL** | Download service `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py`; page `https://mesonet.agron.iastate.edu/request/download.phtml`. |
+| **Licence** | IEM's terms (`https://mesonet.agron.iastate.edu/disclaimer.php`, "Usage of IEM Products"), verbatim: "The materials found on this website are in the public domain and may be used freely by anyone for any lawful purpose. Attributing the Iowa Environmental Mesonet of Iowa State University would be appreciated." The same page states the data are provided "without any warranty of accuracy". |
+| **Attribution** (requested, not required) | **"Weather observations from the Iowa Environmental Mesonet (IEM) of Iowa State University."** |
+| **What was extracted** | METAR rows for the 10 airports' ICAO stations, 2025-01-01 to 2026-08-01, fields `tmpf, dwpf, relh, drct, sknt, gust, p01i, vsby, wxcodes, skyc1, feel` (`prc.weather.IEM_FIELDS`), cached as `data/ref/metar/<ICAO>_2025-01-01_2026-08-01.csv` (not in git). |
+| **How** | `prc.weather.fetch_metar` (one request per station, 1.2 s apart, as IEM asks for at most one request per second), `prc.weather.hourly_weather_table` aggregates to station-hours, cached as `data/ref/metar_hourly.parquet`. Written from scratch for this repository. |
+| **Join to the competition data** | `ADEP_mvt` to the station, and the UTC hour of `MVT_TIME_UTC_mvt` (and the hour before) to `hour_utc` (`prc.weather.join_weather`). |
+| **How it enters the prediction** | The production recipes (`use_weather: true`, e.g. `configs/main_flseq.yaml`) carry temperature, dew-point spread, wind, gust, precipitation, visibility, a frozen-precipitation flag and derived de-icing / low-visibility flags, for the take-off hour and the hour before. |
