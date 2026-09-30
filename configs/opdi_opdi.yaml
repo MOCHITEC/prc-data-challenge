@@ -1,4 +1,5 @@
-# OPDI turnaround, arm opdi -- docs/opdi_2026-09-30/plan.md. main_gap + folds [jan, forward] + the lines below.
+# OPDI turnaround, arm opdi -- docs/opdi_2026-09-30/plan.md §5 (re-based onto main_flseq, 2026-09-30).
+# configs/main_flseq.yaml + folds [jan, forward] + the lines below. Run with --work-dir data/work_flseq.
 name: opdi_opdi
 num_rounds: 2000
 early_stopping: 100
@@ -14,6 +15,6 @@ n_seeds: 3
 unmatched_sched_reparam: true
 unmatched_sched_reparam_airports: [LIRF]
 lobt_bound: true
-include_candidates: [stand_arrival_gap]
+include_candidates: [stand_arrival_gap, fl_fmt_code, fl_len, fl_nm_rate_other, dup_n, dup_n_unm_twins, dup_n_m_twins, dup_mvt_span, seq_hw_prev_pairq, seq_hw_excess, seq_lead_wtc, seq_burst_pos, seq_burst_len, seq_burst_elapsed, seq_burst_remaining, seq_burst_pos_frac, seq_hw_mean_prev5, seq_hw_mean_next5, seq_hw_min_prev3, seq_arr_since_prevdep, seq_arr_prev_s, seq_arr_next_s, seq_arr_pm10m, seq_rwy_share_pm30]
 folds: [jan, forward]
 fe_opdi: true

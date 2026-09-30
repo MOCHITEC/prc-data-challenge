@@ -50,3 +50,14 @@
 ## 4. 範囲
 
 本番と提出は変えない。合格しても、ライセンスの判断が済むまで本番には入れない。
+
+## 5. 本番の更新に合わせた基準の差し替え（2026-09-30、測定前）
+
+§2 の群は `main_gap`（v14）の上で書いたが、測定を始める前に本番が `main_flseq`（v16）に移り、
+その後の提出（v17〜v20）もすべて `main_flseq` の上にある。古い本番の上で測っても今の判断には使えないので、
+**測定前に**基準だけを差し替える。判定規則（§3）・列の定義（§1）・群の中身（noise2 / opdi / opdi_stress）は変えない。
+
+- 各群 = `configs/main_flseq.yaml` ＋ `folds: [jan, forward]` ＋ §2 の変更。`--work-dir data/work_flseq`。
+- base = `main_flseq` の 4 fold の OOF（`docs/modelb_capacity_2026-09-30/` の基準と同じ実行）。fold の学習は
+  fold の並びに依存しない（seed は `seed + k` だけで決まる）ので、jan と forward の行は 2 fold だけで走らせた場合と同じ。
+  `prc.compare` は内部結合なので jan と forward の行だけで比べる。
