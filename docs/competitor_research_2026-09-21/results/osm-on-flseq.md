@@ -206,3 +206,72 @@ Nothing was submitted.
 
 Logs (git-ignored): `logs/main_flseq_osm_nolirf.log`, `logs/compare_osm_nolirf.txt`,
 `logs/compare_osm_nolirf_per_airport.txt`, `logs/compare_osm_vs_nolirf.txt`.
+
+## 8. Lane hybrid (POST HOC, 2026-09-30)
+
+**This is post hoc.** The lane split was chosen *after* sections 4 and 7 showed that the loss sits in the unmatched
+lane and that the matched lane gains slightly. The hybrids are scored on the same OOF rows that picked them. Any
+gain below is partly selected, and the CIs do not account for that choice. No model was retrained and nothing was
+submitted.
+
+- **Construction.** H1 = matched rows from `main_flseq_osm`, unmatched rows from `main_flseq`. H2 = matched rows from
+  `main_flseq_osm_nolirf`, unmatched rows from `main_flseq`. The lane is the one `prc.train.predict_fold` uses:
+  matched = `mvt_minus_aobt3` (`PROXY`) non-null (model A), unmatched = null (model B). The column is a
+  fold-independent base feature. For the OOF sets the lane comes from `data/work_flseq/feat_train.parquet`. Each
+  hybrid OOF is `experiments/oof_<run>.parquet` with `oof` taken by lane from the stored files of
+  `main_flseq-8615e6a194` and the OSM run (the same files `prc.compare.load_pair` reads). The hybrid OOF files are
+  scratch files, not in `experiments/`. The work dir was checked by re-running `main_flseq → main_flseq_osm_nolirf`
+  with `--work-dir data/work_flseq`. It reproduces section 7 exactly (+0.76 [+0.16, +1.38]; −0.19 [−0.39, +0.03]).
+- **Scored rows.** The full fit's `predict_ranking → predict_fold` splits the ranking frame on the same column. So
+  the lane of each scored row is `mvt_minus_aobt3` non-null in `data/work_flseq/feat_rank.parquet`: 339,551
+  matched, 5,290 unmatched. That column is identical in `data/work/feat_rank.parquet`.
+
+### `prc.compare` vs main_flseq-8615e6a194 (672,428 rows)
+
+| | K=0 | K=20 | K=200 | K=2000 | month bootstrap | verdict |
+|---|---|---|---|---|---|---|
+| H1 | −0.07 [−0.16, +0.03] | −0.08 [−0.20, +0.02] | −0.06 [−0.17, +0.05] | −0.15 [−0.23, −0.06] | −0.07 [−0.18, −0.01] | **REJECT** (no difference on all rows) |
+| H2 | **−0.14 [−0.23, −0.03]** | −0.16 [−0.27, −0.05] | **−0.14 [−0.25, −0.03]** | −0.17 [−0.26, −0.08] | −0.14 [−0.19, −0.10] | **ADOPT** by the rule, post hoc |
+
+The unmatched lane is identical to v16 by construction: +0.00. Matched lane: H1 −0.09 [−0.21, +0.04], H2 −0.18
+[−0.30, −0.06]. All rows except LIRF: H1 −0.11 [−0.21, −0.02], H2 −0.14 [−0.23, −0.05]. The K=200 drop removes
+147 unmatched and 53 matched rows in both runs.
+
+### Per airport, all rows (B − A; the difference comes from matched rows only)
+
+| airport | n | H1 diff | CI95 | H2 diff | CI95 |
+|---|---:|---:|---|---:|---|
+| LTFM | 91,338 | −0.55 | [−0.85, −0.26] | −0.56 | [−0.81, −0.26] |
+| LFPG | 78,036 | −0.22 | [−0.53, −0.03] | −0.17 | [−0.46, +0.03] |
+| LIRF | 49,924 | +0.14 | [−0.34, +0.56] | −0.18 | [−0.58, +0.25] |
+| EGLL | 79,633 | +0.03 | [−0.28, +0.36] | +0.06 | [−0.25, +0.34] |
+| EHAM | 79,639 | −0.01 | [−0.28, +0.24] | −0.14 | [−0.44, +0.11] |
+| LEMD | 70,732 | −0.41 | [−0.70, −0.15] | −0.57 | [−0.86, −0.32] |
+| EDDF | 72,276 | **+0.43** | [+0.14, +0.74] | **+0.36** | [+0.07, +0.67] |
+| EDDM | 51,688 | +0.08 | [−0.36, +0.52] | −0.11 | [−0.56, +0.34] |
+| LEBL | 56,153 | +0.09 | [−0.12, +0.29] | +0.05 | [−0.18, +0.25] |
+| LSZH | 43,009 | −0.01 | [−0.36, +0.31] | +0.12 | [−0.23, +0.41] |
+
+### What the numbers say
+
+- H2 passes the rule: both the full CI and the drop-200 CI exclude zero on the improving side. The effect is small
+  (−0.14 s). It was selected on these OOF rows twice: once for the lane, and once for the LIRF exclusion (section 7).
+  Treat it as a hypothesis for the board, not as a measured gain.
+- The H2 gain is spread over several airports (LTFM, LEMD, and smaller moves at LIRF, EHAM, LFPG). EDDF is worse
+  on both hybrids (+0.36 to +0.43). No single tail cell carries it. The K=0 and K=200 differences are about equal.
+- H1 does not pass (K=0 CI crosses zero).
+
+### Files
+
+`outputs/hybrid_H1.parquet` and `outputs/hybrid_H2.parquet` take `TAXITIME_SEC_mvt` by the scored-row lane from the
+existing full-fit files. Matched rows come from `outputs/main_flseq_osm.parquet` or
+`outputs/main_flseq_osm_nolirf.parquet`. Unmatched rows come from `outputs/main_flseq.parquet`. Both files have
+344,841 rows. The schema `{MVT_ID_mvt: Float64, TAXITIME_SEC_mvt: Int32}` equals the template, and the ids and
+their order equal the template. Both have 0 nulls and 0 negatives, min 0, max 113,641. `python -m
+prc.validate_submission` prints OK, with only the usual >10,800 s warning. Against `outputs/main_flseq.parquet`
+(v16): H1 differs on 329,194 rows (max 474 s, RMS 23.68 s). H2 differs on 329,053 rows (max 439 s, RMS 23.08 s).
+Every unmatched row equals v16. Neither file has the ADS-B override. v18's equivalent would be
+`scripts/adsb_override_candidate.py --base outputs/hybrid_H2.parquet --out ...`. Nothing was submitted.
+
+Logs (git-ignored): `logs/compare_hybrid_H1.txt`, `logs/compare_hybrid_H2.txt`,
+`logs/compare_hybrid_per_airport.txt`, `logs/compare_repro_nolirf.txt`.
