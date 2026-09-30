@@ -435,3 +435,15 @@ C3 の `drct` 欠損は行ベースで 8.5%、最悪 LSZH 2026-01 で 40.7% だ�
 | main_flseq_osm_nolirf → main_flseq_osm_nolirf_a1 | −0.04 [−0.14, +0.06] | −0.07 [−0.18, +0.05] | REJECT |
 
 両方とも jul で LIRF マッチ行が悪化し、kill 条件 (a) も不成立。レーンハイブリッドは規則どおり H2 と同一（`outputs/hybrid_A1.parquet`）。
+
+# 追記（2026-09-30）: model A の plain-y メンバー（`matched_target: plain`）とアンカー型の 0.5/0.5 ブレンド → **採用（規則上）**
+
+詳細は `docs/competitor_research_2026-09-21/results/plainy-blend.md`（事前登録 96258d8）。マッチ行のみ `0.5 × main_flseq_osm_nolirf + 0.5 × main_flseq_osm_nolirf_plainy`、未マッチ行は H2 と同じ main_flseq。
+
+| 測定 | K=0 | K=200 | 判定 |
+|---|---|---|---|
+| member_anchored → member_plain（単体） | +0.93 [+0.59, +1.31] | +1.24 [+0.94, +1.64] | REJECT |
+| hybrid_H2 → hybrid_H2_plainy（重み 0.5 固定） | −0.78 [−1.00, −0.60] | −0.90 [−1.09, −0.71] | **ADOPT** |
+| hybrid_H2 → LOFO 最適重み（参考、0.56–0.62） | −0.81 [−1.00, −0.65] | −0.95 [−1.11, −0.80] | 参考のみ |
+
+4 か月すべて・10 空港すべてで点推定は改善。`outputs/hybrid_H2_plainy.parquet`（ADS-B 上書きなし、未提出）。
