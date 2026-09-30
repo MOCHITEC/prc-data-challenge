@@ -1,0 +1,42 @@
+== M1. the whole-minute prediction, on the rows where the flag fires ==
+if AOBT_3 = take-off - (a whole number of minutes), proxy_sec_in_min is 0 on those rows.
+
+  train flag == 1 n=  414,525  proxy_sec_in_min == 0 on   17,499 ( 4.22%)  mean= 31.27  sd=22.73  (uniform 0-59 would be mean 29.5, sd 17.3, 1.67% zeros)
+  train flag == 0 n=1,648,052  proxy_sec_in_min == 0 on   87,903 ( 5.33%)  mean= 28.02  sd=22.84  (uniform 0-59 would be mean 29.5, sd 17.3, 1.67% zeros)
+  rank  flag == 1 n=   68,443  proxy_sec_in_min == 0 on    3,028 ( 4.42%)  mean= 31.30  sd=22.87  (uniform 0-59 would be mean 29.5, sd 17.3, 1.67% zeros)
+  rank  flag == 0 n=  271,108  proxy_sec_in_min == 0 on   14,310 ( 5.28%)  mean= 28.02  sd=22.83  (uniform 0-59 would be mean 29.5, sd 17.3, 1.67% zeros)
+
+== M2. is proxy_sec_in_min a whole-minute story anywhere? per airport, flag == 1 rows ==
+    ADEP         n   sec==0  mean sec
+    LTFM   103,672    5.20%     38.93
+    LEBL    48,080    0.59%     30.83
+    LEMD    46,440    1.17%     29.42
+    EDDM    45,612    7.93%     29.48
+    EHAM    37,608    1.84%     25.10
+    LSZH    31,958    1.44%     29.12
+    LFPG    31,680    8.08%     29.19
+    EDDF    29,685    1.61%     29.16
+    LIRF    23,349    9.02%     25.77
+    EGLL    16,441    8.34%     28.24
+
+== M3. what each column relates to: the base arm's out-of-fold residual ==
+  rows = 325,004
+  proxy_at_mode          corr(y) = -0.06914   corr(base OOF residual) = -0.01231
+  proxy_minus_mode_min   corr(y) = +0.41053   corr(base OOF residual) = +0.00994
+  proxy_sec_in_min       corr(y) = -0.00284   corr(base OOF residual) = -0.00878
+
+  mean base residual by flag value (seconds; the model over/under-predicts by this much):
+    proxy_at_mode == 0: n= 258,300  mean residual    -3.73  RMSE   204.01
+    proxy_at_mode == 1: n=  66,704  mean residual    -9.78  RMSE   175.81
+
+  mean base residual by decile of proxy_sec_in_min (a real nuisance signal would trend):
+    [  0.0,   1.0)  n=  16,544  mean residual    -8.35
+    [  1.0,   3.0)  n=  33,319  mean residual    -6.43
+    [  3.0,   5.0)  n=  33,399  mean residual    -4.32
+    [  5.0,  15.0)  n=  45,012  mean residual    -0.79
+    [ 15.0,  26.0)  n=  32,169  mean residual    +0.87
+    [ 26.0,  39.0)  n=  32,473  mean residual    -2.82
+    [ 39.0,  53.0)  n=  33,476  mean residual    -4.91
+    [ 53.0,  56.0)  n=  31,993  mean residual    -9.78
+    [ 56.0,  58.0)  n=  33,100  mean residual    -9.86
+    [ 58.0,  59.0)  n=  33,519  mean residual    -6.50

@@ -1,0 +1,47 @@
+# P8-B, arm base: does repairing the four identically-zero weather columns from `wxcodes` buy anything?
+#
+# Three arms, all of them configs/main_gap.yaml + folds:[forward, jul_fwd], differing only as stated. The
+# pattern is configs/p4a_{base,noise,gap}.yaml, and the noise arm is not optional: features_log.md measured
+# a signal-free column at +0.53 s - larger than any of the three real features being tested at the time - so
+# experiments 1-3 produced a false "all three harmful" verdict for want of one. The repair replaces 4 dead
+# model-visible columns with 8 live ones, a net +4, so the control arm carries 4 signal-free columns and the
+# repaired arm and the control arm are both 94 features against the base's 90. Without that, the comparison
+# measures arity and not weather.
+#
+# What the repair does (src/prc/weather.py, `wx_codes`): drops `precip_mm` and `temp_x_precip` - IEM serves
+# the literal "0.00" for p01i on 100% of 138,457 cached observations, so those two and their `_prev1h` copies
+# are constants - and adds `wet_wx`, `shower_wx`, `obscuration_wx` and `frozen_wx_i8` from the present-weather
+# codes the same feed already carries. It also removes the `precip_mm > 0` term from `deicing_gate`, which
+# has never fired, and replaces it with `wet_wx`.
+#
+# Why it might matter and why it might not. Rain-family codes are live on 9.14% of scored rows against the
+# de-icing gate's 1.95%, and on 5,535 rows of July 2026 - 55.7% of the scored set - where `deicing_gate`,
+# `low_vis` and `precip_mm` are zero on every row. Against that: docs/features_log.md is 0 for 10, every
+# candidate landing below the instrument's resolution, and the one 2026 team that measured its weather family
+# put it at 1.8% of total gain.
+#
+# Measured at production settings (feature_fraction 0.8) with an arity-matched control rather than at
+# feature_fraction 1.0. Both are in the plan; this is the one the last four live decisions in this repo were
+# taken with, and it answers the production question. If the result is a near-miss, re-screen at 1.0.
+name: p8b_base
+folds: [forward, jul_fwd]
+# Arm: base. The production recipe, 90 features. Identical in content to configs/p8_wx_on.yaml;
+# re-run under the same code state as the other two arms so all three share one frame build, and
+# because agreeing with p8_wx_on to within the run-to-run spread is a free check that the three
+# extra hidden noise columns really are hidden.
+include_candidates: [stand_arrival_gap]
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: true

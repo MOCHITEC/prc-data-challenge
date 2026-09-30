@@ -2,6 +2,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
+import lightgbm as lgb
 import numpy as np
 import polars as pl
 import pytest
@@ -16,6 +17,7 @@ from prc.train import (
     PROXY,
     SCHED_OFFSET,
     TrainConfig,
+    _matrix,
     attach_encodings,
     feature_parity_report,
     fit_encodings,
@@ -24,7 +26,6 @@ from prc.train import (
     sched_reparam_shift,
     unmatched_target,
 )
-from prc.train import _matrix
 
 
 def test_folds_use_year_month_keys():
@@ -624,3 +625,109 @@ def test_a_grouped_run_is_reproducible_across_processes(tmp_path):
     )
     runs = [predict_fold(tr, tg, cfg)[0]["pred"].to_numpy().tobytes() for _ in range(2)]
     assert runs[0] == runs[1]
+
+
+# ---------- the LightGBM determinism flags (G12) ----------
+
+
+def test_the_determinism_flags_are_on_by_default_and_the_flag_drops_both_or_neither():
+    """`lgb_deterministic` is the switch for `deterministic` + `force_row_wise`, and its default is ON.
+
+    Every archived OOF in `experiments/`, `configs/determinism_check.yaml`'s byte comparison and
+    `configs/p11_base.yaml`'s requirement to reproduce an archived file all assume these two flags are set.
+    Flipping the default is not a performance tweak, it is the retirement of that guarantee - so the default
+    is asserted here rather than left to a config to re-establish.
+
+    The two are dropped together on purpose: `deterministic` alone leaves LightGBM free to pick the histogram
+    direction by timing the first iterations, which is the half-measure the comment on `TrainConfig.params`
+    records as having produced 1273 rounds against 959 on one fold."""
+    assert TrainConfig().lgb_deterministic is True, "production must keep bit-identical refits"
+    on = TrainConfig().lgb_params()
+    assert on["deterministic"] is True and on["force_row_wise"] is True
+    off = TrainConfig(lgb_deterministic=False).lgb_params()
+    assert "deterministic" not in off and "force_row_wise" not in off
+    # nothing else moves: the flag owns exactly those two keys
+    assert {k: v for k, v in on.items() if k not in ("deterministic", "force_row_wise")} == off
+    # and a config that chose its own histogram direction keeps it
+    col = TrainConfig(lgb_deterministic=False, params={**TrainConfig().params, "force_col_wise": True}).lgb_params()
+    assert col["force_col_wise"] is True and "force_row_wise" not in col
+
+
+def test_the_determinism_flag_reaches_every_booster_on_both_lanes(monkeypatch):
+    """The value has to arrive at `lgb.train`, not merely at `lgb_params`.
+
+    Both lanes and every seed are checked, because model B is fitted through `for_unmatched()`, which rebuilds
+    `params` from scratch - a copy that forgot to carry the field would leave model B deterministic while
+    model A was not, and no RMSE would show it."""
+    # several training months so the inner holdout is non-empty and early stopping actually runs, and enough
+    # unmatched rows to clear model B's 200-row floor - otherwise the test passes on model A alone.
+    tr = pl.concat(
+        [build_departure_features(generate_month(2025, m, seed=60 + m, deps_per_airport_day=16)) for m in (1, 2, 3, 4)]
+    )
+    tg = build_departure_features(generate_month(2025, 5, seed=70, deps_per_airport_day=8, blank_dep=True))
+    assert tr.filter(pl.col(PROXY).is_null()).height >= 200, "model B must be fitted or this test checks one lane"
+    seen: list[dict] = []
+    real_train = lgb.train
+
+    def spy(params, *a, **kw):
+        seen.append(dict(params))
+        return real_train(params, *a, **kw)
+
+    monkeypatch.setattr(lgb, "train", spy)
+    cfg = TrainConfig(num_rounds=20, early_stopping=10, unmatched_num_rounds=20, n_seeds=2)
+    predict_fold(tr, tg, cfg)
+    n_calls = len(seen)
+    # one early-stopping fit + n_seeds refits, on each of the two lanes
+    assert n_calls == 2 * (1 + cfg.n_seeds), f"expected 6 boosters (2 lanes x (early stop + 2 seeds)), got {n_calls}"
+    assert all(p.get("deterministic") is True and p.get("force_row_wise") is True for p in seen)
+    seen.clear()
+    predict_fold(tr, tg, replace(cfg, lgb_deterministic=False))
+    assert len(seen) == n_calls
+    assert all("deterministic" not in p and "force_row_wise" not in p for p in seen)
+
+
+def test_excluding_a_column_narrows_the_lightgbm_matrix(monkeypatch):
+    """`exclude_features` must narrow the matrix LightGBM is actually handed, not just the config.
+
+    A deletion is the shape of change that can silently not happen: if the "removed" arm still carries the
+    columns, every RMSE looks plausible and means nothing. Asserting `visible_numeric_columns` would only
+    re-run the function under test, so this reads `Dataset.num_feature()` at the LightGBM boundary, inside a
+    real `predict_fold`, and requires the width to fall by exactly the number of columns excluded. The
+    control is the categorical list: excluding a categorical must narrow it too, which is a separate code
+    path in `predict_fold`."""
+    tr = build_departure_features(generate_month(2025, 7, seed=41, deps_per_airport_day=8))
+    tg = build_departure_features(generate_month(2025, 7, seed=42, deps_per_airport_day=6, blank_dep=True))
+    base = TrainConfig(num_rounds=5, early_stopping=3, unmatched_num_rounds=5)
+
+    widths: list[int] = []
+    real_train = lgb.train
+
+    def spy(params, train_set, *a, **k):
+        train_set.construct()
+        widths.append(train_set.num_feature())
+        return real_train(params, train_set, *a, **k)
+
+    def run(cfg):
+        widths.clear()
+        predict_fold(tr, tg, cfg)
+        return list(widths)
+
+    monkeypatch.setattr("prc.train.lgb.train", spy)
+
+    w_base = run(base)
+    assert w_base, "no LightGBM Dataset was built; the spy is not on the path this test claims to test"
+
+    # `runway_null` is one of the five identically-constant columns P8-E deletes; `stand_null` is live.
+    # The synthetic fixture carries no weather join, so `precip_mm` is not available here.
+    drop = ("runway_null", "stand_null")
+    present = [c for c in drop if c in tr.columns]
+    assert present == list(drop), "the fixture must carry the columns, so that hiding them is a real change"
+    w_drop = run(replace(base, exclude_features=drop))
+    assert len(w_drop) == len(w_base)
+    assert all(b - d == len(drop) for b, d in zip(w_base, w_drop)), (
+        f"matrix width did not fall by {len(drop)}: base={w_base} dropped={w_drop}"
+    )
+
+    # Control: the categorical lane. Same flag, different code path in `predict_fold`.
+    w_cat = run(replace(base, exclude_features=(CATEGORICALS[0],)))
+    assert all(b - c == 1 for b, c in zip(w_base, w_cat)), f"base={w_base} cat-dropped={w_cat}"

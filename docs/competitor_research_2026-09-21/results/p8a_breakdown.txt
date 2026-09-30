@@ -1,0 +1,40 @@
+A (weather OFF) = p8_wx_off-f421484400
+B (weather ON)  = p8_wx_on-f61e61a25a
+rows = 518,722
+
+cut                                          n         A         B     diff                 CI95
+
+per fold (never pooled: a pooled number mixes a regime that exists with one that does not)
+  fold forward                       n=328,009    221.55    219.76    -1.79 [   -3.22,   -0.62]  P(B)=1.000
+      K=200 drop: -0.84 [-1.15, -0.53]   -> ADOPT: adopt (-1.79 s, still -0.84 s at 200 rows dropped)
+  fold jul_fwd                       n=190,713    316.32    314.42    -1.90 [   -2.98,   -0.85]  P(B)=1.000
+      K=200 drop: -1.74 [-2.27, -1.17]   -> ADOPT: adopt (-1.90 s, still -1.74 s at 200 rows dropped)
+
+per month inside forward
+  202511                             n=162,332    227.13    224.66    -2.47 [   -5.24,   -0.27]  P(B)=0.992
+  202512                             n=165,677    215.95    214.86    -1.09 [   -2.20,   -0.08]  P(B)=0.986
+
+per de-icing gate (this is where the old -8.00 s gate-row figure lived)
+  gate=0                             n=516,097    259.75    257.94    -1.81 [   -2.77,   -0.98]  P(B)=1.000
+  gate=1                             n=  2,625    371.46    369.65    -1.81 [  -14.10,  +10.47]  P(B)=0.646
+
+  gate=1, per airport (the old pair was not uniform: EDDF -22.9 ... EHAM +6.7, LTFM +19.0)
+    gate=1 @EDDF                     n=    321                       -19.52 [  -33.14,   -6.34]  P(B)=1.000
+    gate=1 @EDDM                     n=  1,255                       -15.79 [  -22.81,   -8.02]  P(B)=1.000
+    gate=1 @EGLL                     n=     64                       +63.30 [  -37.51, +186.37]  P(B)=0.134
+    gate=1 @EHAM                     n=    240                      +139.54 [  +73.75, +196.99]  P(B)=0.000
+    gate=1 @LFPG                     n=    138                       -41.18 [ -108.20,  +29.60]  P(B)=0.890
+    gate=1 @LSZH                     n=    519                        -5.08 [  -17.15,   +4.95]  P(B)=0.836
+    gate=1 @LTFM                     n=     83                       +46.25 [   +1.84,  +94.18]  P(B)=0.018
+
+per lane
+  matched                            n=511,779    220.92    219.52    -1.40 [   -1.61,   -1.19]  P(B)=1.000
+  unmatched                          n=  6,943   1212.39   1202.18   -10.20 [  -25.32,   +2.88]  P(B)=0.930
+
+pooled over both folds, and the same thing re-weighted to the scored composition
+  pooled (row counts as they fall)   n=518,722    260.43    258.63    -1.81 [   -2.71,   -1.03]  P(B)=1.000
+  re-weighted 44.3% Jan / 55.7% Jul  n=518,722    278.35    276.52    -1.83 [   -2.68,   -1.06]  P(B)=1.000
+
+  The re-weighted line treats `forward` (Nov+Dec 2025) as the January proxy and `jul_fwd` (Jul 2025)
+  as the July proxy, because no honest January fold exists. It is an estimate of the scored-set
+  effect, not a measurement of it.

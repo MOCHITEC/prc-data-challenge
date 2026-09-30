@@ -1,0 +1,77 @@
+{
+ "tag": "slice_cb_ne_f20",
+ "cmd": [
+  ".venv/bin/python",
+  "docs/competitor_research_2026-09-21/scripts/p10_slice.py",
+  "--config",
+  "configs/p10_cb_ne.yaml",
+  "--frac",
+  "0.2",
+  "--tag",
+  "cb_ne_f20"
+ ],
+ "exit_code": 0,
+ "wall_seconds": 408.3,
+ "peak_total_rss_mb": 3852,
+ "peak_at_seconds": 199.2,
+ "baseline_total_rss_mb": 12,
+ "cgroup_limit_mb": 13681,
+ "samples_mb": [
+  [
+   0,
+   12
+  ],
+  [
+   30,
+   3814
+  ],
+  [
+   60,
+   3823
+  ],
+  [
+   90,
+   3823
+  ],
+  [
+   120,
+   3819
+  ],
+  [
+   150,
+   3829
+  ],
+  [
+   180,
+   3821
+  ],
+  [
+   210,
+   3720
+  ],
+  [
+   240,
+   3755
+  ],
+  [
+   270,
+   3736
+  ],
+  [
+   300,
+   3743
+  ],
+  [
+   330,
+   3748
+  ],
+  [
+   360,
+   3748
+  ],
+  [
+   390,
+   3739
+  ]
+ ]
+}

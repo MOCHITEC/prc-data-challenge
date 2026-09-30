@@ -71,3 +71,46 @@ def test_the_unseen_stand_draw_is_stable_and_about_the_requested_share():
 def test_osm_distance_and_the_simulation_are_off_by_default():
     cfg = TrainConfig()
     assert cfg.fe_osm_dist is False and cfg.sim_unseen_stands == 0.0
+
+
+def test_the_osm_null_airports_option_is_off_by_default_and_keeps_existing_ids():
+    from pathlib import Path
+
+    import yaml
+
+    from prc.pipeline import train_config_from_spec
+
+    assert TrainConfig().fe_osm_null_airports == []
+    # ids from experiments/experiments.jsonl, written before fe_osm_null_airports existed
+    for path, want in (("configs/main_flseq.yaml", "8615e6a194"), ("configs/main_flseq_osm.yaml", "bb204cd922")):
+        assert train_config_from_spec(yaml.safe_load(Path(path).read_text())).hash() == want, path
+    nolirf = train_config_from_spec(yaml.safe_load(Path("configs/main_flseq_osm_nolirf.yaml").read_text()))
+    assert nolirf.fe_osm_dist and list(nolirf.fe_osm_null_airports) == ["LIRF"]
+    osm = train_config_from_spec(yaml.safe_load(Path("configs/main_flseq_osm.yaml").read_text()))
+    assert nolirf.hash() != osm.hash()
+
+
+def test_null_airports_blank_only_those_airports_and_an_empty_list_is_the_identity():
+    from prc.train import null_osm_at_airports
+
+    df = pl.DataFrame(
+        {
+            "MVT_ID_mvt": [1, 2, 3, 4],
+            "ADEP_mvt": ["LIRF", "EDDF", None, "LIRF"],
+            "osm_stand_rwy_km": [1.5, 2.5, 3.5, None],
+        }
+    )
+    assert null_osm_at_airports(df, []) is df
+    assert null_osm_at_airports(df, ()).equals(df)
+    out = null_osm_at_airports(df, ["LIRF"])
+    assert out["osm_stand_rwy_km"].to_list() == [None, 2.5, 3.5, None]
+    assert out.schema == df.schema and out["MVT_ID_mvt"].to_list() == [1, 2, 3, 4]
+    cat = df.with_columns(pl.col("ADEP_mvt").cast(pl.Categorical))
+    assert null_osm_at_airports(cat, ["LIRF"])["osm_stand_rwy_km"].to_list() == [None, 2.5, 3.5, None]
+
+
+def test_null_airports_without_the_osm_feature_is_refused():
+    import pytest
+
+    with pytest.raises(ValueError, match="fe_osm_null_airports"):
+        TrainConfig(fe_osm_null_airports=["LIRF"])

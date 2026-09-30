@@ -1,0 +1,47 @@
+# P8-E: does DELETING the five identically-constant model-visible columns help, hurt, or do nothing?
+#
+# The candidate is pure deletion - remove five columns, add nothing. It is the cheaper alternative named at
+# the end of results/P8-B-wxcodes-repair.md section 6 and never measured. P8-B tried to *repair* four of the
+# same columns from `wxcodes` and measured -0.35 s [-1.01, +0.22] against an arity-matched control, inside
+# the +0.16 [-0.58, +1.06] that adding four arbitrary columns produced in that same experiment: REJECT.
+# So the information those columns would carry is worth nothing here, which says nothing about whether
+# carrying five constants costs anything.
+#
+# The five, from `python -m prc.coverage --config configs/main_gap.yaml` (results/P8-D-coverage-gate.md
+# section 3) and re-confirmed on today's `data/work` frames: `precip_mm`, `precip_mm_prev1h`,
+# `temp_x_precip`, `temp_x_precip_prev1h` (IEM serves the literal "0.00" for p01i on 100% of cached
+# station-hours, so the two products are zero by construction) and `runway_null`. Non-zero on 0.000000% of
+# 2,085,047 training rows, each of them, and all five are visible to BOTH lanes.
+#
+# Three arms, all of them configs/main_gap.yaml + folds:[forward, jul_fwd], differing only in
+# `exclude_features`. No src change: `exclude_features` already exists and is already honoured by
+# `visible_numeric_columns`, by the categorical list in `predict_fold` and by `prc.coverage`. That is the
+# point - the frames are byte-identical across the three arms, one `data/work` cache serves all three, and
+# `cache_fingerprint` cannot differ between them because it does not (and must not) carry this field.
+name: p8e_drop
+folds: [forward, jul_fwd]
+# Arm: drop. THE CANDIDATE. The five identically-constant columns hidden and nothing added: 85 numeric + 10
+# categorical against the base's 90 + 10 as logged, i.e. exactly five fewer in every matrix. `exclude_features` is the mechanism the repo already has for
+# exactly this; it is read by `visible_numeric_columns`, so the columns never enter `_fit`'s stacked frame
+# and never reach a LightGBM Dataset. The assertion that this really happened is not the config: it is
+# `n_features` in the experiment record (85, against base's 90), `n_features_unmatched` per fold (79 against
+# the base's 84 - all five are visible to the unmatched lane too), and `tests/test_train.py::test_excluding_a_column_narrows_the_lightgbm_matrix`, which reads
+# `Dataset.num_feature()` inside a real `predict_fold`. A deletion is exactly the shape that can silently
+# not happen.
+exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]
+include_candidates: [stand_arrival_gap]
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: true

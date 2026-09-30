@@ -17,6 +17,15 @@ Invariants enforced here (each one was a real bug caught in review):
 * Early stopping never sees the evaluation fold: the stopping point comes from an inner holdout carved out of
   the training months, and the final model is refitted on all training rows with a fixed number of rounds. The
   same code path therefore produces the same model whether or not the target frame carries labels.
+* The invariant above is about the VALIDATION fold and says nothing about the training side, which is where the
+  defect was. `fit_encodings` is fitted on every labelled training row and `_fit` then carves the inner
+  early-stopping holdout out of that same encoded frame, so the rows that choose `best_iteration` read
+  encodings their own labels helped build. `es_holdout_encodings` (off by default) repairs exactly that: the
+  holdout block is re-encoded from a map fitted without its own calendar months. The rows the model is fitted
+  and refitted on, and the target frame, are NOT cross-fitted and are byte-identical either way - the one
+  channel from the flag to a prediction is the integer round count. The training rows' own self-inclusion is a
+  separate, measured-as-harmful change and is deliberately not made here; see
+  docs/competitor_research_2026-09-21/plans/P2-cross-fit-encodings.md §3.2.
 * Predictions are returned keyed by MVT_ID_mvt, never by row position.
 """
 
@@ -57,6 +66,71 @@ OFFSET_COLS = ["op_offset_med", "op_offset_n"]
 #              MVT_ID_mvt alone. The control: it carries the row-count cost and the blending gain of the
 #              candidate and none of its airport information.
 GROUP_KEYS = ("adep", "shuffled")
+# The model family the fitter uses; see TrainConfig.model and
+# docs/competitor_research_2026-09-21/plans/P10-catboost-rival.md. Everything outside `_fit` - folds, encodings,
+# feature selection, routing, target parameterisation, the seed loop, the round-count scaling, assembly,
+# metrics - is shared, so the two families differ in the fitter and in nothing else.
+MODEL_FAMILIES = ("lightgbm", "catboost")
+# CatBoost's settings when a recipe names none. Every key is explicit on purpose, because two of CatBoost's
+# library defaults are not constants: `max_ctr_complexity` resolves to 1 at <= 150 iterations and to 4 at
+# >= 200 (measured on catboost 1.2.10, P10 §2.3), so a short screen and a production-length run would silently
+# run two different categorical algorithms; and the learning rate is chosen from the data size and iteration
+# count when it is not given. `thread_count` matches LightGBM's `num_threads`, which is a determinism setting
+# as well as a speed one. CatBoost has no `deterministic` flag to pass: on CPU a fixed `random_seed` and
+# thread count give a bit-identical model (checked in tests/test_catboost_family.py and on real data).
+CB_DEFAULTS: dict = {
+    "loss_function": "RMSE",
+    # 0.2, not the library's auto rule. That rule gives 0.073-0.076 for 2,000 iterations at 1.43-1.74M rows,
+    # i.e. it plans to spend every round. Measured on the forward fold at a 20% training subsample (P10 results
+    # §2): early stopping's best count was 1,973 of 2,000 at 0.1 and 1,984 of 2,000 at 0.2 - capped both times -
+    # and 2,500 at 0.2 with a 5,000 cap. The higher rate is the one that reaches its own stopping point soonest.
+    "learning_rate": 0.2,
+    "depth": 6,
+    "max_ctr_complexity": 1,
+    "thread_count": 4,
+    "verbose": 0,
+    "allow_writing_files": False,
+}
+# Keys the fitter owns: the iteration count and the stopping rule come from num_rounds / early_stopping and the
+# seed from `seed + k`, exactly as for LightGBM, so a recipe that also set them in cb_params would be setting
+# them twice. `has_time` is refused because it needs the training block sorted by time and this fitter does not
+# sort - silently ignoring the ordering is the failure mode it would have.
+CB_OWNED_KEYS = (
+    "iterations",
+    "n_estimators",
+    "num_boost_round",
+    "num_trees",
+    "random_seed",
+    "random_state",
+    "od_type",
+    "od_wait",
+    "early_stopping_rounds",
+    "use_best_model",
+    "has_time",
+    "cat_features",
+)
+
+
+# TrainConfig fields added after the archive was written, with their defaults. Left out of the hash while they
+# hold their default, so every archived experiment id still names the config that produced it; a recipe that
+# sets one gets a new id.
+_HASH_OPTIONAL: dict = {
+    "model": "lightgbm",
+    "cb_params": {},
+    # The fold-time families merged from the article-FE / weather-v2 / OSM screens. Left out of the hash at their
+    # off values so every experiment id recorded before the merge is still the id of the same recipe.
+    "fe_freq": False,
+    "fe_aggdiff": False,
+    "fe_cyclic": False,
+    "fe_meta_prior": False,
+    "fe_noise_cols": 0,
+    "fe_weather_v2": "",
+    "fe_osm_dist": False,
+    "fe_osm_null_airports": [],
+    "sim_unseen_stands": 0.0,
+    "fe_opdi": False,
+    "opdi_target_null_day_share": 0.0,
+}
 
 
 @dataclass
@@ -97,6 +171,14 @@ class TrainConfig:
     use_encodings: bool = True
     reference_min_count: int = 30  # self-inclusion in a P10 over a small group is a leak of 1/n
     inner_holdout_months: int = 1  # months of the training side reserved for early stopping
+    # P2 Fix 1 / Option A (docs/competitor_research_2026-09-21/plans/P2-cross-fit-encodings.md §3.1).
+    # On, the inner early-stopping holdout rows carry encodings fitted on the fold's training rows MINUS
+    # the calendar months those holdout rows occupy, instead of the whole-frame encoder that their own
+    # labels helped build. The rows the stage-1 booster is fitted on, the stage-2 refit rows and the
+    # target frame are untouched, so the only channel from this flag to a prediction is the integer
+    # `rounds` chosen by early stopping. Off by default: with the flag off `_fit` builds exactly the
+    # matrices it built before this field existed, and every existing recipe is unchanged.
+    es_holdout_encodings: bool = False
     # The rows with no NM record are 1.2% of the data and roughly half the squared error. Model B sees ~22k
     # rows where model A sees 2.06M, so the obvious guess was that it needed *less* capacity, and measurement
     # says otherwise: 31 leaves is worse than 127, 255 is better than 127, 511 adds nothing. The effect is
@@ -124,6 +206,17 @@ class TrainConfig:
     # Averaging over seeds removes the luck of one random draw: the 2024 winner reported 1,612 -> 1,562 from
     # 20 seeds (docs/README). Cost is linear in n_seeds, so keep it small until the effect is measured.
     n_seeds: int = 1
+    # Whether `params["deterministic"]` and `params["force_row_wise"]` are passed to LightGBM at all.
+    # True - the default, and what every archived record was produced under - keeps them, so two runs of the
+    # same config in different processes give a bit-identical model. False drops BOTH (never one: `deterministic`
+    # without a forced histogram direction is the half-measure the params comment above already rejects) and
+    # lets LightGBM order its floating-point sums by thread arrival, which is reproducible only in
+    # distribution. Measured cost of keeping them on this box, at the production row count (1,737,573 matched
+    # rows, 108 features, 4 threads): 0.310 s/round against 0.316 s/round with them off - i.e. nothing. See
+    # docs/competitor_research_2026-09-21/results/determinism-cost.md. Do not flip the default: the byte
+    # comparison in configs/determinism_check.yaml, configs/p11_base.yaml and the no-op detector used
+    # throughout docs/ all assume it.
+    lgb_deterministic: bool = True
     # Which folds to run. All three is the honest answer for a final number, but a screening run does not need
     # them: the matched rows of the forward fold alone are 324k, giving that statistic a resolution of about
     # 1.1 s - the same as the full three-fold set - at a third of the wall clock. forward is also the only fold
@@ -198,6 +291,10 @@ class TrainConfig:
     # position to the threshold of the departure runway. The one stand descriptor defined for a stand the model
     # has never seen.
     fe_osm_dist: bool = False
+    # Airports (ADEP) where `osm_stand_rwy_km` is set to null after it is computed, so the model sees it as
+    # missing there. Empty (the default) changes nothing. Requires fe_osm_dist. Added for
+    # configs/main_flseq_osm_nolirf.yaml, whose LIRF exclusion was chosen after the LIRF result was seen (post hoc).
+    fe_osm_null_airports: list = field(default_factory=list)
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
@@ -206,12 +303,62 @@ class TrainConfig:
     # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
     # way the January 2026 OPDI file has no flights on 10 of its 31 days.
     opdi_target_null_day_share: float = 0.0
+    # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
+    # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
+    # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
+    # identical frames, feature list, categorical list, target and seeds. The LightGBM-only fields are refused
+    # rather than ignored under CatBoost - see `__post_init__`.
+    model: str = "lightgbm"
+    # CatBoost settings, merged over CB_DEFAULTS. A separate namespace from `params`, because `params` is merged
+    # over the LightGBM defaults and CatBoost rejects those keys outright (`feature_fraction`, `force_row_wise`,
+    # `num_leaves` without Lossguide: P10 §1.2).
+    cb_params: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.fe_osm_null_airports and not self.fe_osm_dist:
+            raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
+        if self.model not in MODEL_FAMILIES:
+            raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
+        if self.model == "lightgbm":
+            if self.cb_params:
+                raise ValueError("cb_params is set but model is lightgbm; it would be silently ignored")
+            return
+        # CatBoost. Each refusal is a LightGBM setting that has no CatBoost meaning here and would otherwise be
+        # dropped without a trace, which is how a "CatBoost" arm ends up measuring something nobody chose.
+        if self.use_linear_tree:
+            raise ValueError("use_linear_tree has no CatBoost equivalent; refusing rather than ignoring it")
+        if self.params != TrainConfig.__dataclass_fields__["params"].default_factory():
+            raise ValueError("params are LightGBM's; a CatBoost recipe sets cb_params instead")
+        if (self.unmatched_num_leaves, self.unmatched_min_data_in_leaf) != (
+            self.params["num_leaves"],
+            self.params["min_data_in_leaf"],
+        ):
+            raise ValueError(
+                "model B's capacity override (unmatched_num_leaves / unmatched_min_data_in_leaf) is a LightGBM "
+                "setting CatBoost cannot honour; set them equal to params' num_leaves / min_data_in_leaf so "
+                "model B is sized like model A, as it is in configs/main_v15.yaml"
+            )
+        owned = sorted(k for k in self.cb_params if k in CB_OWNED_KEYS)
+        if owned:
+            raise ValueError(f"cb_params may not set {owned}: the fitter owns them (see CB_OWNED_KEYS)")
 
     def hash(self) -> str:
-        return hashlib.sha1(json.dumps(self.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
+        d = {k: v for k, v in self.__dict__.items() if not (k in _HASH_OPTIONAL and v == _HASH_OPTIONAL[k])}
+        if self.model == "catboost":
+            # The RESOLVED settings, so an edit to CB_DEFAULTS is a new experiment id rather than a silent one.
+            d["cb_params"] = self.catboost_params()
+        return hashlib.sha1(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:10]
+
+    def catboost_params(self) -> dict:
+        """CB_DEFAULTS with the recipe's cb_params on top. The fitter adds iterations, stopping and the seed."""
+        return {**CB_DEFAULTS, **self.cb_params}
 
     def for_unmatched(self) -> TrainConfig:
         """A copy sized for model B's much smaller training set."""
+        if self.model == "catboost":
+            # `__post_init__` has already required model B's LightGBM capacity to equal model A's, so the only
+            # override left to carry is the round cap - applied exactly as it is for LightGBM.
+            return replace(self, num_rounds=self.unmatched_num_rounds)
         return replace(
             self,
             params={
@@ -224,6 +371,12 @@ class TrainConfig:
 
     def lgb_params(self) -> dict:
         p = dict(self.params, seed=self.seed)
+        if not self.lgb_deterministic:
+            # Both or neither. Only the two keys this dataclass owns are dropped: a config that sets its own
+            # `force_col_wise` keeps it, because that is a choice the config made and not the default this
+            # flag exists to undo.
+            p.pop("deterministic", None)
+            p.pop("force_row_wise", None)
         if self.use_linear_tree:
             p["linear_tree"] = True
             p["linear_lambda"] = self.linear_lambda
@@ -505,12 +658,27 @@ def _osm_tables() -> tuple[pl.DataFrame, pl.DataFrame]:
     return stand_table(fetch_osm_aeroway()), fetch_runway_ends()
 
 
-def osm_distance_features(df: pl.DataFrame) -> pl.DataFrame:
-    """Attach `osm_stand_rwy_km`. Label-free; the same two tables serve every fold and the ranking set."""
+def null_osm_at_airports(df: pl.DataFrame, airports) -> pl.DataFrame:
+    """Set `osm_stand_rwy_km` to null on rows whose ADEP is in `airports`. No airports: the frame is returned as is."""
+    if not airports:
+        return df
+    at = pl.col("ADEP_mvt").cast(pl.Utf8).is_in(list(airports)).fill_null(False)
+    return df.with_columns(
+        pl.when(at)
+        .then(None)
+        .otherwise(pl.col("osm_stand_rwy_km"))
+        .cast(df.schema["osm_stand_rwy_km"])
+        .alias("osm_stand_rwy_km")
+    )
+
+
+def osm_distance_features(df: pl.DataFrame, null_airports=()) -> pl.DataFrame:
+    """Attach `osm_stand_rwy_km`. Label-free; the same two tables serve every fold and the ranking set.
+    `null_airports` (TrainConfig.fe_osm_null_airports) blanks the column at those departure airports."""
     from .osm import add_stand_runway_distance
 
     stands, ends = _osm_tables()
-    return add_stand_runway_distance(df, stands, ends)
+    return null_osm_at_airports(add_stand_runway_distance(df, stands, ends), null_airports)
 
 
 @functools.lru_cache(maxsize=1)
@@ -576,7 +744,8 @@ def add_fold_features(
     if cfg.fe_weather_v2:
         tr, tg = weather_v2_features(tr, cfg.fe_weather_v2), weather_v2_features(tg, cfg.fe_weather_v2)
     if cfg.fe_osm_dist:
-        tr, tg = osm_distance_features(tr), osm_distance_features(tg)
+        na = cfg.fe_osm_null_airports
+        tr, tg = osm_distance_features(tr, na), osm_distance_features(tg, na)
     if cfg.fe_opdi:
         tr, tg = opdi_features(tr), opdi_features(tg, cfg.opdi_target_null_day_share)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
@@ -670,6 +839,65 @@ def _inner_holdout_mask(train: pl.DataFrame, months: int) -> np.ndarray:
     return keys.is_in(uniq[-months:]).to_numpy()
 
 
+def _es_encoder(train_f: pl.DataFrame, cfg: TrainConfig, stats: list[dict]):
+    """Factory for P2 Fix 1: re-encode a lane's inner early-stopping holdout from a clean map.
+
+    Returns `build(hold_rows) -> pl.DataFrame`, where `hold_rows` is the already-encoded holdout block
+    of one lane and the result is the same rows, same order, same schema, with the nine encoding
+    columns (and the two hidden offset columns) rebuilt from `fit_encodings` over `train_f` MINUS the
+    calendar months those rows occupy.
+
+    Why a whole-month exclusion rather than a leave-one-row-out: the folds are month-blocked for the
+    reason `cv.month_block_folds` gives, and the inner holdout is itself a month, so excluding the
+    month is the smallest exclusion that makes the block clean. Nothing else is excluded - a holdout
+    row still reads the other nine or eleven training months, which is what keeps the column
+    informative rather than merely leak-free.
+
+    `train_f` is the FOLD's whole training frame, both lanes, exactly the frame `predict_fold` fits the
+    production encoder on. Model A's rows are not the only rows in these tables and dropping model B's
+    would be a second, unmeasured change.
+
+    Cached by month set, so model A and model B - whose holdout months coincide in every production
+    fold - pay for one encoder build, not two. `stats` receives one record per build; it is the
+    built-in no-op control, because a repair that silently changed nothing would otherwise be
+    indistinguishable from a repair that worked."""
+    keys = year_month_key(train_f)
+    cache: dict[frozenset, dict[str, pl.DataFrame]] = {}
+    encoded = [*ENCODING_COLS, *OFFSET_COLS]
+
+    def build(hold_rows: pl.DataFrame) -> pl.DataFrame:
+        months = sorted(set(year_month_key(hold_rows).unique().to_list()))
+        key = frozenset(months)
+        if key not in cache:
+            base = train_f.filter(~keys.is_in(months))
+            if base.height == 0:
+                raise ValueError(f"no training rows left after excluding the holdout months {months}")
+            cache[key] = fit_encodings(base, cfg)
+        enc = cache[key]
+        out = attach_encodings(hold_rows.drop([c for c in encoded if c in hold_rows.columns]), enc)
+        out = out.select(hold_rows.columns)
+        if out.height != hold_rows.height:
+            raise AssertionError("the early-stopping encoder changed the holdout row count")
+        changed = {}
+        for c in ENCODING_COLS:
+            if c not in hold_rows.columns:
+                continue
+            a, b = hold_rows[c], out[c]
+            changed[c] = int(((a != b) | (a.is_null() != b.is_null())).fill_null(True).sum())
+        stats.append(
+            {
+                "rows": hold_rows.height,
+                "months_excluded": months,
+                "train_rows_used": int(train_f.height - keys.is_in(months).sum()),
+                "table_groups": {t: int(enc[t].height) for t in ("ref", "arh", "apt")},
+                "cols_changed": changed,
+            }
+        )
+        return out
+
+    return build
+
+
 def _fit(
     train: pl.DataFrame,
     target_expr,
@@ -677,13 +905,32 @@ def _fit(
     feature_cols: list[str],
     cat_cols: list[str],
     predict_frames: list[pl.DataFrame],
+    es_rows=None,
 ) -> tuple[list[np.ndarray], int]:
     """Early-stop on an inner holdout of `train`, refit on all of `train`, then predict each frame.
 
     `target_expr(frame) -> np.ndarray` builds the model-space target, so the caller decides the parameterisation.
-    Returns one prediction array per frame (in model space) and the number of rounds actually used."""
+    Returns one prediction array per frame (in model space) and the number of rounds actually used.
+
+    `es_rows` (P2 Fix 1) optionally re-encodes the inner-holdout block: `_es_encoder`'s `build`, taking the
+    holdout rows and returning them with encodings fitted without their own months. The re-encoded block is
+    appended to the SAME stacked frame rather than matrixed on its own, because `_matrix` builds each
+    categorical's Enum over the stacked frame's own levels - a separately built matrix would carry a
+    different integer coding and be a different model. The appended rows are a subset of `train`, so the
+    level set and therefore every existing row's code are unchanged, and `Xall[a:b]` is byte-identical to
+    what it was with `es_rows=None`. Stage 2 never sees the block.
+
+    With `cfg.model == "catboost"` the whole call goes to `_fit_catboost`, which keeps this contract item for
+    item; nothing above this function knows which family ran."""
+    if cfg.model == "catboost":
+        return _fit_catboost(train, target_expr, cfg, feature_cols, cat_cols, predict_frames, es_rows=es_rows)
     hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
-    frames = [train, *predict_frames]
+    n_hold = int(hold.sum())
+    es_block = None
+    if es_rows is not None and 0 < n_hold < train.height:
+        es_block = es_rows(train.filter(pl.Series("_es_hold", hold)))
+    frames = [train, *predict_frames] + ([es_block] if es_block is not None else [])
+    n_pred = len(predict_frames)
     stacked = pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed")
     Xall, cols = _matrix(stacked, feature_cols, cat_cols)
     del stacked
@@ -699,11 +946,12 @@ def _fit(
     a, b = offs[0]
     y = target_expr(train)
     rounds = cfg.num_rounds
-    n_hold = int(hold.sum())
     if 0 < n_hold < train.height:
         Xtrain = Xall[a:b]
+        # A view into the stack when Fix 1 is on, the fancy-indexed copy it always was when it is off.
+        Xhold = Xall[offs[-1][0] : offs[-1][1]] if es_block is not None else Xtrain[hold]
         dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], categorical_feature=cat_idx, params=params)
-        dva = lgb.Dataset(Xtrain[hold], label=y[hold], categorical_feature=cat_idx, reference=dtr)
+        dva = lgb.Dataset(Xhold, label=y[hold], categorical_feature=cat_idx, reference=dtr)
         booster = lgb.train(
             params,
             dtr,
@@ -714,16 +962,182 @@ def _fit(
         best = int(booster.best_iteration or cfg.num_rounds)
         # scale the round count to the larger refit set, then cap
         rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
-        del dtr, dva, booster, Xtrain  # the fancy-indexed copies are the peak of this function
+        del dtr, dva, booster, Xtrain, Xhold  # the fancy-indexed copies are the peak of this function
 
     dfull = lgb.Dataset(Xall[a:b], label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
     # Refit under each seed and average. One seed is the default, and then this is the single fit it was before.
-    acc = [np.zeros(e - s) for (s, e) in offs[1:]]
+    acc = [np.zeros(e - s) for (s, e) in offs[1 : 1 + n_pred]]
     for k in range(max(1, cfg.n_seeds)):
         p_k = dict(params, seed=cfg.seed + k, bagging_seed=cfg.seed + k, feature_fraction_seed=cfg.seed + k)
         model = lgb.train(p_k, dfull, num_boost_round=rounds, callbacks=[lgb.log_evaluation(0)])
-        for i, (s_, e_) in enumerate(offs[1:]):
+        for i, (s_, e_) in enumerate(offs[1 : 1 + n_pred]):
             acc[i] += model.predict(Xall[s_:e_])
+    preds = [a_ / max(1, cfg.n_seeds) for a_ in acc]
+    return preds, rounds
+
+
+# ---------- the CatBoost fitter (P10) ----------
+
+# What the most recent `_fit_catboost` call resolved, for `predict_fold` to copy into the record: the library's
+# own resolved values of the settings P10 §8 says must be logged rather than assumed (`max_ctr_complexity` is
+# the one whose library default moves with the iteration count), the early-stopping best count and the round
+# count used. Overwritten by every call; read immediately after one.
+_CB_LAST: dict = {}
+_CB_LOGGED = (
+    "max_ctr_complexity",
+    "learning_rate",
+    "depth",
+    "one_hot_max_size",
+    "has_time",
+    "boosting_type",
+    "grow_policy",
+    "l2_leaf_reg",
+    "border_count",
+    "bootstrap_type",
+    "subsample",
+    "nan_mode",
+)
+
+
+def _cb_matrix(df: pl.DataFrame, feature_cols: list[str], cat_cols: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """CatBoost's two blocks: the numeric columns as C-ordered float32, the categoricals as an object array.
+
+    `_matrix` cannot be reused: it codes the categoricals as float32, and CatBoost rejects a real-valued
+    categorical outright (P10 §1.1 row 4). The numeric block is the same float32 matrix `_matrix` builds for
+    the same columns, so the two families read identical numeric values, NaNs included.
+
+    Each categorical is handed over as its level STRING - the same `Utf8 -> fill_null("__NA__")` values
+    `_matrix` codes - so the level set, the null level and the level identities are the ones LightGBM sees.
+    CatBoost hashes the value, so what reaches it is a function of the value alone and cannot depend on how
+    the frame was chunked: the G11 failure (`cast(pl.Categorical)` coding the same column six ways) has no way
+    in. The strings are shared objects from a per-column lookup table indexed by the same sorted-Enum code
+    `_matrix` uses, so the block costs eight bytes a cell rather than a Python string each."""
+    Xnum = np.ascontiguousarray(df.select(feature_cols).cast(pl.Float32).to_numpy(), dtype=np.float32)
+    Xcat = np.empty((df.height, len(cat_cols)), dtype=object)
+    for j, c in enumerate(cat_cols):
+        s = df[c].cast(pl.Utf8).fill_null("__NA__")
+        levels = sorted(s.unique().to_list())
+        codes = s.cast(pl.Enum(levels)).to_physical().to_numpy()
+        Xcat[:, j] = np.array([lv.encode() for lv in levels], dtype=object)[codes]
+    return Xnum, Xcat
+
+
+def _cb_pool(Xnum: np.ndarray, Xcat: np.ndarray, feature_cols: list[str], cat_cols: list[str], label=None):
+    """A CatBoost Pool. `label=None` for every frame that is predicted: a predict pool never carries a label,
+    so there is no route by which a target row's label can reach its own categorical statistics."""
+    from catboost import FeaturesData, Pool
+
+    fd = FeaturesData(
+        num_feature_data=np.ascontiguousarray(Xnum, dtype=np.float32),
+        cat_feature_data=np.ascontiguousarray(Xcat) if cat_cols else None,
+        num_feature_names=list(feature_cols),
+        cat_feature_names=list(cat_cols) if cat_cols else None,
+    )
+    return Pool(fd, label=None if label is None else np.asarray(label, dtype=float))
+
+
+def _fit_catboost(
+    train: pl.DataFrame,
+    target_expr,
+    cfg: TrainConfig,
+    feature_cols: list[str],
+    cat_cols: list[str],
+    predict_frames: list[pl.DataFrame],
+    es_rows=None,
+) -> tuple[list[np.ndarray], int]:
+    """`_fit` with CatBoost as the booster. Same signature, same return, and the same six contract items
+    (P10 §1.3), each done the way `_fit` does it:
+
+    1. early stopping reads the inner holdout of `train` only (`_inner_holdout_mask`, and the P2 Fix 1 block
+       when `es_rows` is given), never the evaluation fold; the final model is refitted on all of `train` at a
+       fixed round count;
+    2. that round count is `_fit`'s formula verbatim - best count scaled by n_train / (n_train - n_hold),
+       floored at 10, capped at num_rounds. CatBoost's `get_best_iteration()` is 0-based, so the best COUNT is
+       it plus one, which is what LightGBM's `best_iteration` already is;
+    3. train and every predict frame are stacked before the categoricals are coded, so all share one level set;
+    4. `n_seeds` refits at `random_seed = seed + k`, predictions averaged;
+    5. predictions are returned per predict frame, in model space;
+    6. the refit Pool is built once and reused across seeds.
+
+    Where the categorical statistics come from, since that is exactly how this project's two leaks happened:
+    CatBoost's ordered target statistics are computed on the learn Pool only, which is the training side of
+    the fold (or its non-holdout part during early stopping). The eval Pool's labels are used to pick the
+    stopping round and for nothing else, and every predict Pool is built with no label at all. At apply time a
+    row's statistics come from the fitted model's tables, not from the other rows it is predicted with -
+    tests/test_catboost_family.py checks that a target frame's labels, and the rows it is batched with, cannot
+    move a prediction."""
+    from catboost import CatBoostRegressor
+
+    hold = _inner_holdout_mask(train, cfg.inner_holdout_months)
+    n_hold = int(hold.sum())
+    es_block = None
+    if es_rows is not None and 0 < n_hold < train.height:
+        es_block = es_rows(train.filter(pl.Series("_es_hold", hold)))
+    frames = [train, *predict_frames] + ([es_block] if es_block is not None else [])
+    n_pred = len(predict_frames)
+    stacked = pl.concat([f.select(feature_cols + cat_cols) for f in frames], how="vertical_relaxed")
+    Xnum, Xcat = _cb_matrix(stacked, feature_cols, cat_cols)
+    del stacked
+    offs, i = [], 0
+    for f in frames:
+        offs.append((i, i + f.height))
+        i += f.height
+    params = cfg.catboost_params()
+
+    a, b = offs[0]
+    y = target_expr(train)
+    rounds = cfg.num_rounds
+    if 0 < n_hold < train.height:
+        if es_block is not None:
+            s_, e_ = offs[-1]
+            dva = _cb_pool(Xnum[s_:e_], Xcat[s_:e_], feature_cols, cat_cols, y[hold])
+        else:
+            dva = _cb_pool(Xnum[a:b][hold], Xcat[a:b][hold], feature_cols, cat_cols, y[hold])
+        dtr = _cb_pool(Xnum[a:b][~hold], Xcat[a:b][~hold], feature_cols, cat_cols, y[~hold])
+        m = CatBoostRegressor(
+            **params,
+            iterations=cfg.num_rounds,
+            random_seed=cfg.seed,
+            od_type="Iter",
+            od_wait=cfg.early_stopping,
+            use_best_model=False,
+        )
+        m.fit(dtr, eval_set=dva)
+        best_it = m.get_best_iteration()
+        best = int(best_it + 1) if best_it is not None else cfg.num_rounds
+        rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
+        del dtr, dva, m
+
+    else:
+        best = None
+    dfull = _cb_pool(Xnum[a:b], Xcat[a:b], feature_cols, cat_cols, y)
+    dpred = [_cb_pool(Xnum[s_:e_], Xcat[s_:e_], feature_cols, cat_cols) for (s_, e_) in offs[1 : 1 + n_pred]]
+    # The pools hold their own copies; the stacked blocks are the largest thing left and nothing reads them now.
+    del Xnum, Xcat
+    acc = [np.zeros(p.num_row()) for p in dpred]
+    for k in range(max(1, cfg.n_seeds)):
+        model = CatBoostRegressor(**params, iterations=rounds, random_seed=cfg.seed + k)
+        model.fit(dfull)
+        for j, p in enumerate(dpred):
+            acc[j] += model.predict(p)
+        if k == 0:
+            resolved = model.get_all_params()
+            _CB_LAST.clear()
+            _CB_LAST.update(
+                {
+                    # get_all_params() omits thread_count; it is read from what the estimator was given.
+                    "resolved": {
+                        **{key: resolved.get(key) for key in _CB_LOGGED},
+                        "thread_count": model.get_params().get("thread_count"),
+                    },
+                    "es_best_count": best,
+                    "rounds": rounds,
+                    "tree_count": int(model.tree_count_),
+                    "n_cat_features": len(cat_cols),
+                    "n_num_features": len(feature_cols),
+                }
+            )
+        del model
     preds = [a_ / max(1, cfg.n_seeds) for a_ in acc]
     return preds, rounds
 
@@ -795,6 +1209,7 @@ def _fit_grouped(
     feature_cols: list[str],
     cat_cols: list[str],
     info: dict,
+    es_rows=None,
 ) -> np.ndarray:
     """One global fit plus one fit per group, combined as `(1-w)*global + w*group` on that group's rows.
 
@@ -809,7 +1224,7 @@ def _fit_grouped(
     w = float(cfg.airport_blend_weight)
     if not 0.0 <= w <= 1.0:
         raise ValueError(f"airport_blend_weight must be in [0, 1], got {w}")
-    (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target])
+    (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target], es_rows=es_rows)
     info["rounds_matched"] = rounds
     tr_lab, tg_lab, groups = _group_labels(train, target, cfg)
     if len(groups) < 2:
@@ -824,7 +1239,7 @@ def _fit_grouped(
         if w > 0.0 and n_tg > 0 and n_tr >= cfg.airport_min_group_rows:
             sub_tr = train.filter(pl.Series("_g", tr_m))
             sub_tg = target.filter(pl.Series("_g", tg_m))
-            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, feature_cols, cat_cols, [sub_tg])
+            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, feature_cols, cat_cols, [sub_tg], es_rows=es_rows)
             out[tg_m] = (1.0 - w) * out[tg_m] + w * g_loc
             rec.update(fitted=True, rounds=r_g)
             blended += n_tg
@@ -848,6 +1263,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     n_before = train_f.height
     train_f = train_f.filter(pl.col(LABEL).is_not_null() & pl.col(LABEL).is_finite())
     info: dict = {"train_rows": train_f.height, "dropped_unlabelled": n_before - train_f.height}
+    if cfg.model != "lightgbm":
+        # Only when it is not the default, so a LightGBM record is byte-for-byte what it was before P10.
+        info["model"] = cfg.model
     if cfg.sim_unseen_stands > 0:
         held = unseen_stand_mask(train_f, cfg.sim_unseen_stands)
         info["sim_unseen_stands_dropped_train_rows"] = int(held.sum())
@@ -866,6 +1284,14 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         or cfg.fe_opdi
     ):
         tr, tg = add_fold_features(tr, tg, cfg, info)
+
+    # P2 Fix 1. One factory per lane so the two lanes' records stay separable in `info`; the month-keyed
+    # cache lives inside each factory, and the encoder build is shared within a lane, not across them.
+    info["es_holdout_encodings"] = bool(cfg.es_holdout_encodings)
+    es_stats_a: list[dict] = []
+    es_stats_b: list[dict] = []
+    es_a = _es_encoder(train_f, cfg, es_stats_a) if cfg.es_holdout_encodings else None
+    es_b = _es_encoder(train_f, cfg, es_stats_b) if cfg.es_holdout_encodings else None
 
     num_cols = visible_numeric_columns(tr, cfg)
     cat_cols = (
@@ -890,10 +1316,12 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
             # is the only thing the flag adds, and it sets rounds_matched itself.
             if cfg.airport_models:
-                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info)
+                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info, es_rows=es_a)
             else:
-                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg])
+                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg], es_rows=es_a)
                 info["rounds_matched"] = rounds
+            if cfg.model == "catboost":
+                info["cb_matched"] = dict(_CB_LAST)
         else:
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
@@ -908,12 +1336,16 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["n_features_unmatched"] = len(cols_b)
         if u_tr.height >= 200:
             cfg_b = cfg.for_unmatched()
-            (g,), rounds = _fit(u_tr, lambda f: unmatched_target(f, cfg_b), cfg_b, cols_b, cat_cols, [u_tg])
+            (g,), rounds = _fit(
+                u_tr, lambda f: unmatched_target(f, cfg_b), cfg_b, cols_b, cat_cols, [u_tg], es_rows=es_b
+            )
             # Back to seconds of taxi time. The fit above ran on `LABEL - shift`, so the model's output is in
             # that space and nothing downstream (_assemble's clip, the metrics, the submission) knows it.
             shift_tg = sched_reparam_shift(u_tg, cfg_b)
             g = g + shift_tg
             info["rounds_unmatched"] = rounds
+            if cfg.model == "catboost":
+                info["cb_unmatched"] = dict(_CB_LAST)
             if cfg_b.unmatched_sched_reparam:
                 info["sched_reparam_train_rows"] = int((sched_reparam_shift(u_tr, cfg_b) != 0.0).sum())
                 info["sched_reparam_target_rows"] = int((shift_tg != 0.0).sum())
@@ -923,6 +1355,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             info["rounds_unmatched"] = 0
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
+    # Everything a silent no-op would hide. An empty record with the flag on means the holdout was never
+    # re-encoded; a record whose `cols_changed` are all zero means it was re-encoded to the same values.
+    if cfg.es_holdout_encodings:
+        info["es_encoder_matched"] = es_stats_a
+        info["es_encoder_unmatched"] = es_stats_b
     return _assemble(parts, tr, tg, target_f, info, cfg)
 
 

@@ -55,3 +55,45 @@ def test_editing_the_feature_builder_invalidates_the_cache(frames, tmp_path, mon
 def test_the_weather_flag_is_part_of_the_key(frames, tmp_path):
     raw, train, rank = frames
     assert cache_fingerprint(train, rank, raw, False) != cache_fingerprint(train, rank, raw, True)
+
+
+def test_editing_the_weather_module_invalidates_a_weather_on_cache(frames, tmp_path, monkeypatch):
+    """The trap the plan calls the highest-probability way to waste a day: the fingerprint hashed features.py
+    only, so an edit to weather.py left every cached frame valid and the run reported the old numbers."""
+    raw, train, rank = frames
+    before = cache_fingerprint(train, rank, raw, True)
+    monkeypatch.setattr("prc.pipeline._weather_version", lambda: "0" * 16)
+    assert cache_fingerprint(train, rank, raw, True) != before
+
+
+def test_editing_the_weather_module_does_not_invalidate_a_weather_off_cache(frames, tmp_path, monkeypatch):
+    """The control. A `use_weather: false` recipe does not read weather.py, so a weather edit must not cost
+    it a four-minute rebuild."""
+    raw, train, rank = frames
+    before = cache_fingerprint(train, rank, raw, False)
+    monkeypatch.setattr("prc.pipeline._weather_version", lambda: "0" * 16)
+    assert cache_fingerprint(train, rank, raw, False) == before
+
+
+def test_the_wx_codes_flag_is_part_of_the_key(frames, tmp_path):
+    raw, train, rank = frames
+    assert cache_fingerprint(train, rank, raw, True, True) != cache_fingerprint(train, rank, raw, True, False)
+    # ... and is ignored when there is no weather join to vary
+    assert cache_fingerprint(train, rank, raw, False, True) == cache_fingerprint(train, rank, raw, False, False)
+
+
+def test_drop_hidden_candidates_keeps_what_the_model_sees(frames, tmp_path):
+    """Dropping the hidden candidates is a memory measure only: the visible columns, and their order, must not
+    change, and an included candidate must survive."""
+    from prc.features import CANDIDATE_COLS
+    from prc.pipeline import drop_hidden_candidates
+    from prc.train import TrainConfig, visible_numeric_columns
+
+    raw, train, rank = frames
+    f_tr, _ = build_features(train, rank, False, tmp_path / "work", raw)
+    cfg = TrainConfig(include_candidates=("stand_arrival_gap",))
+    slim = drop_hidden_candidates(f_tr, cfg)
+    assert "stand_arrival_gap" in slim.columns
+    assert not [c for c in CANDIDATE_COLS if c != "stand_arrival_gap" and c in slim.columns]
+    assert visible_numeric_columns(slim, cfg) == visible_numeric_columns(f_tr, cfg)
+    assert slim.height == f_tr.height

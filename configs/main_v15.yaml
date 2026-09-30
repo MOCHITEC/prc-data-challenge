@@ -1,0 +1,47 @@
+# v15 = main_gap.yaml + the dead-column removal ONLY. C1 is NOT in this recipe.
+#
+# Why C1 is not here. C1 measured -0.29 [-0.55, -0.07] on the forward fold and clears the rule against
+# base, but every attempt to build it OOM-killed at 13.96-13.97 GB against a cgroup limit of 13,681 MB -
+# four times, including once with --skip-cv so that only the full-data refit ran. main_gap's own peak is
+# about 10.9 GB, so the headroom was 2.5 GB and C1's three columns exceed it. The source note recommends
+# building C1 without proxy_sec_in_min (non-zero on 93.9 % of rows, which is not what the mechanism
+# describes), and that would also cost less memory - but the -0.29 was measured WITH that column, so
+# shipping the two-column version here would mean shipping a configuration nobody has measured. It is
+# being measured separately instead.
+#
+# What IS here, and it is measured (results/dead-column-removal.md): precip_mm is 0.00 on 100 % of
+# 138,446 cached station-hours, the two temp_x_precip columns are products with it, and runway_null is a
+# separate constant. Pooled over [forward, jul_fwd], 518,722 rows: base -> drop -0.13 [-0.25, -0.02],
+# K=200 -0.14 [-0.28, -0.01], month bootstrap -0.13 [-0.17, -0.12] P=1.000. ADOPT on both gates.
+#
+# Its control is a REMOVAL, not an addition - dropping five LIVE columns costs +0.22 s and visibly moves
+# both models - so the instrument is not blind to a five-column removal, which is what makes "removing the
+# dead five does not hurt" a finding rather than an absence of one. Model B is bit-identical between base
+# and drop (0 of 6,943 unmatched rows differ, unmatched RMSE equal to six decimals), so the change
+# provably acts on model A alone. This adds no columns, so it adds no memory.
+name: main_v15
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+# es_holdout_encodings is OFF here, and the reason is memory, not doubt about the fix.
+# P2 Fix 1 re-encodes the early-stopping holdout and appends it to the same pl.concat, so the full-data
+# refit carries about 200,000 extra rows (+10 %). v14 ran at ~10.9 GB peak with 137 feature columns and
+# the flag off; this session's frame is 143 columns (C1's three are CANDIDATE_COLS and are computed
+# whatever include_candidates says, plus three weather columns), and with the flag on the build was
+# OOM-killed five times at 13.96-13.97 GB against a 13,681 MB cgroup limit - once with --skip-cv, so on
+# the refit alone. The flag's own measurement is +0.04 s [-0.06, +0.17], i.e. no predictive effect, so
+# turning it off for the build costs nothing measurable. It stays true in configs/main_gap.yaml.
+es_holdout_encodings: false
+include_candidates: [stand_arrival_gap]
+exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]

@@ -1,0 +1,33 @@
+# Memory probe: what a production build carrying the two-column C1 actually peaks at.
+#
+# This is configs/main_v15.yaml (the recipe that was built and submitted) with ONE change: the two C1
+# columns the mechanism is carried by are made visible to the model. `es_holdout_encodings` stays FALSE for
+# the reason main_v15.yaml gives at length - P2 Fix 1 re-encodes the ES holdout and appends it to the same
+# pl.concat, so the full-data refit carries ~200,000 extra rows, and that is what took the headroom away
+# when C1 was attempted before (five OOM kills at 13.96-13.97 GB against a 13,681 MB cgroup limit).
+#
+# It is run with --skip-cv (refit and predict only) and --out-dir pointed OUTSIDE outputs/, because its
+# only purpose is a measured peak. It is NOT a measured recipe: C1 was measured on the main_gap column set
+# (configs/c13_*.yaml, es_holdout_encodings true, the five dead columns still present), and the effect of
+# C1 on top of v15's dead-column removal has not been measured on any fold. Do not ship this file as it
+# stands - it is the memory answer, not the effect answer.
+#
+# `lgb_deterministic` is left at its default (True), as everywhere else.
+name: c13_refit_mem
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: false
+include_candidates: [stand_arrival_gap, proxy_at_mode, proxy_minus_mode_min]
+exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]
