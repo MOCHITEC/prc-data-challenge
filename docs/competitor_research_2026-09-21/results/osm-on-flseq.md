@@ -117,3 +117,92 @@ the same override would be `scripts/adsb_override_candidate.py --base outputs/ma
 Logs: `logs/main_flseq.log`, `logs/main_flseq_osm.log`, `logs/compare_osm.txt`,
 `logs/compare_osm_per_airport.txt` (all git-ignored). Records are in `experiments/experiments.jsonl` and
 `experiments/pipeline.jsonl`.
+
+## 7. Follow-up: OSM distance with LIRF nulled (`main_flseq_osm_nolirf`), POST HOC, REJECT (2026-09-30)
+
+**This variant is post hoc.** LIRF was chosen as the airport to exclude *after* section 4 showed the loss at LIRF.
+It was not pre-registered. Any gain it showed would be partly selected on the same OOF rows it is scored on, so
+it could not be read at face value. It shows no gain, so the question does not come up.
+
+- **Change.** New `TrainConfig.fe_osm_null_airports` (default `[]`). After `osm_stand_rwy_km` is computed, it is
+  set to null on rows whose `ADEP_mvt` is in the list (`prc.train.null_osm_at_airports`). It applies to the
+  training and target frames of every fold and to the full fit. The field is in `_HASH_OPTIONAL` at `[]`, so the
+  ids of existing configs do not change. `main_flseq` still hashes to `8615e6a194` and `main_flseq_osm` to
+  `bb204cd922` (tested). Setting the field without `fe_osm_dist` raises. `configs/main_flseq_osm_nolirf.yaml` =
+  `main_flseq_osm` + `fe_osm_null_airports: [LIRF]`.
+- **Check.** On `feat_train` the feature is non-null at LIRF on 99.0% of rows with the option off and 0.0% with
+  it on. Every other airport's column is identical.
+- **Run.** `main_flseq_osm_nolirf-926741d779` took 3,627 s. The cgroup's `memory.max_usage_in_bytes` afterwards
+  was 12.46 GB.
+
+### Folds
+
+| fold | main_flseq | main_flseq_osm | main_flseq_osm_nolirf | nolirf − flseq | matched (nolirf) | unmatched (nolirf) |
+|---|---:|---:|---:|---:|---:|---:|
+| jan | 342.16 | 343.14 | 342.54 | +0.38 | 201.52 | 2873.79 |
+| jul | 295.32 | 297.26 | 297.23 | +1.91 | 241.73 | 1227.62 |
+| jul_fwd | 308.29 | 308.29 | 308.66 | +0.37 | 250.24 | 1282.18 |
+| forward | 217.20 | 217.38 | 217.35 | +0.15 | 196.93 | 980.73 |
+| **overall** | **272.96** | **273.91** | **273.72** | **+0.76** | | |
+
+### `prc.compare` (main_flseq-8615e6a194 → main_flseq_osm_nolirf-926741d779, 672,428 rows)
+
+| dropped | A | B | diff | CI95 | P(B better) |
+|---:|---:|---:|---:|---|---:|
+| 0 | 272.96 | 273.72 | **+0.76** | **[+0.16, +1.38]** | 0.006 |
+| 20 | 229.21 | 229.28 | +0.06 | [−0.31, +0.51] | 0.386 |
+| 200 | 215.84 | 215.66 | **−0.19** | **[−0.39, +0.03]** | 0.942 |
+| 2000 | 192.81 | 192.52 | −0.29 | [−0.39, −0.18] | 1.000 |
+
+Month-level bootstrap (4 months): +0.76 s [−0.06, +1.55], P(B better) = 0.054.
+
+**VERDICT: REJECT.** The verdict line reads "B is worse on all rows: +0.76 s [+0.16, +1.38]".
+
+### Per airport (B − A, B = nolirf; ordered by share of squared disagreement)
+
+| airport | all rows n | all rows diff | CI95 | matched diff | CI95 | unmatched n | unmatched diff | CI95 |
+|---|---:|---:|---|---:|---|---:|---:|---|
+| LIRF | 49,924 | **+8.30** | [+4.27, +13.13] | −0.28 | [−0.80, +0.33] | 537 | **+108.49** | [+59.96, +163.87] |
+| LTFM | 91,338 | −0.94 | [−1.76, −0.34] | −0.58 | [−0.90, −0.29] | 1,297 | −12.43 | [−39.37, +3.98] |
+| LFPG | 78,036 | −0.15 | [−0.74, +0.18] | −0.33 | [−0.70, +0.03] | 1,565 | +0.18 | [−7.22, +2.52] |
+| EGLL | 79,633 | −0.33 | [−0.86, +0.15] | +0.06 | [−0.28, +0.42] | 647 | −11.39 | [−22.60, −0.04] |
+| EHAM | 79,639 | −0.75 | [−1.23, −0.35] | −0.15 | [−0.50, +0.12] | 1,353 | −12.98 | [−24.50, −6.03] |
+| LEMD | 70,732 | −0.80 | [−1.10, −0.52] | −0.57 | [−0.83, −0.30] | 416 | −22.74 | [−31.30, −13.69] |
+| EDDM | 51,688 | −0.75 | [−1.54, +0.01] | −0.12 | [−0.64, +0.31] | 402 | −21.01 | [−45.74, −2.96] |
+| EDDF | 72,276 | +0.04 | [−0.29, +0.42] | +0.38 | [+0.09, +0.68] | 787 | −12.90 | [−19.96, −7.06] |
+| LEBL | 56,153 | −0.78 | [−2.03, −0.00] | +0.05 | [−0.20, +0.29] | 652 | −37.95 | [−83.24, −5.43] |
+| LSZH | 43,009 | −1.31 | [−2.87, −0.05] | +0.13 | [−0.24, +0.49] | 722 | −26.08 | [−58.88, −5.53] |
+
+Pooled: matched lane −0.18 [−0.30, −0.06]. Unmatched lane +12.54 [+4.20, +24.80]. All rows except LIRF −0.51
+[−0.76, −0.29]. LIRF unmatched is 61.3% of the unmatched disagreement. The K=200 drop removes 151 unmatched and
+49 matched rows.
+
+Directly against `main_flseq_osm` (`logs/compare_osm_vs_nolirf.txt`): −0.19 s [−0.47, +0.02] at K=0 and −0.05
+[−0.16, +0.09] at K=200, which is no difference. LIRF unmatched is 3858.8 → 3845.8 (−13.09 [−31.26, +3.81]).
+
+### What the numbers say
+
+- Nulling the feature at LIRF does **not** remove the LIRF loss. LIRF's unmatched lane is still +108.5 s against
+  v16, compared with +121.6 s with the feature on at LIRF. So the loss does not come from LIRF's own OSM
+  distances. It comes from what the column does to the models through the other nine airports' rows: the shared
+  trees and the stopping points. LIRF's 537 unmatched rows carry large errors (RMSE about 3,700 s), so a small
+  change in the fit moves them a lot. This matches section 5 and the note in `main_flseq`'s config that a
+  signal-free column moves this model by about ±0.5 s. It is not a test of the noise-column hypothesis, which
+  would need its own control arm.
+- The matched lane improves slightly (−0.18 [−0.30, −0.06]; it was −0.09 [−0.21, +0.04] in section 4). The
+  whole-fold result is still decided by the LIRF unmatched cell.
+- Under the rule this is REJECT. The post-hoc exclusion does not rescue the feature.
+
+### The candidate file
+
+`outputs/main_flseq_osm_nolirf.parquet` (full fit, `fold_feature_cols: ['osm_stand_rwy_km']`, model A 1212 rounds,
+model B 108 features / 45 rounds), built as requested whatever the verdict. Validation against
+`data/raw/submitting.parquet`: 344,841 rows. Schema `{MVT_ID_mvt: Float64, TAXITIME_SEC_mvt: Int32}` equals the
+template. Ids and order equal the template. 0 nulls, 0 negatives, min 0, max 113,966.
+`python -m prc.validate_submission` prints OK, with only the usual >10,800 s max warning. Against
+`outputs/main_flseq.parquet` (v16): 334,299 rows differ, max abs diff 1,137 s, RMS difference 26.54 s. Against
+`outputs/main_flseq_osm.parquet`: 333,382 rows differ, max 1,036 s, RMS 24.78 s. It has no ADS-B override applied.
+Nothing was submitted.
+
+Logs (git-ignored): `logs/main_flseq_osm_nolirf.log`, `logs/compare_osm_nolirf.txt`,
+`logs/compare_osm_nolirf_per_airport.txt`, `logs/compare_osm_vs_nolirf.txt`.

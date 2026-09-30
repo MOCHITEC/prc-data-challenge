@@ -126,6 +126,7 @@ _HASH_OPTIONAL: dict = {
     "fe_noise_cols": 0,
     "fe_weather_v2": "",
     "fe_osm_dist": False,
+    "fe_osm_null_airports": [],
     "sim_unseen_stands": 0.0,
 }
 
@@ -288,6 +289,10 @@ class TrainConfig:
     # position to the threshold of the departure runway. The one stand descriptor defined for a stand the model
     # has never seen.
     fe_osm_dist: bool = False
+    # Airports (ADEP) where `osm_stand_rwy_km` is set to null after it is computed, so the model sees it as
+    # missing there. Empty (the default) changes nothing. Requires fe_osm_dist. Added for
+    # configs/main_flseq_osm_nolirf.yaml, whose LIRF exclusion was chosen after the LIRF result was seen (post hoc).
+    fe_osm_null_airports: list = field(default_factory=list)
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
@@ -303,6 +308,8 @@ class TrainConfig:
     cb_params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.fe_osm_null_airports and not self.fe_osm_dist:
+            raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
         if self.model == "lightgbm":
@@ -644,12 +651,27 @@ def _osm_tables() -> tuple[pl.DataFrame, pl.DataFrame]:
     return stand_table(fetch_osm_aeroway()), fetch_runway_ends()
 
 
-def osm_distance_features(df: pl.DataFrame) -> pl.DataFrame:
-    """Attach `osm_stand_rwy_km`. Label-free; the same two tables serve every fold and the ranking set."""
+def null_osm_at_airports(df: pl.DataFrame, airports) -> pl.DataFrame:
+    """Set `osm_stand_rwy_km` to null on rows whose ADEP is in `airports`. No airports: the frame is returned as is."""
+    if not airports:
+        return df
+    at = pl.col("ADEP_mvt").cast(pl.Utf8).is_in(list(airports)).fill_null(False)
+    return df.with_columns(
+        pl.when(at)
+        .then(None)
+        .otherwise(pl.col("osm_stand_rwy_km"))
+        .cast(df.schema["osm_stand_rwy_km"])
+        .alias("osm_stand_rwy_km")
+    )
+
+
+def osm_distance_features(df: pl.DataFrame, null_airports=()) -> pl.DataFrame:
+    """Attach `osm_stand_rwy_km`. Label-free; the same two tables serve every fold and the ranking set.
+    `null_airports` (TrainConfig.fe_osm_null_airports) blanks the column at those departure airports."""
     from .osm import add_stand_runway_distance
 
     stands, ends = _osm_tables()
-    return add_stand_runway_distance(df, stands, ends)
+    return null_osm_at_airports(add_stand_runway_distance(df, stands, ends), null_airports)
 
 
 def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
@@ -678,7 +700,8 @@ def add_fold_features(
     if cfg.fe_weather_v2:
         tr, tg = weather_v2_features(tr, cfg.fe_weather_v2), weather_v2_features(tg, cfg.fe_weather_v2)
     if cfg.fe_osm_dist:
-        tr, tg = osm_distance_features(tr), osm_distance_features(tg)
+        na = cfg.fe_osm_null_airports
+        tr, tg = osm_distance_features(tr, na), osm_distance_features(tg, na)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
     return tr, tg
 
