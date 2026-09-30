@@ -23,8 +23,10 @@ import adsb_learn_cv as CV
 import adsb_learn_features as L
 
 ROOT = L.s1.REPO_DIR
-OUT_FILE = ROOT + "outputs/hybrid_H2_adsb_learned.parquet"
-BASE_FILE = ROOT + "outputs/hybrid_H2.parquet"
+# `--base plainy` (see adsb_learn_cv.py): base outputs/hybrid_H2_plainy.parquet, CV json cv_plainy.json
+BASE_TAG = "H2" if CV.BASE_NAME == "h2" else "H2_" + CV.BASE_NAME
+OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
+BASE_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}.parquet"
 V20_FILE = ROOT + "outputs/v20_hybridH2_adsb.parquet"
 NO_CORR = ["LTFM"]  # section 0a
 
@@ -35,8 +37,9 @@ def q(x, qs=(0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99)):
 
 def main() -> None:
     L.mem_gate()
-    cvj = json.load(open(os.path.join(L.OUT, "cv.json")))
+    cvj = json.load(open(os.path.join(L.OUT, f"cv{CV.SFX}.json")))
     rounds = cvj["final_rounds"]
+    print(f"base = {BASE_FILE}; output = {OUT_FILE}")
     CV.head(f"S0  final fit: all 62 days, {rounds} rounds (median fold best iteration {cvj['best_iters']})")
     D = CV.load_labelled()
     F = pl.read_parquet(os.path.join(L.OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
@@ -46,8 +49,8 @@ def main() -> None:
     r = np.clip(D["y"].to_numpy() - D["b"].to_numpy(), -CV.CLIP_Y, CV.CLIP_Y)
     dtr = lgb.Dataset(X.select(feats).to_numpy().astype(np.float64), r, feature_name=feats, categorical_feature=cats)
     model = lgb.train(CV.PARAMS, dtr, num_boost_round=rounds)
-    model.save_model(os.path.join(L.OUT, "final_model.txt"))
-    print(f"trained on {D.height} ADS-B rows; model saved to {L.OUT}/final_model.txt")
+    model.save_model(os.path.join(L.OUT, f"final_model{CV.SFX}.txt"))
+    print(f"trained on {D.height} ADS-B rows; model saved to {L.OUT}/final_model{CV.SFX}.txt")
     c_in = np.clip(model.predict(X.select(feats).to_numpy().astype(np.float64)), -CV.CLIP_C, CV.CLIP_C)
     print("in-sample correction quantiles (reference only):", q(c_in))
 
@@ -105,7 +108,7 @@ def main() -> None:
     M = cand.rename({"TAXITIME_SEC_mvt": "new"}).join(S, on="MVT_ID_mvt").with_columns(
         (pl.col("new") - pl.col("base")).alias("delta"))
     ch = M.filter(pl.col("delta") != 0)
-    print(f"rows with an ADS-B feature row {G.height}; changed vs hybrid_H2 {ch.height} "
+    print(f"rows with an ADS-B feature row {G.height}; changed vs base ({os.path.basename(BASE_FILE)}) {ch.height} "
           f"({100 * ch.height / M.height:.2f} % of scored rows); max |delta| {ch['delta'].abs().max()}; "
           f"RMS delta over changed {float(np.sqrt((ch['delta'].cast(pl.Float64) ** 2).mean())):.1f} s")
     print("signed delta quantiles (changed rows):", q(ch["delta"].to_numpy()))
@@ -118,14 +121,20 @@ def main() -> None:
         pl.col("delta").abs().filter(pl.col("delta") != 0).median().alias("med_abs_changed"),
         pl.col("delta").abs().quantile(0.99).alias("p99_abs"), pl.col("delta").abs().max().alias("max_abs"))
         .sort("ADEP_mvt"))
-    cvr = pl.read_parquet(os.path.join(L.OUT, "cv_rows.parquet")).filter(pl.col("has"))
+    cvr = pl.read_parquet(os.path.join(L.OUT, f"cv_rows{CV.SFX}.parquet")).filter(pl.col("has"))
     print("per airport correction quantiles, 2025 CV vs 2026 production (p10 / p50 / p90):")
     for a in sorted(set(G["ADEP_mvt"].to_list())):
         x25 = cvr.filter(pl.col("ADEP_mvt") == a)["c_learned"].to_numpy()
         x26 = G.filter(pl.col("ADEP_mvt") == a)["c"].to_numpy()
         f = lambda x: "/".join(f"{np.quantile(x, p):.0f}" for p in (0.1, 0.5, 0.9)) if len(x) else "-"  # noqa: E731
         print(f"  {a}: 2025 n {len(x25):6d} {f(x25):>14s} | 2026 n {len(x26):6d} {f(x26):>14s}")
-    if os.path.exists(V20_FILE):
+    v21 = ROOT + "outputs/hybrid_H2_adsb_learned.parquet"
+    if CV.BASE_NAME != "h2" and os.path.exists(v21):
+        W = M.join(pl.read_parquet(v21).rename({"TAXITIME_SEC_mvt": "v21"}), on="MVT_ID_mvt")
+        dv = (W["new"] - W["v21"]).cast(pl.Float64)
+        print(f"vs {v21} (v21): rows differing {int((dv != 0).sum())}; RMS diff {float(np.sqrt((dv ** 2).mean())):.1f} s; "
+              f"max |diff| {int(dv.abs().max())}")
+    if CV.BASE_NAME == "h2" and os.path.exists(V20_FILE):
         v20 = pl.read_parquet(V20_FILE).rename({"TAXITIME_SEC_mvt": "v20"})
         W = M.join(v20, on="MVT_ID_mvt").with_columns((pl.col("v20") - pl.col("base")).alias("d_rule"))
         R = W.filter(pl.col("d_rule") != 0)
@@ -135,7 +144,7 @@ def main() -> None:
               f"RMS(new - v20) over all rows {float(np.sqrt(((W['new'] - W['v20']).cast(pl.Float64) ** 2).mean())):.1f} s")
     json.dump({"rounds": rounds, "n_train": D.height, "n_2026_adsb": G.height, "changed": ch.height,
                "negatives_reverted": neg.height, "checks": checks},
-              open(os.path.join(L.OUT, "apply.json"), "w"), indent=1)
+              open(os.path.join(L.OUT, f"apply{CV.SFX}.json"), "w"), indent=1)
 
 
 if __name__ == "__main__":

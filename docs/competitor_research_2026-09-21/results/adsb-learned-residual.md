@@ -231,3 +231,59 @@ export POLARS_MAX_THREADS=2 POLARS_UNKNOWN_EXTENSION_TYPE_BEHAVIOR=load_as_stora
 - `num_threads` = 2.
 
 Data: adsb.lol, Open Database License (ODbL) 1.0. "Contains data from adsb.lol, made available under the ODbL 1.0."
+
+## 5. Re-run on the `hybrid_H2_plainy` base (2026-09-30, after v21 scored 254.7657)
+
+**What changed and what did not.** The design is unchanged from section 0/0a: same features, hyperparameters and
+clipping, the same 5 day-folds and B = 2,000, and the same LTFM = 0 rule in production. Only the base is swapped.
+- `b` = the plainy OOF, following `plainy-blend.md`:
+  - matched lane: `0.5 × oof_main_flseq_osm_nolirf-926741d779 + 0.5 × oof_main_flseq_osm_nolirf_plainy-b971f4b81b`;
+  - unmatched lane: `oof_main_flseq-8615e6a194`.
+- It equals `$SCRATCH/exp/oof_hybrid_H2_plainy.parquet` on all 344,419 rows (max |diff| 0.0).
+- The plain run's jan/jul folds equal H2's.
+- Target `r = y − b`.
+- Commands: `adsb_learn_cv.py --base plainy` and `adsb_learn_apply.py --base plainy`. Logs:
+  `$SCRATCH/adsb/learn_cv_plainy.log` and `learn_apply_plainy.log`.
+
+**CV (344,419 rows, day-block bootstrap).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the plainy base | **8,608.9** | [7,590.5, 9,711.5] | 316.334 → **302.421** (−13.913) |
+| rule on the plainy base | 1,848.5 | [1,673.4, 2,047.1] | 316.334 → 313.399 (−2.935) |
+| paired: learned − rule | 6,760.4 | [5,803.0, 7,814.8] | |
+
+- The pre-registered rule gives **ADOPT** again.
+- Best iterations were 479, 249, 377, 397 and 113, so the final fit uses **377 rounds**.
+- Per-airport gains are within a few % of section 2. Every airport's learned CI excludes 0 except LTFM.
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| H2 | 316.966 |
+| plainy | 316.334 |
+| H2 + learned (section 2) | 302.935 |
+| **plainy + learned** | **302.421** |
+
+**(plainy + learned) − (H2 + learned) = −0.513 s, CI95 [−0.852, −0.184].** As MSE: 310.7 s² [109.6, 483.4] in
+favour of plainy + learned. Plainy's base advantage on these rows is −0.63 s. About 0.51 s of it survives the
+residual model.
+
+**Production file** `outputs/hybrid_H2_plainy_adsb_learned.parquet`. It is the final fit (286,008 rows, 62 days,
+377 rounds) applied to `outputs/hybrid_H2_plainy.parquet`, with c = 0 at LTFM. It is git-ignored and not
+submitted.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. **2 negatives were reverted to base.**
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 282,627 rows (81.96 %) are changed.
+  - Over the changed rows, the RMS change is 119.1 s, with median |Δ| 46 s, p90 175, p99 429 and max 1,614.
+  - The signed change quantiles are p1 −296, p10 −117, p50 −12, p90 +120 and p99 +365.
+  - The mean prediction goes from 1,039.02 to 1,033.35 s.
+  - The per-airport spread matches section 3, including the wider 2026 corrections at EGLL and LEMD.
+- **Against v21 (`hybrid_H2_adsb_learned`).** 330,283 rows differ, with RMS 29.6 s and max 1,902 s.
+- In the committed script, the log line "changed vs hybrid_H2" was relabelled "changed vs base". The count is
+  against `hybrid_H2_plainy`.
