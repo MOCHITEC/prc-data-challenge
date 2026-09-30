@@ -136,6 +136,7 @@ _HASH_OPTIONAL: dict = {
     "sim_unseen_stands": 0.0,
     "fe_opdi": False,
     "opdi_target_null_day_share": 0.0,
+    "fe_fl_rate_window": "",
     "matched_target": "anchored",
     # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
     "fe_plan_nm_taxi": False,
@@ -322,6 +323,11 @@ class TrainConfig:
     # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
     # way the January 2026 OPDI file has no flights on 10 of its 31 days.
     opdi_target_null_day_share: float = 0.0
+    # Measurement of the window mismatch in `fl_nm_rate_other` (docs/gm_research_2026-10-01/plan_time_consistency.md
+    # §C): the ranking frame is two months (Jan + Jul) and the training frame twelve, so the same rate is taken over
+    # ~30 other flights at prediction time and ~209 in training. "target" recomputes it on the TARGET side over
+    # the ranking's window shape (same year, months m and m +- 6); "both" does it on both sides. "" leaves it as is.
+    fe_fl_rate_window: str = ""
     # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
     # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
     # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
@@ -759,6 +765,62 @@ def data_dir_work():
     return data_dir() / "work"
 
 
+FL_RATE_KEY_COLS = ["MVT_ID_mvt", "ADEP_mvt", "FLIGHT_mvt", "FLIGHT_ID_mvt", "MVT_TIME_UTC_mvt"]
+
+
+def fl_rate_window_rates(frame: pl.DataFrame) -> pl.DataFrame:
+    """`fl_nm_rate_other` recomputed within (airport, flight number, year, month pair), where the month pair is
+    {m, m + 6}: the shape of the ranking frame (Jan + Jul of one year). The formula is prc.features_extra's."""
+    m = pl.col("FLIGHT_ID_mvt").is_not_null().cast(pl.Float64)
+    t = pl.col("MVT_TIME_UTC_mvt")
+    grp = ["ADEP_mvt", "FLIGHT_mvt", "_y", "_pair"]
+    n_other = pl.len().over(grp) - 1
+    return (
+        frame.select(FL_RATE_KEY_COLS)
+        .with_columns(m.alias("_m"), t.dt.year().alias("_y"), ((t.dt.month() - 1) % 6).alias("_pair"))
+        .with_columns(
+            pl.when(pl.col("FLIGHT_mvt").is_not_null() & (n_other > 0))
+            .then((pl.col("_m").sum().over(grp) - pl.col("_m")) / n_other)
+            .otherwise(None)
+            .cast(pl.Float32)
+            .alias("_fl_rate_w")
+        )
+        .select("MVT_ID_mvt", "_fl_rate_w")
+    )
+
+
+def fl_rate_window_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, mode: str, info: dict
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Replace `fl_nm_rate_other` by its ranking-window version on the target side ("target") or both ("both").
+
+    The rates are taken over the union of the two frames, so a validation month keeps its six-months-apart partner
+    whichever side of the fold that partner is on (the rate reads NM match flags, not labels). On the ranking frame
+    (Jan + Jul 2026 only) the recomputed value is the cached one."""
+    if mode not in ("target", "both"):
+        raise ValueError(f"fe_fl_rate_window must be '', 'target' or 'both', got {mode!r}")
+    u = pl.concat([tr.select(FL_RATE_KEY_COLS), tg.select(FL_RATE_KEY_COLS)], how="vertical_relaxed")
+    if u["MVT_ID_mvt"].n_unique() != u.height:
+        raise AssertionError("fl_rate_window: MVT_ID_mvt is not unique across the two frames")
+    rates = fl_rate_window_rates(u)
+
+    def swap(f: pl.DataFrame, side: str) -> pl.DataFrame:
+        out = f.join(rates, on="MVT_ID_mvt", how="left", maintain_order="left")
+        if out.height != f.height:
+            raise AssertionError("fl_rate_window changed the row count")
+        old = out["fl_nm_rate_other"].cast(pl.Float64)
+        info[f"fl_rate_window_{side}_mean_abs_change"] = float(
+            (out["_fl_rate_w"].cast(pl.Float64) - old).abs().mean() or 0.0
+        )
+        return out.with_columns(pl.col("_fl_rate_w").alias("fl_nm_rate_other")).drop("_fl_rate_w")
+
+    tg = swap(tg, "target")
+    if mode == "both":
+        tr = swap(tr, "train")
+    info["fl_rate_window"] = mode
+    return tr, tg
+
+
 def day_null_mask(df: pl.DataFrame, share: float) -> np.ndarray:
     """True on rows whose take-off date (UTC) falls in the `share` of days picked by CRC32 of 'YYYY-MM-DD'."""
     import zlib
@@ -810,6 +872,8 @@ def add_fold_features(
         tr, tg = osm_distance_features(tr, na), osm_distance_features(tg, na)
     if cfg.fe_opdi:
         tr, tg = opdi_features(tr), opdi_features(tg, cfg.opdi_target_null_day_share)
+    if cfg.fe_fl_rate_window:
+        tr, tg = fl_rate_window_features(tr, tg, cfg.fe_fl_rate_window, info)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
     return tr, tg
 
@@ -1366,6 +1430,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         or cfg.fe_weather_v2
         or cfg.fe_osm_dist
         or cfg.fe_opdi
+        or cfg.fe_fl_rate_window
     ):
         tr, tg = add_fold_features(tr, tg, cfg, info)
 
