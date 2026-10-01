@@ -47,3 +47,11 @@
 fold 別（M → F）: jan +0.77、jul −4.24、jul_fwd −2.65、forward −0.08。未マッチ行 1,595 → 1,581。
 LB での確認: F の全データ再学習（`--skip-cv`）を v16（= `main_flseq`、LB 279.259）と比べる。差は `fl_nm_rate_other` の
 学習側の窓だけ。
+
+## C の LB 確認（2026-10-01）: **v26 = 278.8726（v16 = 279.259 より −0.39 s）→ 効果あり**
+
+v26 = `flwin_both` の全データ再学習。v16（`main_flseq`）との違いは学習行の `fl_nm_rate_other` の窓だけ（ランキング側の値は同じ:
+再学習の記録で target 側の変化 0.0）。CV の見込み（M → F）−1.13 s のうち約 34 % が LB に乗った（v16 自体は CV −4.6 s → LB −0.26 s、約 6 %）。
+
+**本番（v23）への組み込み**: v23 のメンバー（osm_nolirf 系、plain-y、CatBoost）はすべて `fl_nm_rate_other` を使っているので、
+同じ `fe_fl_rate_window: both` を各メンバーに入れ、ADS-B の残差を作り直す必要がある（もう一方の AI の担当範囲）。
