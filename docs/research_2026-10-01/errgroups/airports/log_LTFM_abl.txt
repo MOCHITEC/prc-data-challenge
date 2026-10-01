@@ -1,0 +1,5 @@
+LTFM S0 trained on 223438
+LTFM S1day trained on 223438
+LTFM S1win trained on 223438
+LTFM S1arr trained on 223438
+LTFM S1chg trained on 223438

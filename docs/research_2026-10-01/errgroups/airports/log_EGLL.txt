@@ -1,0 +1,5 @@
+EGLL S0 trained on 198388
+S1 regime gain ranks: [(24, 'rg_day_own_share', np.float64(0.29)), (37, 'rg_min_since_cfgchg', np.float64(0.18)), (38, 'rg_min_until_cfgchg', np.float64(0.18)), (50, 'rg_arr_share_on_own', np.float64(0.1)), (60, 'rg_arr_on_own_pm30', np.float64(0.06)), (74, 'rg_own_share_past30', np.float64(0.03)), (77, 'rg_share_change', np.float64(0.02)), (78, 'rg_own_share_pm30', np.float64(0.01)), (79, 'rg_own_share_fut30', np.float64(0.01)), (80, 'rg_day_n_dep_rwy', np.float64(0.01)), (81, 'rg_n_arr_rwy_pm30', np.float64(0.0)), (82, 'rg_n_dep_rwy_pm30', np.float64(0.0))]
+EGLL S1 trained on 198388
+EGLL SN trained on 198388
+EGLL S0w trained on 198388
