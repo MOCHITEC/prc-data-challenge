@@ -137,6 +137,7 @@ _HASH_OPTIONAL: dict = {
     "fe_opdi": False,
     "opdi_target_null_day_share": 0.0,
     "fe_fl_rate_window": "",
+    "season_weight": 0.0,
     "matched_target": "anchored",
     # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
     "fe_plan_nm_taxi": False,
@@ -328,6 +329,10 @@ class TrainConfig:
     # ~30 other flights at prediction time and ~209 in training. "target" recomputes it on the TARGET side over
     # the ranking's window shape (same year, months m and m +- 6); "both" does it on both sides. "" leaves it as is.
     fe_fl_rate_window: str = ""
+    # GM #5 (docs/gm_research_2026-10-01/plan_season_weight.md): training rows within one calendar month of a
+    # month the fold predicts get weight 1 + season_weight in both lanes' fits (the inner holdout stays unweighted).
+    # 0.0 = off, and then no weight is passed at all.
+    season_weight: float = 0.0
     # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
     # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
     # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
@@ -765,6 +770,14 @@ def data_dir_work():
     return data_dir() / "work"
 
 
+def season_weights(tr: pl.DataFrame, tg: pl.DataFrame, extra: float) -> pl.Series:
+    """1 + extra for training rows whose calendar month is within one month (circularly) of a month in `tg`."""
+    targets = set(tg["MVT_TIME_UTC_mvt"].dt.month().unique().drop_nulls().to_list())
+    near = {((t - 1 + d) % 12) + 1 for t in targets for d in (-1, 0, 1)}
+    m = tr["MVT_TIME_UTC_mvt"].dt.month()
+    return pl.Series("_w_season", np.where(m.is_in(sorted(near)).to_numpy(), 1.0 + extra, 1.0))
+
+
 FL_RATE_KEY_COLS = ["MVT_ID_mvt", "ADEP_mvt", "FLIGHT_mvt", "FLIGHT_ID_mvt", "MVT_TIME_UTC_mvt"]
 
 
@@ -884,7 +897,8 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     This used to be decided inside predict_fold while feature_parity_report reimplemented part of it, and the
     two drifted: the parity gate reported on columns the model never sees. The same duplication is what let v6
     ship nine screening columns."""
-    cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month")]
+    # `_w_season` is season_weight's per-row weight, never a feature.
+    cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month", "_w_season")]
     hidden = set(CANDIDATE_COLS) - set(cfg.include_candidates) | set(cfg.exclude_features)
     if not cfg.fe_arr_fill:
         hidden |= set(ARR_FILL_COLS)
@@ -1079,12 +1093,14 @@ def _fit(
     # filtering the frame twice (each filter copies every column of a multi-million-row frame).
     a, b = offs[0]
     y = target_expr(train)
+    w = train["_w_season"].to_numpy().astype(float) if cfg.season_weight > 0 and "_w_season" in train.columns else None
     rounds = cfg.num_rounds
     if 0 < n_hold < train.height:
         Xtrain = Xall[a:b]
         # A view into the stack when Fix 1 is on, the fancy-indexed copy it always was when it is off.
         Xhold = Xall[offs[-1][0] : offs[-1][1]] if es_block is not None else Xtrain[hold]
-        dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], categorical_feature=cat_idx, params=params)
+        w_tr = w[~hold] if w is not None else None
+        dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], weight=w_tr, categorical_feature=cat_idx, params=params)
         dva = lgb.Dataset(Xhold, label=y[hold], categorical_feature=cat_idx, reference=dtr)
         booster = lgb.train(
             params,
@@ -1098,7 +1114,7 @@ def _fit(
         rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
         del dtr, dva, booster, Xtrain, Xhold  # the fancy-indexed copies are the peak of this function
 
-    dfull = lgb.Dataset(Xall[a:b], label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
+    dfull = lgb.Dataset(Xall[a:b], label=y, weight=w, categorical_feature=cat_idx, free_raw_data=False, params=params)
     # Refit under each seed and average. One seed is the default, and then this is the single fit it was before.
     acc = [np.zeros(e - s) for (s, e) in offs[1 : 1 + n_pred]]
     for k in range(max(1, cfg.n_seeds)):
@@ -1442,6 +1458,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     es_a = _es_encoder(train_f, cfg, es_stats_a) if cfg.es_holdout_encodings else None
     es_b = _es_encoder(train_f, cfg, es_stats_b) if cfg.es_holdout_encodings else None
 
+    if cfg.season_weight > 0:
+        if cfg.model != "lightgbm":
+            raise ValueError("season_weight is implemented for the LightGBM fitter only")
+        tr = tr.with_columns(season_weights(tr, tg, cfg.season_weight).alias("_w_season"))
+        info["season_weight_upweighted_share"] = float((tr["_w_season"] > 1).mean())
     num_cols = visible_numeric_columns(tr, cfg)
     cat_cols = (
         [c for c in CATEGORICALS if c in tr.columns and c not in set(cfg.exclude_features)]
