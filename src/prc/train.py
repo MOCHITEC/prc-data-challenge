@@ -139,6 +139,7 @@ _HASH_OPTIONAL: dict = {
     "fe_fl_rate_window": "",
     "season_weight": 0.0,
     "matched_target_clip": 0.0,
+    "fe_seq_window": "",
     "matched_target": "anchored",
     # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
     "fe_plan_nm_taxi": False,
@@ -337,6 +338,11 @@ class TrainConfig:
     # GM #3 (docs/gm_research_2026-10-01/plan_clipped_member.md): model A's anchored training target g is clipped
     # to +- this many seconds, so the member predicts the body and leaves the tail to a stacker. 0.0 = off.
     matched_target_clip: float = 0.0
+    # The same window mismatch for the seq_* family (per-runway headway percentiles, bursts, neighbours) and
+    # fl_nm_rate_other together (plan_time_consistency.md §D): the values recomputed over each 2025 month pair
+    # {m, m + 6} by docs/gm_research_2026-10-01/build_seq_windows.py replace the cached ones on the target side
+    # ("target") or both ("both"). Rows the window cache does not have (the ranking frame) keep theirs.
+    fe_seq_window: str = ""
     # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
     # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
     # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
@@ -838,6 +844,44 @@ def fl_rate_window_features(
     return tr, tg
 
 
+@functools.lru_cache(maxsize=1)
+def _seq_window_table() -> pl.DataFrame:
+    path = data_dir_work() / "seq_window.parquet"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} is missing: run docs/gm_research_2026-10-01/build_seq_windows.py first")
+    return pl.read_parquet(path)
+
+
+def seq_window_features(tr: pl.DataFrame, tg: pl.DataFrame, mode: str, info: dict) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Replace the seq_* columns and fl_nm_rate_other by their month-pair-window values (see fe_seq_window)."""
+    if mode not in ("target", "both"):
+        raise ValueError(f"fe_seq_window must be '', 'target' or 'both', got {mode!r}")
+    w = _seq_window_table()
+    cols = [c[: -len("__w")] for c in w.columns if c.endswith("__w")]
+
+    def swap(f: pl.DataFrame, side: str) -> pl.DataFrame:
+        present = [c for c in cols if c in f.columns]
+        out = f.join(
+            w.select("MVT_ID_mvt", *[f"{c}__w" for c in present]), on="MVT_ID_mvt", how="left", maintain_order="left"
+        )
+        if out.height != f.height:
+            raise AssertionError("seq_window changed the row count")
+        info[f"seq_window_{side}_rows_in_cache"] = float(out["MVT_ID_mvt"].is_in(w["MVT_ID_mvt"].implode()).mean())
+        in_cache = out["MVT_ID_mvt"].is_in(w["MVT_ID_mvt"].implode())
+        return out.with_columns(
+            [
+                pl.when(in_cache).then(pl.col(f"{c}__w")).otherwise(pl.col(c)).cast(out[c].dtype).alias(c)
+                for c in present
+            ]
+        ).drop([f"{c}__w" for c in present])
+
+    tg = swap(tg, "target")
+    if mode == "both":
+        tr = swap(tr, "train")
+    info["seq_window"] = mode
+    return tr, tg
+
+
 def day_null_mask(df: pl.DataFrame, share: float) -> np.ndarray:
     """True on rows whose take-off date (UTC) falls in the `share` of days picked by CRC32 of 'YYYY-MM-DD'."""
     import zlib
@@ -891,6 +935,8 @@ def add_fold_features(
         tr, tg = opdi_features(tr), opdi_features(tg, cfg.opdi_target_null_day_share)
     if cfg.fe_fl_rate_window:
         tr, tg = fl_rate_window_features(tr, tg, cfg.fe_fl_rate_window, info)
+    if cfg.fe_seq_window:
+        tr, tg = seq_window_features(tr, tg, cfg.fe_seq_window, info)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
     return tr, tg
 
@@ -1451,6 +1497,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         or cfg.fe_osm_dist
         or cfg.fe_opdi
         or cfg.fe_fl_rate_window
+        or cfg.fe_seq_window
     ):
         tr, tg = add_fold_features(tr, tg, cfg, info)
 

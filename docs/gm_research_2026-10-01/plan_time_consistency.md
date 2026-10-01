@@ -55,3 +55,16 @@ v26 = `flwin_both` の全データ再学習。v16（`main_flseq`）との違い�
 
 **本番（v23）への組み込み**: v23 のメンバー（osm_nolirf 系、plain-y、CatBoost）はすべて `fl_nm_rate_other` を使っているので、
 同じ `fe_fl_rate_window: both` を各メンバーに入れ、ADS-B の残差を作り直す必要がある（もう一方の AI の担当範囲）。
+
+## D. seq 系にも同じずれの修正を広げる — 事前登録（2026-10-01、測定前）
+
+C の結果（M → F で ADOPT、LB −0.39 s）を受けて、同じくフレームの中で計算される seq 系（滑走路ごとの間隔の 5 パーセンタイル
+`seq_hw_prev_pairq` と、それから作る `seq_hw_excess`・burst 系、近傍の列）に広げる。
+
+- 窓の値: `build_seq_windows.py` が 2025 年の月の組 {m, m + 6} ごとに `mask_departures` + `extra_context_features` +
+  `flight_features` を回す（ランキングのフレームと同じ 2 か月の形。月の境目の扱いもランキングと同じになる）。
+  main_flseq が使う seq の 18 列と `fl_nm_rate_other` を置き換える。
+- 群: M2 = `main_flseq` ＋ `fe_seq_window: target`、F2 = `main_flseq` ＋ `fe_seq_window: both`。4 fold。
+- **採用候補** = `prc.compare M2 F2` が ADOPT。
+- 参考: `prc.compare M M2`（検証側で seq も窓にしたときの費用。M と M2 は学習側が同じ）。
+- LB: F2 が採用候補なら F2 の全データ再学習を提出し、v26（= F）と比べる。

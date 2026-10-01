@@ -69,3 +69,19 @@ def test_bad_mode_is_refused_and_the_flag_is_off_by_default():
     with pytest.raises(ValueError):
         fl_rate_window_features(_frame(_rows()), _frame(_rows()), "train", {})
     assert TrainConfig().fe_fl_rate_window == ""
+
+
+def test_seq_window_swaps_cached_rows_only_and_keeps_dtypes(monkeypatch):
+    import prc.train as T
+
+    w = pl.DataFrame({"MVT_ID_mvt": [1.0, 2.0], "seq_burst_len__w": [5.0, 6.0], "fl_nm_rate_other__w": [0.5, 0.25]})
+    monkeypatch.setattr(T, "_seq_window_table", lambda: w)
+    f = _frame(_rows()).with_columns(pl.lit(1.0, dtype=pl.Float32).alias("seq_burst_len"))
+    tr, tg = f.filter(pl.col("MVT_ID_mvt") > 1), f.filter(pl.col("MVT_ID_mvt") <= 1)
+    info: dict = {}
+    tr1, tg1 = T.seq_window_features(tr, tg, "target", info)
+    assert tg1["seq_burst_len"].to_list() == [5.0] and tg1["fl_nm_rate_other"].to_list() == [0.5]
+    assert tr1.equals(tr) and tg1.schema == tg.schema
+    tr2, _ = T.seq_window_features(tr, tg, "both", {})
+    assert tr2["seq_burst_len"].to_list() == [6.0, 1.0, 1.0, 1.0, 1.0]  # only id 2 is in the window cache
+    assert TrainConfig().fe_seq_window == ""
