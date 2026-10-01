@@ -1,0 +1,81 @@
+OOF unmatched rows 8,378; mean dSE -48307 s^2; top-20 rows carry 30.2% of |dSE|
+expected LB change under the CV rows, at the 2026 airport mix: -1.514 s
+bootstrap of a 5,290-row unmatched LB sample: median -1.489, 95% [-2.479, -0.648], P(delta >= +0.21) = 0.000, P(delta > 0) = 0.000
+  EHAM: 2026 rows  1206  OOF rows  1353  mean dSE     -13866  -> LB contribution -0.089 s
+  LFPG: 2026 rows   734  OOF rows  1565  mean dSE      -9484  -> LB contribution -0.037 s
+  LTFM: 2026 rows   721  OOF rows  1297  mean dSE      -3600  -> LB contribution -0.014 s
+  LSZH: 2026 rows   659  OOF rows   722  mean dSE        -94  -> LB contribution -0.000 s
+  LEBL: 2026 rows   442  OOF rows   652  mean dSE      -6353  -> LB contribution -0.015 s
+  EDDF: 2026 rows   421  OOF rows   787  mean dSE      -5508  -> LB contribution -0.012 s
+  LIRF: 2026 rows   383  OOF rows   537  mean dSE    -640277  -> LB contribution -1.308 s
+  EGLL: 2026 rows   248  OOF rows   647  mean dSE     -14292  -> LB contribution -0.019 s
+  EDDM: 2026 rows   238  OOF rows   402  mean dSE     -13248  -> LB contribution -0.017 s
+  LEMD: 2026 rows   238  OOF rows   416  mean dSE      +1213  -> LB contribution +0.002 s
+
+== LIRF unmatched OOF rows: where the 2025 gain sits ==
+shape: (4, 4)
+┌─────┬─────┬───────────┬──────────────┐
+│ mo  ┆ len ┆ sum_dse   ┆ share_better │
+│ --- ┆ --- ┆ ---       ┆ ---          │
+│ i8  ┆ u32 ┆ f64       ┆ f64          │
+╞═════╪═════╪═══════════╪══════════════╡
+│ 1   ┆ 60  ┆ -5.0463e7 ┆ 0.566667     │
+│ 7   ┆ 337 ┆ -2.3470e8 ┆ 0.540059     │
+│ 11  ┆ 52  ┆ -2.4287e7 ┆ 0.538462     │
+│ 12  ┆ 88  ┆ -3.4383e7 ┆ 0.602273     │
+└─────┴─────┴───────────┴──────────────┘
+shape: (5, 6)
+┌──────────┬─────┬───────────┬──────────────┬──────────────┬─────────────┐
+│ yband    ┆ len ┆ sum_dse   ┆ pred_base    ┆ pred_mix     ┆ y           │
+│ ---      ┆ --- ┆ ---       ┆ ---          ┆ ---          ┆ ---         │
+│ str      ┆ u32 ┆ f64       ┆ f64          ┆ f64          ┆ f64         │
+╞══════════╪═════╪═══════════╪══════════════╪══════════════╪═════════════╡
+│ a <30m   ┆ 272 ┆ -1.4948e8 ┆ 3361.074501  ┆ 3322.745014  ┆ 1024.529412 │
+│ b 30-60m ┆ 24  ┆ 2.2725e6  ┆ 4885.030054  ┆ 4716.269731  ┆ 2375.833333 │
+│ c 1-3h   ┆ 172 ┆ -1.0550e8 ┆ 5833.33416   ┆ 5897.048564  ┆ 7105.209302 │
+│ d 3-12h  ┆ 54  ┆ 1.0354e7  ┆ 18019.288936 ┆ 17931.086217 ┆ 19407.87037 │
+│ e >12h   ┆ 15  ┆ -1.0148e8 ┆ 61156.594542 ┆ 61748.876165 ┆ 69995.8     │
+└──────────┴─────┴───────────┴──────────────┴──────────────┴─────────────┘
+most-improved rows:
+ shape: (15, 6)
+┌─────┬──────────────────┬──────────────┬──────────────┬───────────┬─────────────────┐
+│ mo  ┆ TAXITIME_SEC_mvt ┆ a            ┆ m            ┆ dse       ┆ mvt_minus_sched │
+│ --- ┆ ---              ┆ ---          ┆ ---          ┆ ---       ┆ ---             │
+│ i8  ┆ i32              ┆ f64          ┆ f64          ┆ f64       ┆ f64             │
+╞═════╪══════════════════╪══════════════╪══════════════╪═══════════╪═════════════════╡
+│ 1   ┆ 87177            ┆ 61490.134273 ┆ 62562.684617 ┆ -5.3951e7 ┆ 60118.0         │
+│ 7   ┆ 87186            ┆ 59919.762293 ┆ 60496.04087  ┆ -3.1094e7 ┆ 58563.0         │
+│ 11  ┆ 710              ┆ 9163.301083  ┆ 7193.496156  ┆ -2.9423e7 ┆ 11335.0         │
+│ 7   ┆ 87361            ┆ 67743.19731  ┆ 68443.563896 ┆ -2.6989e7 ┆ 73260.0         │
+│ 7   ┆ 1377             ┆ 20081.562236 ┆ 19527.937394 ┆ -2.0404e7 ┆ 20878.0         │
+│ …   ┆ …                ┆ …            ┆ …            ┆ …         ┆ …               │
+│ 7   ┆ 650              ┆ 9375.634323  ┆ 8672.517782  ┆ -1.1776e7 ┆ 14035.0         │
+│ 7   ┆ 842              ┆ 9840.583333  ┆ 9213.581477  ┆ -1.0891e7 ┆ 15361.0         │
+│ 12  ┆ 9848             ┆ 3251.168578  ┆ 4110.557808  ┆ -1.0600e7 ┆ 9844.0          │
+│ 7   ┆ 959              ┆ 12969.502827 ┆ 12536.725618 ┆ -1.0208e7 ┆ 14339.0         │
+│ 7   ┆ 7682             ┆ 3789.643792  ┆ 5190.432927  ┆ -8.9425e6 ┆ 1381.0          │
+└─────┴──────────────────┴──────────────┴──────────────┴───────────┴─────────────────┘
+top-15 rows' share of LIRF sum dSE: 0.8326825524547504
+
+mvt_minus_sched quantiles (10/25/50/75/90/99):
+  2025 LIRF unmatched (all 12 months):     4561     5337     6657     9241    13281    55105
+  2025 Jan+Jul                        :     4655     5457     6781     9900    15035    60291
+  2026 ranking                        :     4149     5398     6955     9723    15793    57264
+rows per month: 2025 Jan/Jul [{'MVT_TIME_UTC_mvt': 1, 'len': 60}, {'MVT_TIME_UTC_mvt': 7, 'len': 337}]  2026 [{'MVT_TIME_UTC_mvt': 1, 'len': 107}, {'MVT_TIME_UTC_mvt': 7, 'len': 276}]
+prediction change mix-ctl quantiles: OOF     -441     -227      -21      204      476     1239  | 2026     -331     -184      -10      142      375     1279
+base prediction quantiles: OOF     1735     2634     4318     7154    12130    61058  | 2026     2461     3338     4671     7570    12494    57982
+
+== 2026: how many rows can decide it ==
+observed LB dSSE = +3.945e+07 s^2 (+0.21 s)
+  if the worst rows' labels sit   5000 s from v20's prediction, the 3 rows with the largest |change| alone can produce the observed dSSE
+  if the worst rows' labels sit  20000 s from v20's prediction, the 1 rows with the largest |change| alone can produce the observed dSSE
+  if the worst rows' labels sit  50000 s from v20's prediction, the 1 rows with the largest |change| alone can produce the observed dSSE
+rows v20 predicts > 12 h (all LIRF): [{'a': 48168, 'm': 49582, 'dp': 1414.0}, {'a': 48720, 'm': 49627, 'dp': 907.0}, {'a': 48909, 'm': 50396, 'dp': 1487.0}, {'a': 49007, 'm': 50436, 'dp': 1429.0}, {'a': 49309, 'm': 49896, 'dp': 587.0}, {'a': 55478, 'm': 56704, 'dp': 1226.0}, {'a': 57025, 'm': 57980, 'dp': 955.0}, {'a': 62343, 'm': 63806, 'dp': 1463.0}, {'a': 63058, 'm': 64112, 'dp': 1054.0}, {'a': 89051, 'm': 89992, 'dp': 941.0}, {'a': 113641, 'm': 114656, 'dp': 1015.0}]
+share of |dp| mass in those 11 rows: 0.047
+
+== OOF: mix255 restricted by the base prediction (unmatched rows only) ==
+    all unmatched (as submitted): rows changed  8378  full -1.105  K=200 -0.178
+                base pred < 12 h: rows changed  8363  full -0.849  K=200 -0.167
+                 base pred < 3 h: rows changed  8312  full -0.815  K=200 -0.150
+                        not LIRF: rows changed  7841  full -0.166  K=200 -0.076
+                       LIRF only: rows changed   537  full -0.938  K=200 -0.035
