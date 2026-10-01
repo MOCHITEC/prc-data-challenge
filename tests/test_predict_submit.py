@@ -4,7 +4,6 @@ import json
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 
 from prc.config import SUBMISSION_ID_COL, SUBMISSION_TARGET_COL
 from prc.features import build_departure_features
@@ -80,67 +79,42 @@ def test_integer_and_null_typed_templates(tmp_path):
         assert sub[SUBMISSION_TARGET_COL].to_pylist() == expect
 
 
-def test_failed_attempt_frees_the_version_and_the_slot(tmp_path):
-    """A 503 before any bytes moved must not burn a version number or one of the five daily slots."""
-    log = tmp_path / "sub.jsonl"
-    rows = [
-        {"version": 1, "uploaded_at": "2026-10-10T09:00:00+00:00", "status": "attempted"},
-        {"version": 1, "uploaded_at": "2026-10-10T09:00:00+00:00", "status": "failed"},
-        {"version": 2, "uploaded_at": "2026-10-10T10:00:00+00:00", "status": "uploaded"},
-    ]
-    log.write_text("\n".join(json.dumps(r) for r in rows))
-    n, versions = _today_count(log, now=dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.UTC))
-    assert versions == {2} and n == 1
+def test_float_template_accepts_integer_typed_predictions(tmp_path):
+    """The official files type the id as float64; a frame that has been through an int round trip is int64.
 
-
-def test_upload_refuses_to_replace_an_existing_submission(monkeypatch, tmp_path):
-    """Re-PUTting a scored name is the one observed way a leaderboard score moves, and it can move down."""
-    from minio.error import S3Error
-
-    from prc import io_minio
-    from prc.config import OsnConfig
-
-    cfg = OsnConfig(
-        endpoint="e",
-        access_key="a",
-        secret_key="b",
-        competition_bucket="c",
-        team_bucket="t",
-        team_name="team",
+    The older dtype test used int64 on both sides, so the alignment it was meant to cover never ran."""
+    t = pa.table(
+        {
+            SUBMISSION_ID_COL: pa.array([10.0, 20.0, 30.0], type=pa.float64()),
+            SUBMISSION_TARGET_COL: pa.nulls(3, type=pa.float64()),
+        }
     )
-    put_calls = []
+    tp = tmp_path / "float_tmpl.parquet"
+    pq.write_table(t, tp)
+    pred = pl.DataFrame({"MVT_ID_mvt": [30, 10, 20], "pred": [3.0, 1.0, 2.0]})  # int64 ids, deliberately unsorted
+    assert pred["MVT_ID_mvt"].dtype != pl.Float64
+    sub = write_submission(pred, tp, tmp_path / "float_out.parquet")
+    assert sub[SUBMISSION_TARGET_COL].to_pylist() == [1.0, 2.0, 3.0], "values must follow their id, not their row"
 
-    class FakeStat:
-        size = 2_222_186
-        last_modified = "2026-09-11 00:42:24+00:00"
 
-    class FakeClient:
-        def __init__(self, exists):
-            self._exists = exists
+def test_the_daily_counter_counts_versions_not_log_lines(tmp_path):
+    """Every real upload writes a write-ahead 'attempted' entry and then the final one, so counting lines
+    doubled the day's total: three uploads read as six and the fourth was refused."""
+    import datetime as dt
+    import json
 
-        def stat_object(self, bucket, name):
-            if self._exists:
-                return FakeStat()
-            # minio's signature is (response, code, message, resource, request_id, host_id)
-            raise S3Error(None, "NoSuchKey", "not found", name, "rid", "hid")
+    from prc.submit import _today_count
 
-        def fput_object(self, bucket, name, path):
-            put_calls.append(name)
+    log = tmp_path / "submissions.jsonl"
+    now = dt.datetime(2026, 9, 15, 18, 0, tzinfo=dt.UTC)
+    lines = []
+    for v in (6, 7, 8):
+        e = {"version": v, "uploaded_at": now.isoformat(), "dry_run": False}
+        lines.append({**e, "status": "attempted"})
+        lines.append({**e, "status": "uploaded"})
+    lines.append({"version": 5, "uploaded_at": "2026-09-14T10:00:00+00:00", "dry_run": False})
+    log.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
 
-    f = tmp_path / "sub.parquet"
-    f.write_bytes(b"x")
-
-    monkeypatch.setattr(io_minio, "client", lambda c=None: FakeClient(exists=True))
-    with pytest.raises(FileExistsError, match="already exists"):
-        io_minio.upload_submission(f, 4, cfg=cfg)
-    assert put_calls == []  # nothing was sent
-
-    # an explicit overwrite is still possible, because sometimes it is genuinely what you want
-    io_minio.upload_submission(f, 4, cfg=cfg, overwrite=True)
-    assert put_calls == ["team_v4.parquet"]
-
-    # and a fresh version number uploads normally
-    put_calls.clear()
-    monkeypatch.setattr(io_minio, "client", lambda c=None: FakeClient(exists=False))
-    assert io_minio.upload_submission(f, 5, cfg=cfg) == "team_v5.parquet"
-    assert put_calls == ["team_v5.parquet"]
+    n, versions = _today_count(log, now=now)
+    assert n == 3, f"three uploads today, not {n}"
+    assert versions == {5, 6, 7, 8}

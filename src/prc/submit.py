@@ -1,5 +1,5 @@
 """Upload a validated submission with guard rails: daily counter, version uniqueness, mandatory log entry.
-Never uploads probes: the caller must pass the experiment id and local CV numbers (docs/04 §8)."""
+Never uploads probes: the caller must pass the experiment id and local CV numbers (docs/README)."""
 
 from __future__ import annotations
 
@@ -22,35 +22,33 @@ BRUSSELS = ZoneInfo("Europe/Brussels")  # the organisers state the deadline in C
 def _today_count(log: Path, now: dt.datetime | None = None) -> tuple[int, set[int]]:
     """Real uploads counted today, plus the versions already used.
 
-    The daily quota's time zone is undocumented (docs/01 U9), so count on the UTC day and on the Brussels day
+    The daily quota's time zone is undocumented (docs/README), so count on the UTC day and on the Brussels day
     and take the larger - the safe side. Dry runs consume neither the quota nor a version number."""
     now = now or dt.datetime.now(dt.UTC)
+    versions: set[int] = set()
     if not log.exists():
-        return 0, set()
-    # Keep the last record per version: an attempt that ended in "failed" created no object, so it consumes
-    # neither the version name nor a slot of the daily quota.
-    last: dict[int, dict] = {}
+        return 0, versions
+    # Count versions, not lines. Every real upload writes twice - a write-ahead "attempted" entry and the
+    # final one - so counting lines doubled the day's total and refused the fourth submission of the day as
+    # the seventh. The write-ahead entry is the point of the design, so the counter is what had to change.
+    utc_versions: set[int] = set()
+    cet_versions: set[int] = set()
     for line in log.read_text().splitlines():
         if not line.strip():
             continue
         rec = json.loads(line)
         if rec.get("dry_run"):
             continue
-        last[int(rec["version"])] = rec
-    versions: set[int] = set()
-    n_utc = n_cet = 0
-    for version, rec in last.items():
-        if rec.get("status") == "failed":
-            continue
-        versions.add(version)
+        v = int(rec["version"])
+        versions.add(v)
         ts = dt.datetime.fromisoformat(rec["uploaded_at"])
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=dt.UTC)
         if ts.astimezone(dt.UTC).date() == now.astimezone(dt.UTC).date():
-            n_utc += 1
+            utc_versions.add(v)
         if ts.astimezone(BRUSSELS).date() == now.astimezone(BRUSSELS).date():
-            n_cet += 1
-    return max(n_utc, n_cet), versions
+            cet_versions.add(v)
+    return max(len(utc_versions), len(cet_versions)), versions
 
 
 def submit(
@@ -89,7 +87,7 @@ def submit(
         _append(log, entry)
         return entry
     # write-ahead: an attempted upload must leave a trace even if the transfer dies, because whether a failed
-    # upload consumes the daily quota is undocumented (docs/01 U10) and we count it on the safe side.
+    # upload consumes the daily quota is undocumented (docs/README) and we count it on the safe side.
     _append(log, {**entry, "status": "attempted"})
     try:
         entry["object_name"] = upload_submission(file_path, version, cfg)

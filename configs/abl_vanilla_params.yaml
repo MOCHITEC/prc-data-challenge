@@ -1,0 +1,24 @@
+# Ablation against configs/ab_split (seed 1, CV full 301.63): does this block earn its place?
+name: abl_vanilla_params
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: false
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 255
+unmatched_min_data_in_leaf: 20
+unmatched_num_rounds: 3000
+n_seeds: 1
+# every tunable back to the LightGBM default
+params:
+  learning_rate: 0.1
+  num_leaves: 31
+  min_data_in_leaf: 20
+  feature_fraction: 1.0
+  bagging_fraction: 1.0
+  bagging_freq: 0
+  lambda_l2: 0.0
+unmatched_num_leaves: 31
+unmatched_min_data_in_leaf: 20

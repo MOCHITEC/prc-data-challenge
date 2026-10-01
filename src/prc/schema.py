@@ -1,4 +1,4 @@
-"""Official column contract (docs/01 §2.2). Names are case-sensitive as in the parquet files."""
+"""Official column contract (docs/README). Names are case-sensitive as in the parquet files."""
 
 from __future__ import annotations
 
@@ -48,5 +48,5 @@ TIMESTAMP_COLS = [
     "AOBT_3_flt",
     "ARVT_3_flt",
 ]
-# Columns blanked for departures in ranking.parquet (docs/01 §2.1)
+# Columns blanked for departures in ranking.parquet (docs/README)
 BLANKED_DEP_COLS = ["BLOCK_TIME_UTC_mvt", "TAXITIME_SEC_mvt"]

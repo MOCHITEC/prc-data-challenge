@@ -1,0 +1,21 @@
+# The model. Two regimes, two models - measured, not assumed: one model over everything is worse by 74.10 s
+# (docs/README).
+#
+# Model B is at 127 leaves / min_data 50, NOT the 255 / 20 that cross-validation preferred. CV rewarded the
+# larger model by 34.8 s; the leaderboard charged 13.2 s for it (v2 312.02 -> v5 325.22). With 255 leaves and a
+# minimum of 20 rows per leaf, model B can isolate the ~33 day-rollover rows in its 22k training rows, and it
+# then fires on 2026 rows that merely resemble them: v5 predicted a taxi time over 12 h twice as often as the
+# training data contains one. The robustness check said the same thing before the upload did - the 34.8 s
+# became -0.06 s once 200 rows were removed - and was overruled. See docs/README.
+name: main
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true    # §6 の判定規則で採用（200行除外後 −1.06 [−1.40,−0.73]）。hour_utc を消すバグは修正済み
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3

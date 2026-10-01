@@ -1,0 +1,57 @@
+########## A=p8b_base-3dc917225f  B=p8b_noise-b6b05e26c7
+A = p8b_base-3dc917225f
+B = p8b_noise-b6b05e26c7
+rows = 518,722
+top-20 share of B's squared error: 0.140
+
+ dropped         A         B     diff                 CI95   P(B)
+       0    258.63    258.79    +0.16    [  -0.58,  +1.06]  0.390
+      20    240.22    240.02    -0.19    [  -0.58,  +0.18]  0.844
+     200    223.86    223.74    -0.12    [  -0.36,  +0.11]  0.838
+    2000    196.15    196.01    -0.14    [  -0.26,  -0.01]  0.978
+
+month-level bootstrap (3 months): +0.16 s [-0.29, +1.00]  P(B better) = 0.370
+
+   matched: n=511,779  A=   219.5  B=   219.5
+ unmatched: n=  6,943  A=  1202.2  B=  1204.9
+
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: +0.16 s [-0.58, +1.06]
+########## A=p8b_base-3dc917225f  B=p8b_wx-7f7be04073
+A = p8b_base-3dc917225f
+B = p8b_wx-7f7be04073
+rows = 518,722
+top-20 share of B's squared error: 0.140
+
+ dropped         A         B     diff                 CI95   P(B)
+       0    258.63    258.44    -0.18    [  -0.64,  +0.26]  0.836
+      20    240.19    239.69    -0.50    [  -0.85,  -0.15]  0.998
+     200    223.83    223.33    -0.50    [  -0.71,  -0.24]  1.000
+    2000    196.15    195.89    -0.26    [  -0.38,  -0.13]  1.000
+
+month-level bootstrap (3 months): -0.18 s [-0.65, +0.41]  P(B better) = 0.744
+
+   matched: n=511,779  A=   219.5  B=   219.3
+ unmatched: n=  6,943  A=  1202.2  B=  1202.0
+
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: -0.18 s [-0.64, +0.26]
+########## A=p8b_noise-b6b05e26c7  B=p8b_wx-7f7be04073
+A = p8b_noise-b6b05e26c7
+B = p8b_wx-7f7be04073
+rows = 518,722
+top-20 share of B's squared error: 0.140
+
+ dropped         A         B     diff                 CI95   P(B)
+       0    258.79    258.44    -0.35    [  -1.01,  +0.22]  0.848
+      20    240.02    239.71    -0.32    [  -0.63,  +0.02]  0.964
+     200    223.72    223.37    -0.35    [  -0.59,  -0.12]  0.996
+    2000    195.99    195.90    -0.09    [  -0.22,  +0.04]  0.902
+
+month-level bootstrap (3 months): -0.35 s [-0.81, -0.00]  P(B better) = 0.974
+
+   matched: n=511,779  A=   219.5  B=   219.3
+ unmatched: n=  6,943  A=  1204.9  B=  1202.0
+
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: -0.35 s [-1.01, +0.22]

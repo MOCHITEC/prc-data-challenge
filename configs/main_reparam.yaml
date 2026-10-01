@@ -1,0 +1,27 @@
+# The production recipe as of v13 (282.7371), pinned so it can be reproduced from one file.
+#
+# Why this config exists. Our best score was, until v13, a HAND-ASSEMBLED file: v4's 339,551 matched
+# predictions concatenated with the reparameterised model B's 5,290 unmatched ones. No config produced it, it
+# was never cross-validated, and the CV number recorded against it in experiments/submissions.jsonl
+# (forward 223.51) belonged to a different file. v13 settled it by submitting that other file - the
+# submit_v10_reparam run's own full-data refit, with both lanes from one config - with the same LOBT bound
+# applied to both sides. It scored 282.7371 against v12's 284.045, so the single-config matched lane is
+# 1.3079 s BETTER than v4's, and the hand-assembly is retired.
+#
+# = configs/main.yaml verbatim + the model-B schedule reparameterisation at LIRF + the LOBT prediction bound,
+# with NO `folds` key, so all four folds run and the OOF is one we can fit a correction against.
+name: main_reparam
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true

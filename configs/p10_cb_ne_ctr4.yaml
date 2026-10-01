@@ -1,0 +1,33 @@
+# P10 - CatBoost as a rival model family (docs/competitor_research_2026-09-21/results/P10-catboost-measured.md).
+#
+# Every P10 arm is configs/main_v15.yaml (the recipe built and submitted as v15) with the SAME three changes,
+# applied identically to both families so the arms differ by the family and by nothing else:
+#   n_seeds: 1            - CatBoost at 3 seeds on two folds is ~3x the budget; the LightGBM arms are cut to 1 too
+#   folds: [forward, jul_fwd]  - the two folds v15 and C1 were read on; one-fold wins have failed to transfer twice
+#   es_holdout_encodings: false - as in main_v15.yaml itself (it is the build setting, and CatBoost memory is unknown)
+#   num_rounds: 5000      - model A's cap. CatBoost's depth-6 trees early-stop at 2,500 rounds on a 20% slice, so 2,000
+#                           binds; LightGBM stops at ~700-1,300 and never reaches either cap, so its model is unchanged.
+# plus, per arm, the family (model / cb_params) and use_encodings. lgb_deterministic is left at its default True.
+#
+# C-E at max_ctr_complexity 4 - the library default at >= 200 iterations, which both 2026 competitor repos ship unmeasured. Run on jul_fwd, NOT forward as pre-registered: C-E ctr1 took 77 min on forward (5,000-round cap) and ctr4 is ~3.1x per iteration; jul_fwd is 11 min at ctr1 and is where C-E lost most (lane A +5.98 s).
+name: p10_cb_ne_ctr4
+model: catboost
+cb_params: {max_ctr_complexity: 4}
+use_encodings: false
+folds: [jul_fwd]
+num_rounds: 5000
+early_stopping: 100
+use_categoricals: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: false
+include_candidates: [stand_arrival_gap]
+exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]

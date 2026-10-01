@@ -1,4 +1,4 @@
-"""Synthetic movement data following the official schema (docs/01 §2.2).
+"""Synthetic movement data following the official schema (docs/README).
 
 Purpose: run the whole pipeline (features -> CV -> submission gate) before the real files arrive.
 The generator imitates the documented structure (ARR+DEP rows, NM left join with unmatched rows,
@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 
 from .config import TARGET_AIRPORTS
-from .schema import ALL_COLS, BLANKED_DEP_COLS
+from .schema import ALL_COLS
 
 AIRPORT_BASE_SEC = {  # rough medians, seconds (CODA summer 2025 order of magnitude)
     "EDDF": 780,
@@ -193,19 +193,27 @@ def generate_month(
                     )
     df = pl.DataFrame(
         rows,
+        # Match the official parquet schema exactly (measured 2026-09-10 on the real files): ids are float64
+        # holding integral values, the target is int32, and every timestamp carries a UTC zone. A synthetic
+        # frame that differs here lets dtype bugs through to the first real run.
         schema_overrides={
-            c: pl.Datetime("us")
-            for c in (
-                "MVT_TIME_UTC_mvt",
-                "BLOCK_TIME_UTC_mvt",
-                "SCHED_TIME_UTC_mvt",
-                "LOBT_flt",
-                "IOBT_flt",
-                "EOBT_1_flt",
-                "ARVT_1_flt",
-                "AOBT_3_flt",
-                "ARVT_3_flt",
-            )
+            **{
+                c: pl.Datetime("us", "UTC")
+                for c in (
+                    "MVT_TIME_UTC_mvt",
+                    "BLOCK_TIME_UTC_mvt",
+                    "SCHED_TIME_UTC_mvt",
+                    "LOBT_flt",
+                    "IOBT_flt",
+                    "EOBT_1_flt",
+                    "ARVT_1_flt",
+                    "AOBT_3_flt",
+                    "ARVT_3_flt",
+                )
+            },
+            "MVT_ID_mvt": pl.Float64,
+            "FLIGHT_ID_mvt": pl.Float64,
+            "TAXITIME_SEC_mvt": pl.Int32,
         },
     )
     return df.select(ALL_COLS).sort("MVT_TIME_UTC_mvt")
@@ -271,7 +279,3 @@ def write_synthetic_dataset(
     sub.write_parquet(out_dir / "submitting.parquet")
     paths["submitting.parquet"] = out_dir / "submitting.parquet"
     return paths
-
-
-def blanked_columns() -> list[str]:
-    return list(BLANKED_DEP_COLS)

@@ -1,0 +1,45 @@
+{
+ "tag": "slice_lgb_ne_f20",
+ "cmd": [
+  ".venv/bin/python",
+  "docs/competitor_research_2026-09-21/scripts/p10_slice.py",
+  "--config",
+  "configs/p10_lgb_ne.yaml",
+  "--frac",
+  "0.2",
+  "--tag",
+  "lgb_ne_f20"
+ ],
+ "exit_code": 0,
+ "wall_seconds": 178.2,
+ "peak_total_rss_mb": 3810,
+ "peak_at_seconds": 166.2,
+ "baseline_total_rss_mb": 12,
+ "cgroup_limit_mb": 13681,
+ "samples_mb": [
+  [
+   0,
+   12
+  ],
+  [
+   30,
+   3672
+  ],
+  [
+   60,
+   3672
+  ],
+  [
+   90,
+   3799
+  ],
+  [
+   120,
+   3808
+  ],
+  [
+   150,
+   3800
+  ]
+ ]
+}

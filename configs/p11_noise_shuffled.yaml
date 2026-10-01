@@ -1,0 +1,36 @@
+# P11 stage 1, arm A1: noise control -- ten groups that are not airports.
+#
+# The candidate changes three things at once against the base arm: (i) it averages two imperfectly correlated
+# predictors, which lowers RMSE for ANY second model; (ii) each second model trains on a tenth of the rows,
+# which raises its error; (iii) its rows are airport-homogeneous, which is the only part of the change the
+# experiment is about. This arm holds (i) and (ii) and removes (iii): `airport_group_key: shuffled` builds the
+# same number of groups with the same size profile, membership drawn from a hash of MVT_ID_mvt alone.
+#
+# What would make it MOVE: real variance reduction from blending (down), and the cost of fitting on ~174k rows
+# instead of 1.74M (up). Either sign is a legitimate outcome and both are part of the candidate's number that
+# has nothing to do with airports. What would make it STAY PUT: those two cancelling - which is why "noise
+# equals base" is NOT the no-op detector. The detector is structural: `airport_groups` in the record must show
+# ten fitted groups with sizes near 174k here and 112k-225k in the candidate. Identical OOFs across the three
+# arms means the flag is not being read; stop.
+name: p11_noise_shuffled
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [forward]
+airport_models: true
+airport_group_key: shuffled
+airport_blend_weight: 0.5
+airport_min_group_rows: 20000
+airport_group_seed: 20260924

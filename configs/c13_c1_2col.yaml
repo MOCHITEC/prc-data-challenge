@@ -1,0 +1,33 @@
+# C1 without proxy_sec_in_min - the two-column version
+#
+# Arm 6 of the C1/C3 measurement (docs/competitor_research_2026-09-21/results/C1-C3-measured.md).
+# Everything below the arm block is configs/main_gap.yaml verbatim except `folds`, which is the repository's
+# screening condition (docs/features_log.md: `folds: [forward]` + `--skip-predict`, weather on, 3 seeds).
+# All six arms are cut from ONE feature frame in data/work_c1c3, built with wind_dir and gust_repair on, so
+# the arms differ by which columns the model is shown and by nothing else - not by a rebuild, not by a seed,
+# not by a row.
+#
+# C1's first two columns only. C1-C3-measured.md 6.2 shows proxy_sec_in_min is non-zero on 93.9% of rows,
+# which is not what a nominal whole-minute allowance would leave behind: it is the seconds of the take-off stamp,
+# not a statement about the stamp's provenance. 7.4 step 3 asks for the two-column build. Read against c13_noise2.
+name: c13_c1_2col
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+wind_dir: true
+gust_repair: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+es_holdout_encodings: true
+folds: [forward]
+include_candidates: [stand_arrival_gap, proxy_at_mode, proxy_minus_mode_min]
+exclude_features: [wind_dir_deg, headwind_kt, crosswind_kt, rwy_wind_misalign, gust_filled, gust_excess, gust_filled_prev1h, gust_excess_prev1h]

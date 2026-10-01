@@ -1,0 +1,20 @@
+# OSM stand distance, arm base_u -- unseen-stand simulation, baseline.
+# Pre-registered in docs/osm_stand_2026-09-28/plan.md; main_gap + folds [forward] + the lines below.
+name: osm_base_u
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [forward]
+sim_unseen_stands: 0.2

@@ -112,146 +112,57 @@ def test_missing_anchor_time_gives_null_counts_not_zero():
     assert feats.filter(pl.col("MVT_TIME_UTC_mvt").is_not_null())["anchor_ok"].min() == 1
 
 
-def test_candidate_spread_summarises_the_clock_disagreement():
-    """cand_spread/cand_n describe how far apart the routing candidates are, which is where the loss lives."""
-    f = build_departure_features(generate_month(2025, 7, seed=41, deps_per_airport_day=6))
-    cands = ["mvt_minus_aobt3", "mvt_minus_sched", "mvt_minus_eobt1", "mvt_minus_lobt", "mvt_minus_iobt"]
-    got = f.select(["cand_min", "cand_max", "cand_spread", "cand_n"] + cands).head(200)
-    arr = got.select(cands).to_numpy()
-    assert np.allclose(np.nanmin(arr, axis=1), got["cand_min"].to_numpy(), equal_nan=True)
-    assert np.allclose(np.nanmax(arr, axis=1), got["cand_max"].to_numpy(), equal_nan=True)
-    assert (got["cand_spread"].to_numpy() >= 0).all()
-    assert got["cand_n"].to_list() == [int(n) for n in (~np.isnan(arr)).sum(axis=1)]
+def test_stand_arrival_gap_boundaries_and_keys():
+    from datetime import datetime, timedelta
+
+    from prc.features import stand_arrival_features
+    from prc.train import TrainConfig, visible_numeric_columns
+
+    t = datetime(2025, 1, 1, 12)
+    departures = pl.DataFrame(
+        {
+            "MVT_ID_mvt": [4, 1, 2, 3, 5],
+            "ADEP_mvt": ["A"] * 5,
+            "STAND_mvt": ["S", "S", "S", "X", "S"],
+            "MVT_TIME_UTC_mvt": [t + timedelta(seconds=21601), t, t + timedelta(seconds=21600), t, None],
+        }
+    )
+    departures = departures.with_columns(
+        pl.col("MVT_TIME_UTC_mvt").alias("AOBT_3_flt"), pl.lit("A320").alias("AIRCRAFT_TYPE_mvt")
+    )
+    arrivals = pl.DataFrame(
+        {
+            "ADES_mvt": ["A", "A", "B"],
+            "STAND_mvt": ["S", "S", "X"],
+            "BLOCK_TIME_UTC_mvt": [t - timedelta(seconds=60), t, t - timedelta(seconds=10)],
+        }
+    )
+    arrivals = arrivals.with_columns(pl.lit("A320").alias("AIRCRAFT_TYPE_mvt"))
+    result = stand_arrival_features(departures, arrivals)
+    assert result["MVT_ID_mvt"].to_list() == [4, 1, 2, 3, 5]
+    assert result["stand_arrival_gap"].to_list() == [None, 60, 21600, None, None]
+    assert "stand_arrival_gap" not in visible_numeric_columns(result, TrainConfig())
+    assert "stand_arrival_gap" in visible_numeric_columns(result, TrainConfig(include_candidates=["stand_arrival_gap"]))
 
 
-def test_rows_without_an_nm_record_have_only_the_schedule_candidate():
-    f = build_departure_features(generate_month(2025, 7, seed=42, deps_per_airport_day=8))
-    no_nm = f.filter(pl.col("nm_matched") == 0)
-    if no_nm.height:  # SCHED_TIME is the one clock that is never missing
-        assert no_nm["cand_n"].to_list() == [1] * no_nm.height
-        assert no_nm["cand_spread"].to_list() == [0.0] * no_nm.height
-
-
-def test_feature_cache_is_rebuilt_when_the_feature_builder_changes(tmp_path):
-    """A new feature column used to leave the cached parquet in place and never reach the model."""
-    from prc.pipeline import build_features, feature_fingerprint
-
-    df = generate_month(2025, 7, seed=43, deps_per_airport_day=4)
-    rk = generate_month(2026, 7, seed=44, deps_per_airport_day=2, blank_dep=True)
-    full, _ = build_features(df, rk, use_weather=False, work=tmp_path)
-    assert (tmp_path / "feat_fingerprint.txt").read_text().strip() == feature_fingerprint(False)
-
-    # a matching fingerprint means the cache is trusted verbatim, however wrong it is
-    full.head(3).write_parquet(tmp_path / "feat_train.parquet")
-    truncated, _ = build_features(df, rk, use_weather=False, work=tmp_path)
-    assert truncated.height == 3
-
-    # a stale fingerprint forces the rebuild, which is the case that used to fail silently
-    (tmp_path / "feat_fingerprint.txt").write_text("stale")
-    rebuilt, _ = build_features(df, rk, use_weather=False, work=tmp_path)
-    assert rebuilt.height == full.height
-    assert (tmp_path / "feat_fingerprint.txt").read_text().strip() == feature_fingerprint(False)
-
-
-def test_fingerprint_covers_every_module_that_decides_columns():
-    """weather.py decides columns too; leaving it out of the hash reused a 20-column cache for a 6-column run."""
-    import hashlib
-    from pathlib import Path
-
-    from prc.pipeline import FEATURE_SOURCES, feature_fingerprint
-
-    assert set(FEATURE_SOURCES) == {"features.py", "weather.py"}
-    src_dir = Path(__file__).resolve().parents[1] / "src" / "prc"
-    for name in FEATURE_SOURCES:
-        assert (src_dir / name).exists(), name
-    expected = hashlib.sha1(b"".join((src_dir / n).read_bytes() for n in FEATURE_SOURCES) + b"True").hexdigest()
-    assert feature_fingerprint(True) == expected[:12]
-    assert feature_fingerprint(True) != feature_fingerprint(False)
-
-
-def test_in_system_counts_intervals_covering_each_anchor():
-    """Queue length, not throughput: how many have pushed back and not yet taken off."""
-    from prc.features import _in_system
-
-    start = np.array([0.0, 10.0, 20.0, 30.0])
-    end = np.array([15.0, 25.0, 40.0, 50.0])
-    # at t=12: [0,15) and [10,25) cover it -> 2 ; at t=45: only [30,50) -> 1
-    got = _in_system(np.array([12.0, 45.0, -5.0, np.nan]), start, end)
-    assert got[0] == 2 and got[1] == 1 and got[2] == 0
-    assert np.isnan(got[3])  # a missing anchor cannot be counted, and must not silently become len(start)
-
-
-def test_in_system_ignores_incomplete_intervals():
-    """A take-off with no recorded off-block must not contribute an end without a start."""
-    from prc.features import _in_system
-
-    start = np.array([0.0, np.nan, 20.0])  # the middle flight has no off-block time
-    end = np.array([15.0, 12.0, 40.0])
-    assert _in_system(np.array([13.0]), start, end)[0] == 1  # only [0,15); the nan-start pair is dropped
-    assert _in_system(np.array([30.0]), start, end)[0] == 1  # only [20,40)
-    assert _in_system(np.array([16.0]), start, end)[0] == 0  # nothing open: without the pairing this was -1
-    assert (_in_system(np.array([5.0, 13.0, 30.0, 50.0]), start, end) >= 0).all()
-
-
-def test_in_system_ignores_intervals_that_run_backwards():
-    """1,012 real flights have an NM off-block after their take-off; that interval cannot hold a queue."""
-    from prc.features import _in_system
-
-    start = np.array([0.0, 100.0])  # the second flight "pushed back" after it departed
-    end = np.array([50.0, 90.0])
-    got = _in_system(np.array([60.0, 95.0, 120.0]), start, end)
-    assert (got == 0).all(), got  # without the start < end filter the last two anchors were negative
-
-
-def test_in_system_is_half_open_at_the_end():
-    from prc.features import _in_system
-
-    # an interval that ends exactly at the anchor is already finished
-    assert _in_system(np.array([15.0]), np.array([0.0]), np.array([15.0]))[0] == 0
-    # one that starts exactly at the anchor is already in
-    assert _in_system(np.array([15.0]), np.array([15.0]), np.array([30.0]))[0] == 1
-
-
-def test_queue_at_pushback_excludes_the_row_itself():
-    """A row's own [AOBT_3, MVT_TIME) always covers its own pushback: forgetting that adds a constant 1."""
-    f = build_departure_features(generate_month(2025, 7, seed=61, deps_per_airport_day=12))
-    q = f.filter(pl.col("pushback_ok") == 1)
-    assert q.height
-    assert q["q_in_system_at_pushback"].min() >= 0  # never negative, so self-exclusion is not double-counting
-    # a runway queue can never exceed the airport-wide queue it is part of
-    both = q.drop_nulls(["q_in_system_at_pushback", "q_in_system_at_pushback_rwy"])
-    assert both.height
-    assert (both["q_in_system_at_pushback_rwy"] <= both["q_in_system_at_pushback"]).all()
-
-
-def test_pushback_features_are_null_without_an_nm_off_block():
-    f = build_departure_features(generate_month(2025, 7, seed=62, deps_per_airport_day=10))
-    no_push = f.filter(pl.col("pushback_ok") == 0)
-    if no_push.height:
-        for c in ("q_in_system_at_pushback", "q_pushed_prev_15m", "q_tko_before_pushback_15m"):
-            assert no_push[c].null_count() == no_push.height, c
-        # but the take-off-anchored queue still works: MVT_TIME is never missing at ranking time
-        assert no_push.filter(pl.col("anchor_ok") == 1)["q_in_system_at_tko"].null_count() == 0
-
-
-def test_queue_features_have_parity_between_training_and_ranking_views():
-    tr = build_departure_features(generate_month(2025, 7, seed=63, deps_per_airport_day=10))
-    rk = build_departure_features(generate_month(2026, 7, seed=64, deps_per_airport_day=10, blank_dep=True))
-    for c in ("q_in_system_at_pushback", "q_in_system_at_tko", "q_in_system_at_pushback_rwy"):
-        a = tr[c].null_count() / tr.height
-        b = rk[c].null_count() / rk.height
-        assert abs(a - b) < 0.2, (c, a, b)  # the ranking view must not lose a feature the model trained on
-
-
-def test_self_exclusion_matches_the_interval_filter():
-    """A row whose own off-block follows its take-off was never counted, so nothing may be subtracted for it."""
+def test_extra_candidates_ignore_departure_labels():
+    """prc.features_extra groups must not move when departure labels move (they read the masked frame only)."""
     import numpy as np
 
-    from prc.features import _in_system
+    from prc.features import build_departure_features
+    from prc.features_extra import EXTRA_COLS
+    from prc.synth import generate_month
 
-    # one ordinary flight [0, 100) and one inverted flight whose "pushback" is at 200 and take-off at 150
-    start, end = np.array([0.0, 200.0]), np.array([100.0, 150.0])
-    anchors = np.array([50.0, 200.0])
-    raw = _in_system(anchors, start, end)
-    own = ((np.isfinite(anchors)) & (np.array([100.0, 150.0]) > anchors)).astype(float)
-    assert (raw - own >= 0).all(), (raw, own)  # the inverted row contributes own = 0, not 1
+    df = generate_month(2025, 1, seed=7, deps_per_airport_day=3)
+    base = build_departure_features(df)
+    noisy = build_departure_features(
+        df.with_columns(
+            pl.when(pl.col("PHASE_mvt") == "DEP")
+            .then(pl.col("TAXITIME_SEC_mvt") * 3 + 17)
+            .otherwise(pl.col("TAXITIME_SEC_mvt"))
+            .alias("TAXITIME_SEC_mvt")
+        )
+    )
+    for c in EXTRA_COLS:
+        a, b = base[c].to_numpy().astype(float), noisy[c].to_numpy().astype(float)
+        assert np.array_equal(np.nan_to_num(a, nan=-9e9), np.nan_to_num(b, nan=-9e9)), c

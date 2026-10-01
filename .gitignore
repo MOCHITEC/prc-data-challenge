@@ -32,3 +32,4 @@ outputs/
 models/
 *.log
 .DS_Store
+logs/
