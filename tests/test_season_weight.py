@@ -47,3 +47,19 @@ def test_catboost_is_refused(feats):
     )
     with pytest.raises(ValueError, match="season_weight"):
         predict_fold(feats.filter(m < 3), feats.filter(m == 3), cfg)
+
+
+def test_matched_target_clip_changes_model_a_only_and_is_refused_with_plain_y(feats):
+    m = feats["MVT_TIME_UTC_mvt"].dt.month()
+    off = TrainConfig(num_rounds=30, early_stopping=5, n_seeds=1)
+    on = TrainConfig(num_rounds=30, early_stopping=5, n_seeds=1, matched_target_clip=60.0)
+    assert off.hash() != on.hash() and TrainConfig().matched_target_clip == 0.0
+    p0, _ = predict_fold(feats.filter(m < 3), feats.filter(m == 3), off)
+    p1, _ = predict_fold(feats.filter(m < 3), feats.filter(m == 3), on)
+    tg = feats.filter(m == 3)
+    unm = pl.col("MVT_ID_mvt").is_in(tg.filter(pl.col("mvt_minus_aobt3").is_null())["MVT_ID_mvt"].implode())
+    assert p0.filter(unm).equals(p1.filter(unm))  # model B untouched
+    assert not p0.filter(~unm)["pred"].equals(p1.filter(~unm)["pred"])
+    plain = TrainConfig(num_rounds=30, early_stopping=5, n_seeds=1, matched_target_clip=60.0, matched_target="plain")
+    with pytest.raises(ValueError, match="matched_target_clip"):
+        predict_fold(feats.filter(m < 3), feats.filter(m == 3), plain)

@@ -138,6 +138,7 @@ _HASH_OPTIONAL: dict = {
     "opdi_target_null_day_share": 0.0,
     "fe_fl_rate_window": "",
     "season_weight": 0.0,
+    "matched_target_clip": 0.0,
     "matched_target": "anchored",
     # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
     "fe_plan_nm_taxi": False,
@@ -333,6 +334,9 @@ class TrainConfig:
     # month the fold predicts get weight 1 + season_weight in both lanes' fits (the inner holdout stays unweighted).
     # 0.0 = off, and then no weight is passed at all.
     season_weight: float = 0.0
+    # GM #3 (docs/gm_research_2026-10-01/plan_clipped_member.md): model A's anchored training target g is clipped
+    # to +- this many seconds, so the member predicts the body and leaves the tail to a stacker. 0.0 = off.
+    matched_target_clip: float = 0.0
     # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
     # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
     # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
@@ -1476,6 +1480,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         num_cols = visible_numeric_columns(tr, cfg)
     parts = []
     plain_a = cfg.matched_target == "plain"
+    if cfg.matched_target_clip > 0 and plain_a:
+        raise ValueError("matched_target_clip clips the anchored target g; it has no meaning with matched_target plain")
     if plain_a:
         # Only when it is not the default, so an anchored record is byte-for-byte what it was.
         info["matched_target"] = cfg.matched_target
@@ -1491,7 +1497,10 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             def _target_a(f: pl.DataFrame) -> np.ndarray:
                 if plain_a:
                     return f[LABEL].to_numpy().astype(float)
-                return f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
+                g_ = f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
+                if cfg.matched_target_clip > 0:
+                    g_ = np.clip(g_, -cfg.matched_target_clip, cfg.matched_target_clip)
+                return g_
 
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
             # is the only thing the flag adds, and it sets rounds_matched itself.
