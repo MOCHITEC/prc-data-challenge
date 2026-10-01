@@ -1,7 +1,21 @@
-# Feature levers L1–L4 from the public-code deep dive: pre-registration (2026-09-30)
+# Feature levers L1–L4 from the public-code deep dive: L2 ADOPT in model A; L1, L3, L2-in-model-B REJECT; L4 skipped (2026-09-30)
 
-**Status: PRE-REGISTERED. Nothing below §5 has been run.** This file is committed before any training run. The
-results are appended in §7 afterwards; §1–§6 are not edited after the commit except to fix typos.
+**Verdicts (prc.compare.verdict, four folds, 672,428 pooled OOF rows):**
+
+| arm | full CI (K=0) | K=200 | month bootstrap | matched lane | verdict |
+|---|---|---|---|---|---|
+| L1 `plan_nm_taxi` → anchored LGB | −0.03 [−0.11, +0.07] | −0.04 [−0.15, +0.06] | −0.03 [−0.15, +0.09] | −0.04 [−0.15, +0.09] | **REJECT** |
+| **L2 forward NM windows → anchored LGB** | **−0.14 [−0.25, −0.05]** | **−0.20 [−0.31, −0.10]** | −0.14 [−0.25, −0.04] | −0.19 [−0.30, −0.06] | **ADOPT** |
+| L3 AOBT_3 queue → anchored LGB | +0.04 [−0.07, +0.15] | +0.03 [−0.09, +0.16] | +0.04 [−0.06, +0.13] | +0.05 [−0.09, +0.19] | **REJECT** |
+| L2 → model B (`main_flseq`) | +0.35 [−0.22, +1.03] | −0.21 [−0.37, −0.04] | +0.35 [−0.30, +1.04] | +0.00 (identical) | **REJECT** |
+| combined | not run: one model-A lever adopted, so the combined arm is the L2 arm (§5) | | | | — |
+
+**For the rebuild:** add `fe_fwd_nm: true` to the anchored LightGBM member (`configs/main_flseq_osm_nolirf_l2.yaml`).
+Model B stays as it is. Whether L2 also helps the plain-y LightGBM or the CatBoost member was not measured here.
+Nothing was rebuilt, fitted on the full year, or submitted.
+
+**Pre-registration status:** §1–§5 were committed in `81d52da` before any run (code in `2199361`), and have not been
+edited since. The results are in §6–§7.
 
 Source of the four levers: `public-code-deep-dive-2026-09-30.md` §1.6, §2.6 and §4 (rows 5, 6, 7, 9), and
 `21-repo-merry-quicksand.md` §4.1 for the written definitions of the queue and ordering blocks. **No competitor code
@@ -145,8 +159,157 @@ kind-mango v85 −0.72 s (member −604 MSE on their hold-out); L3 merry-quicksa
 
 ## 6. Run log
 
-(filled in after the runs)
+`python -m prc.pipeline --config configs/<arm>.yaml --work-dir data/work_flseq --skip-predict`. The runs were
+sequential and nothing else trained alongside them. The feature cache was reused (its fingerprint is unchanged).
+Peak cgroup `total_rss` was sampled every 5 s from the `memory.stat` of the parent of the cgroup that
+`/proc/self/cgroup` names. The limit is 13,681 MB.
+
+| arm | exp id | CV seconds | peak total_rss |
+|---|---|---:|---:|
+| L1 | `main_flseq_osm_nolirf_l1-50ebc5643d` | 4,081 | 10,783 MB |
+| L2 | `main_flseq_osm_nolirf_l2-ef204b44ff` | 4,134 | 11,231 MB |
+| L3 | `main_flseq_osm_nolirf_l3-d08ab29d15` | 3,821 | 11,287 MB |
+| L2-B | `main_flseq_l2b-e40f03b86d` | 3,826 | 11,207 MB |
+
+**Reproduction check.** In each model-A arm, the untouched lane reproduces its base to the last digit:
+
+- **L1, L2, L3.** Unmatched RMSE equals the base in every fold: jan 2873.79, jul 1227.62, jul_fwd 1282.18,
+  forward 980.73. The unmatched difference is +0.00 [+0.00, +0.00].
+- **L2-B.** Matched RMSE equals `main_flseq` in every fold: jan 201.67, jul 241.90, jul_fwd 250.57, forward 197.14.
+  The matched difference is +0.00.
+
+The archived base OOF files are therefore valid comparators. Breakdowns come from
+`python -m prc.compare` and `scripts/plainy_blend.py detail --scratch experiments`. Logs are in `logs/levers/`
+(git-ignored).
 
 ## 7. Results
 
-(filled in after the runs)
+### 7.1 Per-fold RMSE (all rows / matched)
+
+| fold | base `main_flseq_osm_nolirf` | L1 | L2 | L3 |
+|---|---|---|---|---|
+| jan | 342.54 / 201.52 | 342.35 / 201.20 | 342.54 / 201.51 | 342.58 / 201.58 |
+| jul | 297.23 / 241.73 | 297.28 / 241.79 | **297.01 / 241.45** | 297.40 / 241.95 |
+| jul_fwd | 308.66 / 250.24 | 308.64 / 250.22 | 308.63 / 250.19 | 308.57 / 250.12 |
+| forward | 217.35 / 196.93 | 217.38 / 196.97 | **217.16 / 196.73** | 217.28 / 196.86 |
+| overall | 273.72 | 273.69 | **273.57** | 273.75 |
+
+L2-B against `main_flseq`, all rows / unmatched:
+
+| fold | `main_flseq` | L2-B |
+|---|---|---|
+| jan | 342.16 / 2867.76 | 342.45 / 2871.52 |
+| jul | 295.32 / 1203.41 | 295.70 / 1207.95 |
+| jul_fwd | 308.29 / 1274.69 | 309.91 / 1293.67 |
+| forward | 217.20 / 972.67 | 217.59 / 982.20 |
+| overall | 272.96 | 273.31 |
+
+### 7.2 L1 `plan_nm_taxi`: REJECT
+
+- **Curve.** K=0 −0.03 [−0.11, +0.07], P(B better) 0.742. K=20 −0.04. K=200 −0.04 [−0.15, +0.06]. K=2000 −0.02.
+- **Month bootstrap.** −0.03 [−0.15, +0.09].
+- **Lanes.** Matched −0.04 [−0.15, +0.09]. Unmatched +0.00 (identical). All rows except LIRF −0.09 [−0.18, −0.02].
+- **Per calendar month** (all rows / matched):
+  - 2025-01: −0.19 [−0.41, −0.06] / −0.33 [−0.58, −0.10]
+  - 2025-07: +0.04 [−0.16, +0.26] / +0.06
+  - 2025-11: −0.09 [−0.25, +0.07] / −0.10
+  - 2025-12: +0.15 [−0.08, +0.36] / +0.16
+- **Per airport** (all rows, ordered by share of squared disagreement):
+  - LTFM +0.19 [−0.09, +0.41]
+  - LIRF +0.29 [−0.12, +0.74]
+  - LFPG −0.02
+  - EGLL −0.11
+  - **EHAM −0.91 [−1.19, −0.60]**
+  - EDDM −0.33 [−0.74, +0.04]
+  - EDDF −0.12
+  - LEMD +0.20 [−0.02, +0.38]
+  - LEBL +0.17
+  - LSZH −0.18
+- **Reading.** The month signs are mixed. One airport (EHAM) improves clearly and is offset elsewhere. Kind-mango's
+  −1.22 s came before they had the NM clocks as features. Our model already carries those clocks.
+
+### 7.3 L2 forward NM windows in model A: ADOPT
+
+- **Curve.** K=0 **−0.14 [−0.25, −0.05]**, P(B better) 1.000. K=20 −0.17 [−0.28, −0.07]. K=200
+  **−0.20 [−0.31, −0.10]**. K=2000 −0.26 [−0.36, −0.17].
+- **Month bootstrap.** −0.14 [−0.25, −0.04].
+- **Verdict.** "adopt (−0.14 s, still −0.20 s at 200 rows dropped)".
+- **Lanes.** Matched **−0.19 [−0.30, −0.06]**. Unmatched +0.00 (identical). All rows except LIRF −0.21 [−0.31, −0.11].
+- **Per calendar month** (all rows / matched). The point estimate improves or stays flat in all four months:
+  - 2025-01: −0.01 [−0.16, +0.13] / −0.01
+  - 2025-07: −0.23 [−0.46, −0.02] / −0.28 [−0.54, −0.00]
+  - 2025-11: −0.29 [−0.46, −0.09] / −0.33 [−0.53, −0.10]
+  - 2025-12: −0.08 [−0.30, +0.15] / −0.09
+- **Per airport** (all rows, ordered by share of squared disagreement). Seven of ten improve. LTFM, LIRF and LEMD
+  read worse, and no CI there excludes zero:
+  - **EGLL −0.82 [−1.13, −0.50]**
+  - **LFPG −0.22 [−0.59, −0.02]**
+  - LTFM +0.16 [−0.15, +0.45]
+  - LIRF +0.18 [−0.19, +0.60]
+  - EHAM −0.27 [−0.50, +0.01]
+  - EDDM −0.18
+  - EDDF −0.07
+  - LEMD +0.05
+  - LEBL −0.26 [−0.53, +0.03]
+  - **LSZH −0.36 [−0.68, −0.11]**
+- **Size.** Kind-mango published −0.72 s on the board for v85 (−604 MSE for the member on their hold-out). We measure
+  −0.14 s on the member. This is the member alone, not the blend.
+
+### 7.4 L3 AOBT_3-anchored queue: REJECT
+
+- **Curve.** K=0 +0.04 [−0.07, +0.15], P(B better) 0.236. K=200 +0.03 [−0.09, +0.16]. K=2000 −0.07 [−0.16, +0.03].
+- **Month bootstrap.** +0.04 [−0.06, +0.13].
+- **Lanes.** Matched +0.05 [−0.09, +0.19]. Unmatched +0.00 (identical). All rows except LIRF −0.02 [−0.13, +0.08].
+- **Per calendar month** (all rows): 2025-01 +0.03, 2025-07 +0.17 [−0.08, +0.41], 2025-11 −0.07, 2025-12 −0.05.
+- **Per airport.** EGLL improves, −0.65 [−1.03, −0.19], as does LFPG, −0.18 [−0.51, −0.00]. Seven airports read
+  worse:
+  - LIRF +0.35 [−0.03, +0.74]
+  - EDDF +0.26 [−0.01, +0.57]
+  - EHAM +0.26
+  - LSZH +0.24 [−0.02, +0.49]
+  - LEBL +0.17
+  - LEMD +0.16
+  - EDDM +0.16
+  - LTFM +0.09
+- **Reading.** Merry-quicksand's −886 MSE was bundled with three seeds. Our baseline already has three seeds, plus
+  the take-off-anchored counts and the `seq_` group.
+
+### 7.5 L2 in model B: REJECT
+
+The comparison is `main_flseq` → `main_flseq_l2b`. Model A is byte-identical, so every differing row is unmatched.
+
+- **Curve.** K=0 +0.35 [−0.22, +1.03], P(B better) 0.176. K=20 −0.20 [−0.49, +0.11]. K=200 −0.21 [−0.37, −0.04].
+  K=2000 −0.14 [−0.21, −0.07].
+- **Month bootstrap.** +0.35 [−0.30, +1.04].
+- **Verdict.** "no difference on all rows". The K=200 CI excludes zero on the improving side, but the full CI does
+  not, and the full-data point estimate is worse.
+- **Lanes.** Unmatched +4.97 [−4.16, +16.74]. Matched +0.00. All rows except LIRF −0.25 [−0.47, −0.06].
+- **Unmatched rows per airport.** LIRF carries 46.1 % of the disagreement and reads +51.03 [−0.69, +108.02].
+  Six airports improve with CIs that exclude zero:
+  - LTFM −19.92
+  - EHAM −12.83
+  - EDDM −16.22
+  - LSZH −21.05
+  - EDDF −6.64
+  - LEMD −17.35
+
+  LEBL is −15.46 with a CI crossing zero, and LFPG and EGLL are +0.41 and +5.05.
+- **Per calendar month** (all rows): 2025-01 +0.29, 2025-07 +0.38, 2025-11 +1.43 [−1.01, +4.80],
+  2025-12 −0.67 [−1.86, +0.65].
+- **Reading.** This is the LIRF-unmatched pattern that `osm-on-flseq.md` also found. A LIRF-excluded variant would
+  be post hoc and was not run.
+
+### 7.6 Combined arm
+
+Not run. Per §5, the combined arm only runs when two or more model-A levers are adopted. Only L2 was adopted, so
+the combined arm is the L2 arm, `main_flseq_osm_nolirf_l2-ef204b44ff`.
+
+### 7.7 What is adopted
+
+| lever | lane | adopted |
+|---|---|---|
+| L1 | model A | no |
+| **L2** | **model A** (anchored LightGBM member) | **yes** |
+| L2 | model B | no |
+| L3 | model A | no |
+| L4 | — | skipped (ordering scheme differs on the scored set, §2) |
