@@ -177,3 +177,44 @@ trial with `feature_fraction` ≥ 0.9 is worse than trial 0; large `min_data_in_
 
 `configs/main_flseq_osm_nolirf_l2_opt.yaml` = base + `matched_params` of trial 8 → exp id
 **`main_flseq_osm_nolirf_l2_opt-7244b3004f`**. CV started 18:16:52 UTC (`logs/retune/run.sh opt_cv`).
+
+`logs/retune/run.sh opt_cv --config configs/main_flseq_osm_nolirf_l2_opt.yaml --work-dir data/work_flseq
+--skip-predict --fold-cache logs/retune/fold_cache`: exit 0, not killed, wall 6,992 s, peak total_rss 11,028 MB
+(parent 11,052 MB). (A reported container restart at ~18:26 UTC did not stop this run: it was still alive in the
+previous session's cgroup. A duplicate launched by mistake at 18:26:57 was killed after ~10 s, before it had loaded
+features; the original run, its fold cache and its log are the record.)
+
+Per fold, base `ef204b44ff` → opt `7244b3004f`, matched RMSE (rounds_matched):
+
+| fold | base | opt |
+|---|---|---|
+| jan | 201.51 (1,269) | 197.64 (1,237) |
+| jul | 241.45 (1,208) | 238.14 (1,415) |
+| jul_fwd (shadowed) | 250.19 (903) | 246.09 (1,214) |
+| forward | 196.73 (978) | 193.97 (1,512) |
+
+`python -m prc.compare main_flseq_osm_nolirf_l2-ef204b44ff main_flseq_osm_nolirf_l2_opt-7244b3004f --work-dir
+data/work_flseq` (`logs/retune/compare_member.txt`), 672,428 pooled OOF rows:
+
+| K | A | B | diff [CI95] |
+|---|---|---|---|
+| 0 | 273.57 | 271.17 | **−2.41 [−2.85, −2.02]** |
+| 20 | 229.10 | 226.23 | −2.88 [−3.14, −2.64] |
+| 200 | 215.42 | 212.34 | **−3.08 [−3.35, −2.85]** |
+| 2000 | 192.26 | 189.39 | −2.87 [−3.03, −2.73] |
+
+Month bootstrap −2.41 [−2.63, −2.21]. Matched lane 211.3 → 208.1; unmatched 1,571.0 → 1,571.0 and all 8,378
+pooled unmatched predictions exactly equal (model B untouched, as required). Matched RMSE lower at all ten airports
+(EDDF −2.66, EDDM −3.46, EGLL −3.72, EHAM −2.44, LEBL −1.91, LEMD −2.07, LFPG −4.31, LIRF −3.57, LSZH −3.15,
+LTFM −3.84).
+
+**Verdict: ADOPT** (`VERDICT … ADOPT - adopt (-2.41 s, still -3.08 s at 200 rows dropped)`). The tuning-fold gain
+(−3.06 s, selection-biased) transferred to the untouched comparison months at −3.2 s on the matched lane. §0.5 runs.
+
+## 3. M1 / M2 rebuild and the blend decision
+
+`configs/main_flseq_osm_nolirf_l2_pa_opt.yaml` (`main_flseq_osm_nolirf_l2_pa_opt-8d54effc06`) and
+`configs/main_flseq_osm_nolirf_plainy_l2_opt.yaml` (`main_flseq_osm_nolirf_plainy_l2_opt-dd8b8e2c7c`): base recipe +
+the same `matched_params`. Runs, in order, one at a time (`logs/retune/chain.sh`, each step gated by
+`logs/retune/run2.sh`, which also sums total_rss over every session cgroup): PA CV, plain-y CV, then full fits of
+`_opt`, `_pa_opt`, `_plainy_l2_opt`. Started 20:15:54 UTC.
