@@ -179,7 +179,9 @@ def _pred_digest(p: pl.DataFrame) -> str:
 def test_every_existing_recipe_keeps_its_id_and_its_lgb_params():
     assert TrainConfig().airport_specialist_only is False
     names = {p.name for p in Path("configs").glob("*.yaml")}
-    assert names - set(BEFORE) == {PA}, "a new recipe needs adding to BEFORE (or this list)"
+    # *_opt.yaml (optuna-retune.md) are checked against their bases in tests/test_matched_params.py.
+    new = {n for n in names - set(BEFORE) if not n.endswith("_opt.yaml")}
+    assert new == {PA}, "a new recipe needs adding to BEFORE (or this list)"
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))
         assert (c.hash(), _digest(c)) == (want_id, want_params), name

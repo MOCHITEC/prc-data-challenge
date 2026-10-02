@@ -144,7 +144,23 @@ _HASH_OPTIONAL: dict = {
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
     "airport_specialist_only": False,
+    # optuna-retune.md: empty, every existing id is unchanged.
+    "matched_params": {},
 }
+# LightGBM keys `matched_params` may not set: the run's determinism, threading, objective and seed stay the recipe's,
+# so a retuned model A differs from its base in capacity / regularisation / step size and nothing else.
+MATCHED_PARAMS_REFUSED = (
+    "objective",
+    "metric",
+    "seed",
+    "deterministic",
+    "force_row_wise",
+    "force_col_wise",
+    "num_threads",
+    "verbose",
+    "linear_tree",
+    "linear_lambda",
+)
 
 
 @dataclass
@@ -361,6 +377,12 @@ class TrainConfig:
     # over the LightGBM defaults and CatBoost rejects those keys outright (`feature_fraction`, `force_row_wise`,
     # `num_leaves` without Lossguide: P10 §1.2).
     cb_params: dict = field(default_factory=dict)
+    # LightGBM parameters for model A ONLY, merged over `params` when model A is fitted
+    # (docs/competitor_research_2026-09-21/results/optuna-retune.md). `params` alone would move model B too:
+    # `for_unmatched` copies every key but the two capacity overrides, so a retuned learning rate or bagging
+    # fraction would also refit the unmatched lane. Model B always uses `params`. Empty (the default) changes
+    # nothing and is out of the hash. LightGBM only; the keys in MATCHED_PARAMS_REFUSED are refused.
+    matched_params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.fe_osm_null_airports and not self.fe_osm_dist:
@@ -375,6 +397,12 @@ class TrainConfig:
             raise ValueError(f"matched_target must be one of {MATCHED_TARGETS}, got {self.matched_target!r}")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
+        if self.matched_params:
+            if self.model != "lightgbm":
+                raise ValueError("matched_params are LightGBM parameters; they have no meaning under CatBoost")
+            bad = sorted(k for k in self.matched_params if k in MATCHED_PARAMS_REFUSED)
+            if bad:
+                raise ValueError(f"matched_params may not set {bad} (see MATCHED_PARAMS_REFUSED)")
         if self.model == "lightgbm":
             if self.cb_params:
                 raise ValueError("cb_params is set but model is lightgbm; it would be silently ignored")
@@ -408,6 +436,12 @@ class TrainConfig:
     def catboost_params(self) -> dict:
         """CB_DEFAULTS with the recipe's cb_params on top. The fitter adds iterations, stopping and the seed."""
         return {**CB_DEFAULTS, **self.cb_params}
+
+    def for_matched(self) -> TrainConfig:
+        """The config model A is fitted with: `params` with `matched_params` on top. Itself when that is empty."""
+        if not self.matched_params:
+            return self
+        return replace(self, params={**self.params, **self.matched_params}, matched_params={})
 
     def for_unmatched(self) -> TrainConfig:
         """A copy sized for model B's much smaller training set."""
@@ -1394,11 +1428,15 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
                 return f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
 
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
-            # is the only thing the flag adds, and it sets rounds_matched itself.
+            # is the only thing the flag adds, and it sets rounds_matched itself. `cfg_a` is `cfg` itself unless
+            # matched_params is set (optuna-retune.md), and only then is it recorded.
+            cfg_a = cfg.for_matched()
+            if cfg.matched_params:
+                info["matched_params"] = dict(cfg.matched_params)
             if cfg.airport_models:
-                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info, es_rows=es_a)
+                g = _fit_grouped(m_tr, m_tg, _target_a, cfg_a, cols_a, cat_cols, info, es_rows=es_a)
             else:
-                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg], es_rows=es_a)
+                (g,), rounds = _fit(m_tr, _target_a, cfg_a, cols_a, cat_cols, [m_tg], es_rows=es_a)
                 info["rounds_matched"] = rounds
             if cfg.model == "catboost":
                 info["cb_matched"] = dict(_CB_LAST)
