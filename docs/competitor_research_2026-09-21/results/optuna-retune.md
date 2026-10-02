@@ -117,3 +117,9 @@ unmatched lane predictions byte-identical to `ef204b44ff` (model B untouched).
 All runs alone (one training at a time), gated as in §0.3, logged to `logs/retune/` (git-ignored) with exit codes
 checked, peak cgroup `total_rss` sampled every 10 s, killed above 13,000 MB. Reference: pooled anchored+L2 CV
 4,134 s / 11,231 MB; PA CV 3,636 s / 8,909 MB.
+
+## 1. Tuning study
+
+**Budget (§0.3 rule):** trial 0 (current params) took t0 = 1,340 s wall (1,264 s fitting; 1,571,364 training rows,
+183,761 October matched rows; 1,072 rounds; peak total_rss 7,282 MB own / 7,496 MB parent).
+**N = floor(43,200 / 1,340) = 32 trials** (0 … 31), fixed here before trial 1 started.
