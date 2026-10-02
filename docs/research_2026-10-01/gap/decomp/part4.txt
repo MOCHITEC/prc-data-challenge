@@ -1,0 +1,14 @@
+non-rollover MSE per row of N 75787.28864562052 RMSE 275.2977097325654
+top    10:  17.1%  MSE/row(N)=  12981  min|e| in set=  9029
+top    30:  21.6%  MSE/row(N)=  16339  min|e| in set=  6328
+top   100:  27.9%  MSE/row(N)=  21141  min|e| in set=  4108
+top   300:  35.4%  MSE/row(N)=  26794  min|e| in set=  2512
+top  1000:  45.0%  MSE/row(N)=  34089  min|e| in set=  1488
+top  3000:  54.5%  MSE/row(N)=  41276  min|e| in set=   882
+top 10000:  66.1%  MSE/row(N)=  50103  min|e| in set=   524
+top 30000:  78.7%  MSE/row(N)=  59645  min|e| in set=   328
+matched n 339045 top10=665 top30=1547 top100=3388 top300=6385 top1000=11370 top3000=17217
+unmatched n 5367 top10=12981 top30=16339 top100=20907 top300=24350 top1000=25640 top3000=26054
+rows to remove for 14,700 s2 (if zeroed): 19
+rows to halve error for 14,700: 72
+matched mse contrib 49687.613164686125

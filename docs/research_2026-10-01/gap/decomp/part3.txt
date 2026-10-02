@@ -1,0 +1,25 @@
+LIRF sched copy, not aobt             n=  4238 mse_contrib=   4592 rmse=   611
+LIRF sched copy & |sched-aobt|>900    n=   766 mse_contrib=   4237 rmse=  1380
+LIRF eobt/lobt copy only              n=  2278 mse_contrib=    414 rmse=   250
+LIRF aobt copy                        n=  4599 mse_contrib=    672 rmse=   224
+  LIRF rows with |SCHED-AOBT3|>900: 10843, sched-copy frac 0.071, mse_contrib 9058
+LEBL sched copy, not aobt             n=  2301 mse_contrib=    936 rmse=   374
+LEBL sched copy & |sched-aobt|>900    n=   194 mse_contrib=    616 rmse=  1046
+LEBL eobt/lobt copy only              n=  1598 mse_contrib=    508 rmse=   331
+LEBL aobt copy                        n=  7318 mse_contrib=    307 rmse=   120
+  LEBL rows with |SCHED-AOBT3|>900: 10470, sched-copy frac 0.019, mse_contrib 2672
+LTFM sched copy, not aobt             n=  4279 mse_contrib=    500 rmse=   201
+LTFM sched copy & |sched-aobt|>900    n=   107 mse_contrib=    148 rmse=   691
+LTFM eobt/lobt copy only              n=  1499 mse_contrib=    179 rmse=   203
+LTFM aobt copy                        n=  3961 mse_contrib=    426 rmse=   192
+  LTFM rows with |SCHED-AOBT3|>900: 13017, sched-copy frac 0.008, mse_contrib 4221
+LFPG sched copy, not aobt             n=  2149 mse_contrib=    243 rmse=   197
+LFPG sched copy & |sched-aobt|>900    n=    41 mse_contrib=     70 rmse=   767
+LFPG eobt/lobt copy only              n=  1579 mse_contrib=    223 rmse=   221
+LFPG aobt copy                        n=  8536 mse_contrib=    538 rmse=   147
+  LFPG rows with |SCHED-AOBT3|>900: 17895, sched-copy frac 0.002, mse_contrib 4800
+EGLL sched copy, not aobt             n=  2593 mse_contrib=    312 rmse=   203
+EGLL sched copy & |sched-aobt|>900    n=    70 mse_contrib=    104 rmse=   717
+EGLL eobt/lobt copy only              n=  2125 mse_contrib=    221 rmse=   189
+EGLL aobt copy                        n=  7550 mse_contrib=    445 rmse=   142
+  EGLL rows with |SCHED-AOBT3|>900: 11588, sched-copy frac 0.006, mse_contrib 3431

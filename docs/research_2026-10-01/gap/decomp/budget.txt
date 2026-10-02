@@ -1,0 +1,64 @@
+oof ids unique 2085047 2085047
+344419 0 0
+N=344419 RMSE=318.39 MSE=101375
+ALL                                                     n= 344419 (100.00%) RMSE=   318.4 SSEshare=100.0% MSEcontrib=  101375
+matched                                                 n= 339046 (98.44%) RMSE=   224.7 SSEshare= 49.0% MSEcontrib=   49705
+matched rollover y>72000                                n=      1 ( 0.00%) RMSE=  2447.0 SSEshare=  0.0% MSEcontrib=      17
+matched clock-copy (any clock +-60) excl rollover       n= 108710 (31.56%) RMSE=   201.9 SSEshare= 12.7% MSEcontrib=   12870
+matched copy of AOBT_3                                  n=  69656 (20.22%) RMSE=   134.9 SSEshare=  3.6% MSEcontrib=    3678
+matched copy of SCHED (not AOBT3)                       n=  23955 ( 6.96%) RMSE=   321.5 SSEshare=  7.1% MSEcontrib=    7188
+matched genuine                                         n= 230335 (66.88%) RMSE=   234.6 SSEshare= 36.3% MSEcontrib=   36818
+matched genuine LTFM                                    n=  36129 (10.49%) RMSE=   253.1 SSEshare=  6.6% MSEcontrib=    6721
+matched genuine non-LTFM                                n= 194206 (56.39%) RMSE=   231.0 SSEshare= 29.7% MSEcontrib=   30097
+matched LTFM all                                        n=  45882 (13.32%) RMSE=   242.4 SSEshare=  7.7% MSEcontrib=    7829
+matched non-LTFM all                                    n= 293164 (85.12%) RMSE=   221.8 SSEshare= 41.3% MSEcontrib=   41876
+unmatched                                               n=   5373 ( 1.56%) RMSE=  1819.9 SSEshare= 51.0% MSEcontrib=   51670
+unmatched LIRF                                          n=    397 ( 0.12%) RMSE=  3849.1 SSEshare= 16.8% MSEcontrib=   17077
+unmatched LIRF rollover                                 n=      5 ( 0.00%) RMSE= 19413.0 SSEshare=  5.4% MSEcontrib=    5471
+unmatched LIRF sched-fill copy                          n=    134 ( 0.04%) RMSE=  1845.3 SSEshare=  1.3% MSEcontrib=    1325
+unmatched LIRF other                                    n=    258 ( 0.07%) RMSE=  3704.8 SSEshare= 10.1% MSEcontrib=   10282
+unmatched non-LIRF                                      n=   4976 ( 1.44%) RMSE=  1547.4 SSEshare= 34.1% MSEcontrib=   34593
+unmatched non-LIRF rollover                             n=      1 ( 0.00%) RMSE= 83202.3 SSEshare= 19.8% MSEcontrib=   20099
+unmatched non-LIRF sched copy                           n=    125 ( 0.04%) RMSE=   268.6 SSEshare=  0.0% MSEcontrib=      26
+ALL rollover                                            n=      7 ( 0.00%) RMSE= 35482.3 SSEshare= 25.2% MSEcontrib=   25588
+--- top-k
+top     1 share= 19.8%  RMSE w/o =  285.09  MSE removed/row=  20099
+top     5 share= 34.4%  RMSE w/o =  257.86  MSE removed/row=  34887
+top    10 share= 36.9%  RMSE w/o =  253.02  MSE removed/row=  37359
+top    20 share= 39.1%  RMSE w/o =  248.42  MSE removed/row=  39666
+top    50 share= 42.7%  RMSE w/o =  241.06  MSE removed/row=  43276
+top   100 share= 45.8%  RMSE w/o =  234.44  MSE removed/row=  46427
+top   200 share= 49.4%  RMSE w/o =  226.64  MSE removed/row=  50038
+top   500 share= 54.5%  RMSE w/o =  214.88  MSE removed/row=  55267
+top  1000 share= 58.8%  RMSE w/o =  204.61  MSE removed/row=  59632
+top  2000 share= 63.3%  RMSE w/o =  193.55  MSE removed/row=  64133
+top  5000 share= 69.5%  RMSE w/o =  177.21  MSE removed/row=  70429
+top 10000 share= 74.7%  RMSE w/o =  162.66  MSE removed/row=  75685
+top 34484 share= 85.4%  RMSE w/o =  128.40  MSE removed/row=  86540
+--- |e| buckets
+|e| in [0,60)                                           n= 111461 (32.36%) RMSE=    34.0 SSEshare=  0.4% MSEcontrib=     374
+|e| in [60,120)                                         n=  86663 (25.16%) RMSE=    89.8 SSEshare=  2.0% MSEcontrib=    2027
+|e| in [120,300)                                        n= 110173 (31.99%) RMSE=   193.7 SSEshare= 11.8% MSEcontrib=   11996
+|e| in [300,600)                                        n=  28860 ( 8.38%) RMSE=   405.5 SSEshare= 13.6% MSEcontrib=   13778
+|e| in [600,1200)                                       n=   5708 ( 1.66%) RMSE=   804.8 SSEshare= 10.6% MSEcontrib=   10733
+|e| in [1200,3600)                                      n=   1413 ( 0.41%) RMSE=  1862.8 SSEshare= 14.0% MSEcontrib=   14236
+|e| in [3600,1000000000.0)                              n=    141 ( 0.04%) RMSE= 10854.1 SSEshare= 47.6% MSEcontrib=   48230
+--- per airport matched genuine / all
+shape: (10, 12)
+┌──────────┬───────┬───────────┬───────┬──────────┬───────────┬─────┬────────────┬────────────┬─────────────┬───────────┬───────────┐
+│ ADEP_mvt ┆ n     ┆ sse       ┆ nm    ┆ sse_m    ┆ sse_u     ┆ nu  ┆ rmse       ┆ rmse_m     ┆ rmse_u      ┆ share     ┆ share_u   │
+│ ---      ┆ ---   ┆ ---       ┆ ---   ┆ ---      ┆ ---       ┆ --- ┆ ---        ┆ ---        ┆ ---         ┆ ---       ┆ ---       │
+│ str      ┆ u32   ┆ f64       ┆ u32   ┆ f64      ┆ f64       ┆ u32 ┆ f64        ┆ f64        ┆ f64         ┆ f64       ┆ f64       │
+╞══════════╪═══════╪═══════════╪═══════╪══════════╪═══════════╪═════╪════════════╪════════════╪═════════════╪═══════════╪═══════════╡
+│ EDDF     ┆ 36830 ┆ 1.2464e9  ┆ 36231 ┆ 1.1728e9 ┆ 7.3630e7  ┆ 599 ┆ 183.962482 ┆ 179.915148 ┆ 350.601957  ┆ 3.569781  ┆ 0.210881  │
+│ EDDM     ┆ 27091 ┆ 8.4660e8  ┆ 26854 ┆ 7.5919e8 ┆ 8.7410e7  ┆ 237 ┆ 176.777863 ┆ 168.140403 ┆ 607.305234  ┆ 2.424723  ┆ 0.250348  │
+│ EGLL     ┆ 40210 ┆ 2.7834e9  ┆ 39744 ┆ 2.1959e9 ┆ 5.8748e8  ┆ 466 ┆ 263.100829 ┆ 235.057777 ┆ 1122.799891 ┆ 7.971863  ┆ 1.682565  │
+│ EHAM     ┆ 40949 ┆ 1.3767e9  ┆ 40141 ┆ 1.1480e9 ┆ 2.2877e8  ┆ 808 ┆ 183.358701 ┆ 169.109435 ┆ 532.100664  ┆ 3.943008  ┆ 0.65521   │
+│ LEBL     ┆ 28986 ┆ 1.4003e9  ┆ 28490 ┆ 1.3447e9 ┆ 5.5552e7  ┆ 496 ┆ 219.793584 ┆ 217.256489 ┆ 334.664485  ┆ 4.01051   ┆ 0.159104  │
+│ LEMD     ┆ 35328 ┆ 1.0783e9  ┆ 35019 ┆ 1.0601e9 ┆ 1.8252e7  ┆ 309 ┆ 174.708645 ┆ 173.986313 ┆ 243.039039  ┆ 3.088369  ┆ 0.052275  │
+│ LFPG     ┆ 39612 ┆ 1.2696e10 ┆ 38732 ┆ 2.2820e9 ┆ 1.0414e10 ┆ 880 ┆ 566.145716 ┆ 242.731402 ┆ 3440.144697 ┆ 36.363406 ┆ 29.827539 │
+│ LIRF     ┆ 26528 ┆ 9.6591e9  ┆ 26131 ┆ 3.7773e9 ┆ 5.8818e9  ┆ 397 ┆ 603.415483 ┆ 380.201821 ┆ 3849.103086 ┆ 27.66424  ┆ 16.845772 │
+│ LSZH     ┆ 22346 ┆ 8.9795e8  ┆ 21822 ┆ 6.8276e8 ┆ 2.1519e8  ┆ 524 ┆ 200.459384 ┆ 176.883124 ┆ 640.836776  ┆ 2.571781  ┆ 0.616322  │
+│ LTFM     ┆ 46539 ┆ 2.9302e9  ┆ 45882 ┆ 2.6966e9 ┆ 2.3367e8  ┆ 657 ┆ 250.923763 ┆ 242.428384 ┆ 596.371302  ┆ 8.392319  ┆ 0.669237  │
+└──────────┴───────┴───────────┴───────┴──────────┴───────────┴─────┴────────────┴────────────┴─────────────┴───────────┴───────────┘
+forward: all 217.50925736937026 matched 197.0696490566078 unm 981.7292933018203 unm SSE share 0.18663226411399492
