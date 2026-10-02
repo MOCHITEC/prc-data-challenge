@@ -1,6 +1,12 @@
 # LightGBM `linear_tree` (`linear_lambda` 15) in the LGB members of hybrid_blend_l2 (2026-10-02)
 
-**Verdict:** pending (§0 is the pre-registration; results go in §1 onward, §0 is not edited after the first run).
+**Verdict (prc.compare.verdict, 672,428 pooled OOF rows): anchored+L2 → LT full +0.65 s [+0.33, +1.02], K=200
++0.69 s [+0.38, +1.02] → REJECT (worse on all rows; both CIs exclude zero on the worse side).** Month bootstrap
++0.65 [+0.12, +1.13]. Matched lane +0.85 [+0.42, +1.32]; unmatched lane byte-identical (+0.00). By §0.5 the run
+stops here: no plain-y LT run, no blend, no `outputs/hybrid_blend_l2_lt.parquet`. `hybrid_blend_l2` stays.
+Nothing was uploaded or submitted.
+
+§0 was committed as 5764eaa before the run started (00:24:34 UTC) and has not been edited since.
 
 ## 0. Pre-registration (written before any run)
 
@@ -103,3 +109,92 @@ nothing else training; logs to `logs/linear_tree/` (git-ignored), exit codes che
 (`--skip-predict`); its full fit (`--skip-cv`) is run only if LT is ADOPTED. Peak cgroup `total_rss` is sampled
 every 10 s from `memory.stat` of the cgroup `/proc/self/cgroup` names and of its parent (limit 13,681 MB). **If
 `total_rss` exceeds 13,000 MB the run is killed and reported, not retried.**
+
+## 1. Run
+
+`logs/linear_tree/run.sh lt_cv --config configs/main_flseq_osm_nolirf_l2_lt.yaml --work-dir data/work_flseq
+--skip-predict` (feature cache reused), alone on the box. Exit 0, not killed.
+
+| run | exp id | wall s (train s) | peak total_rss (own cgroup / parent) |
+|---|---|---:|---:|
+| LT, CV only | `main_flseq_osm_nolirf_l2_lt-a9fb149ab5` | 3,135 (3,079) | 11,838 MB / 12,060 MB |
+
+For reference the base anchored+L2 run took 4,134 s and peaked at 11,231 MB (`feature-levers-L1-L4.md` §6). LT
+peaked about 0.6 GB higher; headroom to the 13,000 MB stop line was 0.94 GB. It was faster only because early
+stopping chose far fewer rounds.
+
+Per fold, base → LT (overall RMSE / matched RMSE / matched rounds):
+
+| fold | overall | matched | rounds_matched |
+|---|---|---|---|
+| jan | 342.54 → 343.38 | 201.51 → 202.96 | 1,269 → 818 |
+| jul | 297.01 → 296.97 | 241.45 → 241.40 | 1,208 → 468 |
+| jul_fwd (shadowed) | 308.63 → 307.72 | 250.19 → 249.05 | 903 → 369 |
+| forward | 217.16 → 218.25 | 196.73 → 197.94 | 978 → 324 |
+
+Model B untouched: `rounds_unmatched` equal on every fold (52 / 43 / 92 / 65), and all 8,378 pooled unmatched OOF
+predictions are exactly equal to the base's. Matched OOF predictions differ from the base by RMS 46.17 s.
+
+## 2. Comparison (`prc.compare main_flseq_osm_nolirf_l2-ef204b44ff main_flseq_osm_nolirf_l2_lt-a9fb149ab5`)
+
+| K dropped | A | B | diff [CI95] |
+|---:|---:|---:|---|
+| 0 | 273.57 | 274.22 | **+0.65 [+0.33, +1.02]** |
+| 20 | 229.10 | 229.88 | +0.78 [+0.34, +1.23] |
+| 200 | 215.53 | 216.22 | **+0.69 [+0.38, +1.02]** |
+| 2000 | 192.59 | 192.83 | +0.24 [+0.07, +0.44] |
+
+Month bootstrap (4 months): +0.65 [+0.12, +1.13], P(B better) 0.006. **VERDICT: REJECT — B is worse on all rows.**
+
+**Lane split:** matched +0.85 [+0.42, +1.32]; unmatched +0.00 [+0.00, +0.00]; all except LIRF +0.79 [+0.40, +1.27].
+
+**Per calendar month** (all rows / matched):
+
+| month | all rows | matched |
+|---|---|---|
+| 2025-01 | +0.84 [+0.26, +1.72] | +1.44 [+0.46, +2.47] |
+| 2025-07 | −0.04 [−0.60, +0.50] | −0.05 [−0.77, +0.61] |
+| 2025-11 | +1.25 [+0.62, +1.86] | +1.44 [+0.74, +2.22] |
+| 2025-12 | +0.92 [−0.13, +2.24] | +0.98 [−0.33, +2.25] |
+
+**Per airport**, all rows (share of squared disagreement):
+
+| airport | n | diff [CI95] |
+|---|---:|---|
+| LTFM | 91,338 | +5.01 [+3.77, +6.33] (27.9 %) |
+| EGLL | 79,633 | −0.80 [−2.86, +1.73] (16.3 %) |
+| LFPG | 78,036 | +0.25 [−0.46, +1.16] (14.1 %) |
+| LIRF | 49,924 | +0.03 [−1.09, +0.94] (12.4 %) |
+| EHAM | 79,639 | −0.08 [−0.79, +0.60] (6.4 %) |
+| EDDM | 51,688 | +0.64 [−1.67, +2.23] (5.8 %) |
+| EDDF | 72,276 | +0.15 [−0.40, +0.82] (5.3 %) |
+| LEMD | 70,732 | +0.18 [−0.39, +0.71] (4.5 %) |
+| LSZH | 43,009 | +1.32 [+0.32, +2.28] (3.7 %) |
+| LEBL | 56,153 | −0.16 [−0.62, +0.28] (3.6 %) |
+
+Two airports are worse with CIs above zero (LTFM, LSZH); none is better with a CI below zero.
+
+**Reading.** This repeats item 11's matched-lane sign at `linear_lambda` 15 on the current recipe: +0.85 s on the
+matched lane then (λ 1, forward fold, main.yaml era), +0.85 s now (λ 15, pooled, anchored+L2). Linear leaves make
+early stopping choose 36–64 % as many rounds at lr 0.05 / 127 leaves. Kind-mango's −0.88 s came with a joint retune
+(lr 0.015, 613 leaves, min_data 515, 3,377 rounds) on a raw-y-plus-anchored blend. This note does not separate
+`linear_tree` from that retune, and the retune was out of scope.
+
+## 3. Not run (by §0.5)
+
+Plain-y LT (`configs/main_flseq_osm_nolirf_plainy_l2_lt.yaml`, `af11759d5d`), the anchored LT full fit, the blend
+comparison and `outputs/hybrid_blend_l2_lt.parquet`. `scripts/blend_lt.py` was written before the run and is unused.
+
+## 4. Code and tests
+
+- `src/prc/train.py`: `linear_tree_matched_only` (default off, out of the hash at off; refused without
+  `use_linear_tree`). On, `for_unmatched()` turns `use_linear_tree` off.
+- Recipes: `configs/main_flseq_osm_nolirf_l2_lt.yaml`, `configs/main_flseq_osm_nolirf_plainy_l2_lt.yaml`.
+- `tests/test_linear_tree.py` (6 tests): every existing recipe in `configs/` (122) keeps its id and its resolved
+  model A and model B LightGBM parameters, byte for byte, as at 23018be. Each LT recipe is its base plus the three
+  keys. Model B's parameters equal the base's. On synthetic data, model B's predictions are byte-identical and
+  model A's move. The blend script's members match §0.
+- Full suite: **233 passed** (`logs/linear_tree/pytest.txt`).
+
+Logs (git-ignored): `logs/linear_tree/` — `run.sh`, `lt_cv.log`, `lt_cv.mem`, `lt_cv.status`, `compare_lt.txt`,
+`detail_lt.txt`.
