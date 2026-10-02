@@ -40,16 +40,19 @@ H2_A = "oof_main_flseq_osm_nolirf-926741d779"   # matched lane
 H2_B = "oof_main_flseq-8615e6a194"               # unmatched lane
 PLAIN = "oof_main_flseq_osm_nolirf_plainy-b971f4b81b"  # plain-y member of the hybrid_H2_plainy blend
 CB = "oof_main_flseq_osm_nolirf_cb-6297d62f5f"          # anchored CatBoost member of hybrid_plainy_cb
+L2_MEMBERS = ["oof_main_flseq_osm_nolirf_l2-ef204b44ff", "oof_main_flseq_osm_nolirf_plainy_l2-c74a27239b",
+              "oof_main_flseq_osm_nolirf_cb_l2-4aa341b206"]  # hybrid_blend_l2 (blend-l2.md, P): mean of the three
 # base choice: `--base h2` (default, the pre-registered run) or `--base plainy` (hybrid_H2_plainy: matched lane
 # = 0.5 x anchored + 0.5 x plain OOF, unmatched = main_flseq; plainy-blend.md) or `--base cb` (hybrid_plainy_cb:
 # matched = (anchored + plain + CatBoost) / 3, unmatched = main_flseq; catboost-blend.md). Only the base and file
-# names change. S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy.
+# names change. `--base l2` (hybrid_blend_l2: matched = mean of the three L2 members, unmatched = main_flseq;
+# blend-l2.md). S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy, l2 vs cb.
 BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
-assert BASE_NAME in ("h2", "plainy", "cb"), BASE_NAME
+assert BASE_NAME in ("h2", "plainy", "cb", "l2"), BASE_NAME
 SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
-PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy")}.get(BASE_NAME)  # (name, file suffix) for S4
+PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb")}.get(BASE_NAME)  # (name, file suffix) for S4
 REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
-           "cb": "cbx/oof_hybrid_plainy_cb.parquet"}[BASE_NAME]
+           "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet"}[BASE_NAME]
 
 pl.Config.set_tbl_rows(60)
 pl.Config.set_tbl_width_chars(250)
@@ -88,6 +91,17 @@ def load_labelled() -> pl.DataFrame:
             D = D.join(oc, on="MVT_ID_mvt", how="left").with_columns(
                 ((pl.col("oa") + pl.col("op") + pl.col("oc")) / 3.0).alias("oa"))
             assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
+    if BASE_NAME == "l2":
+        cols = []
+        for i, mem in enumerate(L2_MEMBERS):
+            fm = pl.read_parquet(ROOT + f"experiments/{mem}_folds.parquet").filter(
+                pl.col("pooled") & pl.col("fold").is_in(["jan", "jul"]))
+            assert fold.sort("MVT_ID_mvt").equals(fm.sort("MVT_ID_mvt")), f"{mem}: jan/jul folds differ"
+            D = D.join(pl.read_parquet(ROOT + f"experiments/{mem}.parquet").rename({"oof": f"m{i}"}),
+                       on="MVT_ID_mvt", how="left")
+            cols.append(f"m{i}")
+        D = D.with_columns(((pl.col("m0") + pl.col("m1") + pl.col("m2")) / 3.0).alias("oa"))
+        assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
     D = D.with_columns(pl.when(pl.col("mvt_minus_aobt3").is_not_null()).then("oa").otherwise("ob").alias("b"),
                        pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
                        pl.col("MVT_TIME_UTC_mvt").dt.date().cast(pl.String).alias("day"))

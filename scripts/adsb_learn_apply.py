@@ -24,9 +24,10 @@ import adsb_learn_features as L
 
 ROOT = L.s1.REPO_DIR
 # `--base plainy` (see adsb_learn_cv.py): base outputs/hybrid_H2_plainy.parquet, CV json cv_plainy.json
-BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb"}[CV.BASE_NAME]
+BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb", "l2": "blend_l2"}[CV.BASE_NAME]
 PREV_OUT = {"plainy": "outputs/hybrid_H2_adsb_learned.parquet",
-            "cb": "outputs/hybrid_H2_plainy_adsb_learned.parquet"}.get(CV.BASE_NAME)
+            "cb": "outputs/hybrid_H2_plainy_adsb_learned.parquet",
+            "l2": "outputs/hybrid_plainy_cb_adsb_learned.parquet"}.get(CV.BASE_NAME)
 OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
 BASE_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}.parquet"
 V20_FILE = ROOT + "outputs/v20_hybridH2_adsb.parquet"
