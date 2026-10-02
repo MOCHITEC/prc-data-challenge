@@ -457,3 +457,21 @@ submitted.
   - The signed change quantiles are p1 −288, p10 −114, p50 −11, p90 +117 and p99 +353.
   - The mean prediction goes from 1,039.36 to 1,034.18 s.
 - **Against `hybrid_blend_l2_adsb_learned`.** 324,921 rows differ, with RMS 16.4 s and max 509 s.
+
+## 9. Improving the learned model: variants V1–V3 on the `hybrid_blend_l2_pa` base (2026-10-02)
+
+Context: v32 (= section 8) scored 251.7333 on the board. Public fact (`public-code-deep-dive-2026-09-30.md` §1, §2):
+merry-quicksand's ADS-B stage is a LightGBM + MLP stacker with 26 features, and its "joined mid-taxi" rows
+(coverage code 2) carry 41 % of its ADS-B fold gain. No competitor code was opened.
+
+### 9.0 How rows first seen mid-taxi are handled today (check; criterion fixed before computing it)
+
+Coverage classes of the 344,419 labelled rows, from the joined/feature files:
+- **K0**: no ADS-B feature row.
+- **K1**: joined, but no ground fix before take-off.
+- **K2 (mid-taxi first)**: there is a ground fix, but no stand episode was found (`t_move` null).
+- **K3**: a stand episode was observed (`t_move` non-null).
+
+The criterion was written before any number was computed. **K2 counts as under-served if its relative MSE
+reduction under the current model (section 8 CV rows, `1 − MSE_learned / MSE_base`) is below half of K3's, and K2
+holds ≥ 5 % of rows.**
