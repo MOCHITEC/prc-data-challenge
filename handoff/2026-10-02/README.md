@@ -69,6 +69,9 @@ v28 の未マッチ 5,290 行すべてに（v26 − v16）を足したもの。�
 ## 状況
 
 - [x] 未マッチ行の 3 ファイル、`build_hybrid_variants.py`、`--base` の 4 つの選択肢（代わりの入力で端から端まで動作確認済み）
-- [ ] `main_flseq_osm_nolirf_l2`（v28 の anchored メンバー）をこの環境で再現（実験 ID `ef204b44ff` は一致）
+- [x] `main_flseq_osm_nolirf_l2`（v28 の anchored メンバー）をこの環境で再現: 実験 ID `ef204b44ff` は一致、CV full 273.41
+  （記録は 273.57）。マッチ行は fold ごとに 0.05〜0.26 s 良い（jan 201.25 / 201.51、jul 241.40 / 241.45、jul_fwd 250.11 / 250.19、
+  forward 196.61 / 196.73）。OSM と天気のキャッシュの取り直しによる環境差（`peaceful-babbage` も 273.87 / 273.72 を報告）。
+  `l2clip_*` もこの環境で作るので、そちらのメンバーとは同じ程度にずれる。重みの推定への影響は小さい見込み。
 - [ ] `main_flseq_osm_nolirf_l2_clip` の CV と全データ再学習 → `l2clip_*.parquet`
 - [ ] 切ったメンバーが L2 のレシピでも効くかの CV 確認（b = anchored L2、c = 切った L2）
