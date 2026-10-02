@@ -5,7 +5,10 @@ adsb_learn_apply.py). L5 (fe_tx_nm) was measured on the anchored member only (do
 so the change it makes to the 3-member mean is (anchored_l5 - anchored) / 3 on NM-matched rows; unmatched rows do
 not move by construction. Approximation: the ADS-B residual is not refitted on the new base (|delta| is tens of s).
 
-    .venv/bin/python scripts/build_v28_l5_delta.py
+    .venv/bin/python scripts/build_v28_l5_delta.py [BASE_SUBMISSION] [OUT]
+
+Used for v29 with BASE = v28 (hybrid_blend_l2 + learned ADS-B, LB 252.41): the same 1/3 delta, assuming the L5
+change is additive to L2's (not measured; L5's f60 window overlaps L2's forward windows).
 """
 
 import numpy as np
@@ -14,10 +17,13 @@ import polars as pl
 from prc.validate_submission import validate_files
 
 TPL = "data/raw/submitting.parquet"
-V23 = "outputs/lb/resilient-hedgehog_v23.parquet"  # downloaded from the team bucket
+import sys
+
+# base submission (downloaded from the team bucket) and output; defaults reproduce the first candidate
+V23 = sys.argv[1] if len(sys.argv) > 1 else "outputs/lb/resilient-hedgehog_v23.parquet"
 A0 = "outputs/main_flseq_osm_nolirf.parquet"
 A5 = "outputs/main_flseq_osm_nolirf_l5.parquet"
-OUT = "outputs/v28_v23_plus_l5_delta.parquet"
+OUT = sys.argv[2] if len(sys.argv) > 2 else "outputs/v28_v23_plus_l5_delta.parquet"
 
 tpl = pl.read_parquet(TPL)
 v23 = pl.read_parquet(V23)
