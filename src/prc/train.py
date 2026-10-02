@@ -140,6 +140,8 @@ _HASH_OPTIONAL: dict = {
     "fe_fwd_nm": False,
     "fe_fwd_nm_unmatched": False,
     "fe_push_queue": False,
+    # linear-tree.md: off, every existing id is unchanged.
+    "linear_tree_matched_only": False,
 }
 
 
@@ -175,6 +177,12 @@ class TrainConfig:
     use_categoricals: bool = True
     use_linear_tree: bool = False  # docs/README: reported worth about -10 s CLEAN RMSE; compare explicitly
     linear_lambda: float = 1.0
+    # use_linear_tree is one field that both models inherit (for_unmatched copies it), so a recipe could not give
+    # linear leaves to model A alone (docs/investigation_2026-09-16/results/linear-tree-model-b.md §2). On, model B
+    # is fitted without linear_tree and linear_lambda, exactly as with use_linear_tree off, so its predictions
+    # stay byte-identical to the recipe without linear trees. Requires use_linear_tree. Off (the default) changes
+    # nothing. docs/competitor_research_2026-09-21/results/linear-tree.md.
+    linear_tree_matched_only: bool = False
     # The nine label-derived columns (stand x runway P10/P20/median, airport x runway x hour median, airport
     # median, and the coalesced fallback). Present since the first commit and never ablated; the flag exists to
     # settle whether they earn the 40 lines of fold-wise fitting they cost.
@@ -350,6 +358,8 @@ class TrainConfig:
             raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
         if self.fe_arr_fill_permute and not self.fe_arr_fill:
             raise ValueError("fe_arr_fill_permute is set but fe_arr_fill is off; it would be silently ignored")
+        if self.linear_tree_matched_only and not self.use_linear_tree:
+            raise ValueError("linear_tree_matched_only is set but use_linear_tree is off; it would be silently ignored")
         if self.matched_target not in MATCHED_TARGETS:
             raise ValueError(f"matched_target must be one of {MATCHED_TARGETS}, got {self.matched_target!r}")
         if self.model not in MODEL_FAMILIES:
@@ -394,6 +404,7 @@ class TrainConfig:
             # `__post_init__` has already required model B's LightGBM capacity to equal model A's, so the only
             # override left to carry is the round cap - applied exactly as it is for LightGBM.
             return replace(self, num_rounds=self.unmatched_num_rounds)
+        extra = {"use_linear_tree": False, "linear_tree_matched_only": False} if self.linear_tree_matched_only else {}
         return replace(
             self,
             params={
@@ -402,6 +413,7 @@ class TrainConfig:
                 "min_data_in_leaf": self.unmatched_min_data_in_leaf,
             },
             num_rounds=self.unmatched_num_rounds,
+            **extra,
         )
 
     def lgb_params(self) -> dict:
