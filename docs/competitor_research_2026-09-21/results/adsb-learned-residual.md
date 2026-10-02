@@ -399,3 +399,61 @@ submitted.
   - The signed change quantiles are p1 −290, p10 −115, p50 −12, p90 +119 and p99 +358.
   - The mean prediction goes from 1,039.47 to 1,034.25 s.
 - **Against v23 (`hybrid_plainy_cb_adsb_learned`).** 330,422 rows differ, with RMS 26.1 s and max 792 s.
+
+## 8. Re-run on the `hybrid_blend_l2_pa` base (2026-10-02, after v28 scored 252.4111)
+
+**Setup.** The design is unchanged from section 0/0a. Only the base is swapped.
+- `b` follows `per-airport-member.md` (primary), with the same expression as `scripts/blend_pa.py`:
+  - matched lane: `((0.5·a2 + 0.5·pa) + p2 + c2) / 3`, where
+    - a2 = `oof_main_flseq_osm_nolirf_l2-ef204b44ff`,
+    - pa = `oof_main_flseq_osm_nolirf_l2_pa-85f815edf4`,
+    - p2 = `…plainy_l2-c74a27239b`,
+    - c2 = `…cb_l2-4aa341b206`;
+  - unmatched lane: `oof_main_flseq-8615e6a194`.
+- It equals `logs/per_airport/scratch/oof_hybrid_blend_l2_pa.parquet` on all 344,419 rows (max |diff| 0.0).
+- All four members' jan/jul folds equal H2's.
+- Commands: `adsb_learn_cv.py --base pa` and `adsb_learn_apply.py --base pa`. Logs:
+  `$SCRATCH/adsb/learn_cv_pa.log` and `learn_apply_pa.log`.
+- **Restart checks.**
+  - The memory cgroup path was re-read from `/proc/self/cgroup` (`/process_api/01a0fa39-…/claude-code-bash`). The
+    root `total_rss` was about 250 MB.
+  - `feat_2025.parquet`, `feat_2026.parquet` and `cv_rows_l2.parquet` were present.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the pa base | **8,265.3** | [7,232.0, 9,384.1] | 313.767 → **300.307** (−13.460) |
+| rule on the pa base | 1,744.3 | [1,585.1, 1,926.5] | 313.767 → 310.975 (−2.792) |
+| paired: learned − rule | 6,521.0 | [5,541.1, 7,608.1] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 522, 293, 332, 333 and 150, so the final fit uses **332 rounds**.
+- Every airport's learned CI excludes 0 except LTFM.
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| blend_l2 | 314.470 |
+| pa | 313.767 |
+| blend_l2 + learned (section 7) | 300.855 |
+| **pa + learned** | **300.307** |
+
+**(pa + learned) − (blend_l2 + learned) = −0.548 s, CI95 [−0.800, −0.348].** As MSE: 329.5 s² [219.5, 439.3].
+pa's base advantage on these rows is −0.70 s, and about 0.55 s of it survives the residual model.
+
+**Production file** `outputs/hybrid_blend_l2_pa_adsb_learned.parquet`. It is the final fit (286,008 rows, 62 days,
+332 rounds) applied to `outputs/hybrid_blend_l2_pa.parquet`, with c = 0 at LTFM. It is git-ignored and not
+submitted.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. **2 negatives were reverted to base.**
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 282,938 rows (82.05 %) are changed.
+  - Over the changed rows, the RMS change is 115.1 s, with median |Δ| 44 s, p90 170, p99 416 and max 1,754.
+  - The signed change quantiles are p1 −288, p10 −114, p50 −11, p90 +117 and p99 +353.
+  - The mean prediction goes from 1,039.36 to 1,034.18 s.
+- **Against `hybrid_blend_l2_adsb_learned`.** 324,921 rows differ, with RMS 16.4 s and max 509 s.
