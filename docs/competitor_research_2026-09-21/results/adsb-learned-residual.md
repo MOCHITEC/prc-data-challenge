@@ -475,3 +475,69 @@ Coverage classes of the 344,419 labelled rows, from the joined/feature files:
 The criterion was written before any number was computed. **K2 counts as under-served if its relative MSE
 reduction under the current model (section 8 CV rows, `1 − MSE_learned / MSE_base`) is below half of K3's, and K2
 holds ≥ 5 % of rows.**
+
+**Check result** (`scripts/adsb_learn_v2_check.py`, log `$SCRATCH/adsb/learn_v2_check.log`; section 8 CV rows):
+
+| class | rows | share | MSE base | MSE learned | rel. reduction | share of gain |
+|---|---:|---:|---:|---:|---:|---:|
+| K0 no ADS-B | 58,411 | 0.170 | 93,829 | 93,829 | 0 | 0 |
+| K1 air only | 89,202 | 0.259 | 169,691 | 169,081 | 0.004 | 0.019 |
+| **K2 mid-taxi first** | 82,786 | 0.240 | 75,095 | 63,063 | **0.160** | **0.350** |
+| K3 stand seen | 114,020 | 0.331 | 62,039 | 46,286 | 0.254 | 0.631 |
+
+**How K2 rows are handled today.** They are **not excluded**: every row with a joined aircraft gets the full feature
+vector.
+- With no stand run, the anchor falls back to `t_dep1`, the first departure fix after the last ≥ 10 min silence.
+- The post-anchor features are then computed from the first fix seen: gs thresholds, path, stops, last ground fix
+  and take-off. 80,204 of the 82,786 K2 rows have them.
+- The model also sees `stand_rule`, `dep1_gs` (the speed at the first fix) and the first-fix position `x_a`/`y_a`.
+- Stage-1 reasons within K2: `moving_when_first_seen` 56,701, no qualifying run 13,303, `run_at_dep1` whose run
+  ends < 60 s before the phase end 12,739, `longest_run` 43.
+- The first-fix gs median is 13.8 kt (p10 3.8, p90 30.5).
+- K2 already carries 35 % of the gain, close to the 41 % merry-quicksand reports for its code 2.
+
+**Criterion: K2 is not under-served.** Its relative reduction is 0.160, against half of K3's (0.127). **V3 is
+therefore not run.** Other observations:
+- By airport, K2 lags K3 most at EGLL (0.14 vs 0.36), LEMD (0.19 vs 0.52) and LSZH (0.24 vs 0.54).
+- K1 (air only, 26 % of rows) gets almost nothing (0.004). It is not part of this task.
+
+### 9.1 Pre-registration of V1/V2 (written and committed before any variant is run)
+
+The base is the `hybrid_blend_l2_pa` OOF, as in section 8. The features (58), target, rows, 5 day-folds, the
+inner 20 % early-stopping days per fold, the ±1,800 s correction clip, "no ADS-B → c = 0" and, in production, LTFM
+c = 0 are all exactly as in section 0. **Reference = the current learned LGB** (section 8 CV rows,
+`cv_rows_pa.parquet`; in production `final_model_pa.txt`).
+
+**V1: MLP regressor** (sklearn 1.9.0 `MLPRegressor`; torch is not installed and nothing is installed).
+- **Inputs.**
+  - The 55 numeric features. Each is clipped to the 0.5–99.5 % quantiles of its fit rows, standardised with the fit
+    rows' mean and sd, and NaN is set to 0. A 0/1 missing indicator is added for every feature that has a NaN in the
+    fit rows.
+  - The 3 categoricals (ADEP, join, stand_rule) are one-hot encoded, with an extra level for missing.
+- **Target.** `r` clipped to ±3,600 s, divided by 600.
+- **Network.** Hidden layers (128, 64), ReLU, Adam, learning_rate_init 1e-3, alpha (L2) 1e-4, batch 512.
+- **Training.** Epochs via `partial_fit`, with the rows shuffled every epoch. At most 60 epochs, with early stopping
+  on the inner early-stopping days' MSE (patience 8). The best epoch's weights are kept.
+- **Seeds.** 3 (20260930 + 0/1/2), and the prediction is the mean of the 3. Prediction × 600, then clipped to
+  ±1,800 s.
+- **Final fit.** All 62 days, for each seed the median best epoch over the 5 folds, with no early stopping. The
+  scaling is fitted on all rows.
+- Threads: `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` = 2.
+
+**V2.** `c = 0.5 × c_LGB + 0.5 × c_V1`, using the same folds' predictions. In production it is 0.5 × the current
+final LGB plus 0.5 × the V1 final fit.
+
+**V3.** Not run (check above).
+
+**Metric.**
+- Per row `d = (y − b − c_ref)² − (y − b − c_var)²`, the mean over all 344,419 rows. A positive value means the
+  variant is better.
+- 95 % CI from a day-block bootstrap (62 days, B = 2,000, seed 20260930).
+- Also reported: RMSE, and per airport (information only).
+
+**Decision.**
+- A variant **passes** if the 2.5 % bound of its paired CI is > 0.
+- If any variant passes, **adopt the single best** by point estimate among those that pass, and build
+  `outputs/hybrid_blend_l2_pa_adsb_v2.parquet`: the final fit applied to `outputs/hybrid_blend_l2_pa.parquet`, with
+  c = 0 at LTFM and negatives reverted to base. It is validated as before and not submitted.
+- If no variant passes, keep the current model and build no file.
