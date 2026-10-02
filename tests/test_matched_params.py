@@ -326,3 +326,26 @@ def test_the_retune_script_matches_the_preregistration():
     assert m.TUNE_FOLD.valid_months == (202510,)
     assert not set(m.TUNE_FOLD.valid_months) & comp_valid
     assert m.TUNE_FOLD.train_months == tuple(range(202501, 202510))
+
+
+def test_the_opt_blend_script_matches_the_preregistration():
+    spec = importlib.util.spec_from_file_location("blend_pa_opt", Path("scripts/blend_pa_opt.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.PA_L2 == "main_flseq_osm_nolirf_l2_pa-85f815edf4"
+    assert mod.HYBRIDS == {
+        "hybrid_blend_l2_pa": ("a2", "pa", "p2", "c2"),
+        "hybrid_blend_l2_pa_opt": ("a2o", "pao", "p2o", "c2"),
+    }
+    assert mod.BASE_FILE == "outputs/hybrid_blend_l2_pa.parquet"
+    assert {k: mod.FULL_FILES[k] for k in ("a2o", "pao", "p2o", "c2", "u")} == {
+        "a2o": "outputs/main_flseq_osm_nolirf_l2_opt.parquet",
+        "pao": "outputs/main_flseq_osm_nolirf_l2_pa_opt.parquet",
+        "p2o": "outputs/main_flseq_osm_nolirf_plainy_l2_opt.parquet",
+        "c2": "outputs/main_flseq_osm_nolirf_cb_l2.parquet",
+        "u": "outputs/main_flseq.parquet",
+    }
+    v = {"a2o": 1.0, "pao": 4.0, "p2o": 10.0, "c2": 100.0}
+    assert mod.matched_value(mod.HYBRIDS["hybrid_blend_l2_pa_opt"], v.__getitem__) == pytest.approx(
+        (0.5 * 1 + 0.5 * 4 + 10 + 100) / 3
+    )

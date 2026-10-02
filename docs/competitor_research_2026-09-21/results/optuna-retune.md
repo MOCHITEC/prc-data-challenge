@@ -123,3 +123,57 @@ checked, peak cgroup `total_rss` sampled every 10 s, killed above 13,000 MB. Ref
 **Budget (§0.3 rule):** trial 0 (current params) took t0 = 1,340 s wall (1,264 s fitting; 1,571,364 training rows,
 183,761 October matched rows; 1,072 rounds; peak total_rss 7,282 MB own / 7,496 MB parent).
 **N = floor(43,200 / 1,340) = 32 trials** (0 … 31), fixed here before trial 1 started.
+
+**Run:** `scripts/retune_lgb.py study --n 32`, 2026-10-02 05:47 → 18:16 UTC (trial 0 alone first, then 1–31). All 32
+trials finished (`status ok`); none killed, none failed, no restart needed. Sum of trial wall times 44,344 s
+(12.3 h); peak total_rss over all trials 7,607 MB (parent cgroup). 7 trials hit the 2,000-round cap (all with
+lr ≤ 0.045 or few leaves). Gate waits: none after the first trial (no `adsb_learn_` process at any later start).
+
+October matched RMSE, all 32 trials, best first (`logs/retune/summary.txt`; d = vs trial 0):
+
+```
+idx  rmse_m    d_vs_0  leaves  min_leaf  ff     bf     l2       lr      rounds  wall_s  peak_MB
+  8  204.204   -3.059     357        11  0.418  0.646  8.928    0.03462    1200    1590  7470
+ 12  204.593   -2.670     278        65  0.470  0.935  2.421    0.05272    1002    1240  7515
+ 16  204.775   -2.488     360        45  0.420  0.867  27.3     0.08723     498     780  7521
+ 31  205.028   -2.235     273        40  0.588  0.958  0.02832  0.03807    1386    1910  7492
+  9  205.602   -1.661     102        11  0.592  0.863  0.5843   0.03573    2000    2030  7300
+ 22  205.628   -1.635     260        68  0.602  0.841  3.839    0.03168    1428    2540  7497
+ 29  205.715   -1.548      84        93  0.476  0.844  34.78    0.07773    1653    1080  7227
+  1  206.203   -1.060     181        86  0.599  0.823  86.48    0.05295    1082    1520  7467
+  3  206.383   -0.880      80        48  0.512  0.724  3.249    0.08619     969     810  7261
+ 23  206.446   -0.816      49        17  0.588  0.835  0.02125  0.06409    2000    1590  7450
+ 19  206.622   -0.641      57        11  0.498  0.565  0.01616  0.04455    2000    1340  7361
+ 28  206.858   -0.404     114       110  0.518  0.737  82.71    0.04257    1780    1610  7476
+ 20  207.014   -0.249      46        10  0.499  0.630  0.03716  0.04401    2000    1340  7183
+  0  207.263   +0.000     127        50  0.800  0.800  1        0.05      1072    1340  7496
+  2  207.332   +0.069      36        49  0.774  0.967  0.02234  0.1121    1394    1170  7045
+ 17  207.887   +0.624      63       180  0.489  0.767  0.4114   0.1132    1121     880  7363
+ 14  208.299   +1.036      82        88  0.775  0.749  7.774    0.04283    1598    1750  7457
+ 10  208.374   +1.111     172        50  0.935  0.826  2.789    0.08558     402     750  7470
+ 18  208.383   +1.121     355        17  0.916  0.686  7.15     0.1039     203     530  7511
+ 13  208.599   +1.337      68       100  0.685  0.706  0.01043  0.08665     934     980  7050
+ 15  208.661   +1.399     315        73  0.974  0.885  1.546    0.0767     301     820  7235
+ 11  208.747   +1.484      85        25  0.809  0.555  12.27    0.05107    1224    1250  7450
+  4  208.782   +1.519     301        35  0.997  0.612  1.563    0.04018     575    1220  7515
+  7  208.837   +1.575     117        51  0.770  0.605  64.38    0.0527     973    1350  7349
+ 25  208.956   +1.693     493       431  0.420  0.722  0.3413   0.03652    1502    2670  7607
+ 30  209.628   +2.365     387       108  0.945  0.717  0.7835   0.05254     451    1000  7367
+ 24  209.629   +2.366     281       117  0.945  0.734  0.01201  0.06277     419     950  7380
+  5  209.905   +2.642      54       452  0.702  0.955  0.2088   0.05438    2000    2100  7365
+ 21  210.924   +3.661      75       103  0.970  0.658  59.1     0.04313    1343    1510  7455
+ 26  211.181   +3.918      32        19  0.793  0.511  1.744    0.0327    2000    1330  7281
+ 27  211.582   +4.319     102       429  0.987  0.931  16.39    0.05951    1095    1430  7356
+  6  214.581   +7.318      44       446  0.995  0.698  11.17    0.0349    2000    1930  7462
+```
+
+**Best: trial 8 — `num_leaves` 357, `min_data_in_leaf` 11, `feature_fraction` 0.4178, `bagging_fraction` 0.6457,
+`lambda_l2` 8.928, `learning_rate` 0.03462** (1,200 rounds): 204.204 vs 207.263, **−3.06 s on the tuning fold**,
+lower at all ten airports (−1.78 EDDF … −4.72 EGLL). This is a selection-biased number (best of 31 draws); §2 is
+the decision. Reading of the table (not a test): the eight best trials all have `feature_fraction` ≤ 0.61, and every
+trial with `feature_fraction` ≥ 0.9 is worse than trial 0; large `min_data_in_leaf` (≥ 400) is the worst region.
+
+## 2. Confirmation (four folds)
+
+`configs/main_flseq_osm_nolirf_l2_opt.yaml` = base + `matched_params` of trial 8 → exp id
+**`main_flseq_osm_nolirf_l2_opt-7244b3004f`**. CV started 18:16:52 UTC (`logs/retune/run.sh opt_cv`).
