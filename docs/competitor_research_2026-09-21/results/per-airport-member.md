@@ -1,6 +1,13 @@
 # Per-airport anchored LGB+L2 member (PA) in the matched lane of hybrid_blend_l2 (2026-10-02)
 
-**Status: pre-registered, not run.** Results go in §1 onward. §0 is not edited after it is committed.
+**Verdict (prc.compare.verdict, 672,428 pooled OOF rows): `hybrid_blend_l2` → `hybrid_blend_l2_pa` full −0.77 s
+[−0.92, −0.64], K=200 −0.96 s [−1.05, −0.88] → ADOPT.** Month bootstrap −0.77 [−0.96, −0.69]. Matched lane −1.02
+[−1.13, −0.92], unmatched +0.00. All ten airports and all four months improve. Secondary (report only): PA alone vs
+a2 +0.00 [−0.54, +0.52], K=200 −0.07 [−0.58, +0.49] (no difference); 4-member mean −0.91 [−1.11, −0.74], K=200 −1.11
+[−1.25, −0.98]. `outputs/hybrid_blend_l2_pa.parquet` is built and validated. Nothing was uploaded or submitted.
+
+§0 was committed as cc8b68a before the run started (01:40:47 UTC) and has not been edited since, except this
+status paragraph. Results are in §1–§4.
 
 ## 0. Pre-registration (written before any run)
 
@@ -126,3 +133,108 @@ run is killed and reported, not retried.** Reference: the pooled anchored+L2 CV 
   predictions byte-identical to f3ab74f on a fixed synthetic fold; the PA recipe is its base plus the three keys;
   model B is byte-identical and model A moves; every airport fitted with `ADEP_mvt` dropped; the refusal paths; a
   resumed `run_cv` gives the same OOF and record; the blend script's members and formulas match §0.4.
+
+## 1. Run (CV)
+
+`logs/per_airport/run.sh pa_cv --config configs/main_flseq_osm_nolirf_l2_pa.yaml --work-dir data/work_flseq
+--skip-predict --fold-cache logs/per_airport/fold_cache` (feature cache reused), alone on the box, started
+01:40:47 UTC after §0 was committed as cc8b68a. Exit 0, not killed, no resume needed.
+
+| run | exp id | wall s (train s) | peak total_rss (own cgroup / parent) |
+|---|---|---:|---:|
+| PA, CV only | `main_flseq_osm_nolirf_l2_pa-85f815edf4` | 3,636 (3,561) | 8,909 MB / 9,119 MB |
+
+Pooled anchored+L2 for reference: 4,134 s, 11,231 MB. With no global fit, the peak fell by 2.3 GB.
+
+Per fold, pooled a2 → PA (overall RMSE / matched RMSE / matched rounds):
+
+| fold | overall | matched | rounds_matched (PA: min–max over the 10 airports) |
+|---|---|---|---|
+| jan | 342.54 → 341.68 | 201.51 → 200.04 | 1,269 → 189–774 |
+| jul | 297.01 → 298.94 | 241.45 → 243.87 | 1,208 → 225–779 |
+| jul_fwd (shadowed) | 308.63 → 309.75 | 250.19 → 251.61 | 903 → 178–892 |
+| forward | 217.16 → 216.25 | 196.73 → 195.71 | 978 → 320–933 |
+
+`ADEP_mvt` was dropped in all 40 airport fits. Model B untouched: `rounds_unmatched` equal on every fold
+(52 / 43 / 92 / 65) and all 8,378 pooled unmatched OOF predictions exactly equal to `ef204b44ff`'s. Overall
+273.57 / matched 211.307 for both runs. On the 664,050 matched rows, a2 and PA differ by RMS 70.39 s
+(correlation 0.984).
+
+## 2. Comparisons (`prc.compare <A> <B> --work-dir data/work_flseq --exp-dir logs/per_airport/scratch`)
+
+`scripts/blend_pa.py oof` reproduces the base RMSE 269.98 (`blend-l2.md`). Hybrid RMSE: base 269.98, primary
+269.21, 4-member 269.07. Unmatched lane +0.00 [+0.00, +0.00] in every pair.
+
+| A → B | K=0 | K=20 | K=200 | K=2000 | month bootstrap | verdict |
+|---|---|---|---|---|---|---|
+| **base → `hybrid_blend_l2_pa` (decision)** | **−0.77 [−0.92, −0.64]** | −0.93 [−1.02, −0.83] | **−0.96 [−1.05, −0.88]** | −1.01 [−1.06, −0.95] | −0.77 [−0.96, −0.69] | **ADOPT** |
+| base → `hybrid_blend_l2_pa4` (secondary) | −0.91 [−1.11, −0.74] | −1.09 [−1.23, −0.95] | −1.11 [−1.25, −0.98] | −1.24 [−1.32, −1.15] | −0.91 [−1.06, −0.78] | ADOPT (report only) |
+| `member_a2` → `member_pa` (secondary) | +0.00 [−0.54, +0.52] | +0.00 [−0.60, +0.64] | −0.07 [−0.58, +0.49] | −1.39 [−1.67, −1.13] | +0.00 [−1.26, +1.28] | no difference (report only) |
+
+**Primary, lane split:** matched −1.02 [−1.13, −0.92]; unmatched +0.00; all except LIRF −0.82 [−1.01, −0.66].
+
+**Primary, per calendar month** (all rows / matched):
+
+| month | all rows | matched |
+|---|---|---|
+| 2025-01 | −0.73 [−1.23, −0.51] | −1.26 [−1.46, −1.07] |
+| 2025-07 | −0.68 [−0.88, −0.48] | −0.86 [−1.10, −0.64] |
+| 2025-11 | −0.72 [−0.89, −0.57] | −0.83 [−0.98, −0.69] |
+| 2025-12 | −1.13 [−1.30, −0.96] | −1.21 [−1.40, −1.04] |
+
+**Per airport**, all rows, diff [CI95] (share of squared disagreement), primary and PA member alone:
+
+| airport | n | base → primary | a2 → PA (member, info) |
+|---|---:|---|---|
+| LIRF | 49,924 | −0.71 [−1.05, −0.37] (17.0 %) | +1.67 [−0.52, +3.78] |
+| EGLL | 79,633 | −0.66 [−0.97, −0.36] (14.9 %) | +1.84 [−0.05, +3.89] |
+| LFPG | 78,036 | −0.39 [−0.82, −0.20] (13.9 %) | +1.50 [+0.46, +3.59] |
+| LTFM | 91,338 | −1.08 [−1.27, −0.87] (12.5 %) | −2.66 [−3.96, −1.10] |
+| EHAM | 79,639 | −0.82 [−1.02, −0.63] (8.2 %) | +0.22 [−1.22, +1.92] |
+| EDDF | 72,276 | −1.13 [−1.51, −0.85] (8.2 %) | −0.70 [−2.43, +0.75] |
+| EDDM | 51,688 | −1.86 [−2.31, −1.48] (8.0 %) | −3.54 [−6.63, −1.23] |
+| LEMD | 70,732 | −1.20 [−1.39, −1.03] (6.6 %) | −1.81 [−2.70, −0.95] |
+| LSZH | 43,009 | −1.22 [−1.49, −0.95] (5.5 %) | −1.13 [−2.75, +0.71] |
+| LEBL | 56,153 | −0.72 [−0.87, −0.56] (5.2 %) | −0.29 [−1.18, +0.71] |
+
+Primary: all ten airports and all four months improve, every CI below zero.
+
+**Member alone (secondary):** by month a2 → PA is −0.86 (Jan), +1.95 (Jul), +0.11 (Nov), −1.95 (Dec) on all rows;
+the pooled total is +0.00. PA is not better than a2 on its own; it is a different model of equal accuracy, and the
+gain is from averaging the two.
+
+**Reading.** The prior (≤ 0.3 s, from the cell-mean ceiling) was wrong in size for this form: the ceiling bounds a
+per-airport constant, and PA's value here is diversity, not a better per-airport level. The PA member's matched
+predictions disagree with a2 by RMS 70 s at equal RMSE, so a 1/6 weight is enough for −1.02 s on the matched lane.
+The 4-member mean is a little better (−0.91 s) but it is report-only and was not the pre-registered primary.
+Caveats: on the board expect less than the OOF gain (v89's board gain was −0.22 s), and PA uses the same
+early-stopping holdout month per airport as the pooled fit, so its rounds were chosen on 1/10 of the rows.
+
+## 3. Full fit and file (ADOPT, so §0.6 applies)
+
+`logs/per_airport/run.sh pa_full --config configs/main_flseq_osm_nolirf_l2_pa.yaml --work-dir data/work_flseq
+--skip-cv`: exit 0, wall 971 s, peak total_rss 7,688 MB (parent 7,896 MB). 10 airport fits on 132,616–269,320
+matched rows, rounds 220–717, `ADEP_mvt` dropped in each; model B 45 rounds. In
+`outputs/main_flseq_osm_nolirf_l2_pa.parquet` the 5,290 unmatched rows equal `outputs/main_flseq_osm_nolirf_l2.parquet`'s
+exactly; matched rows differ from it by RMS 73.69 s. `prc.validate_submission` OK.
+
+`outputs/hybrid_blend_l2_pa.parquet` (`scripts/blend_pa.py full`):
+- 344,841 rows (= template): 339,551 matched, 5,290 unmatched.
+- Matched rows `rint(((0.5·a2 + 0.5·pa) + p2 + c2) / 3)` from `outputs/main_flseq_osm_nolirf_l2.parquet`,
+  `outputs/main_flseq_osm_nolirf_l2_pa.parquet`, `outputs/main_flseq_osm_nolirf_plainy_l2.parquet`,
+  `outputs/main_flseq_osm_nolirf_cb_l2.parquet`; unmatched rows from `outputs/main_flseq.parquet`.
+- Schema `{MVT_ID_mvt: double, TAXITIME_SEC_mvt: int32}` equals the template; ids and order equal the template.
+- 0 nulls, 0 negatives, min 0, max 113,641. `prc.validate_submission` OK (only the usual > 10,800 s warning).
+- Against `outputs/hybrid_blend_l2.parquet`: differs on 317,589 rows, all matched (unmatched untouched), max |d|
+  494 s, RMS 12.19 s.
+
+Nothing was uploaded or submitted, and no ADS-B residual was applied (v28 = `hybrid_blend_l2` + the learned
+ADS-B residual; applying it to this base is a separate step).
+
+## 4. Code and tests
+
+As §0.8. Full suite **241 passed** (`logs/per_airport/pytest.txt`), run before the CV run.
+
+Logs (git-ignored): `logs/per_airport/` — `run.sh`, `pa_cv.{log,mem,status}`, `pa_full.{log,mem,status}`,
+`fold_cache/`, `scratch/` (hybrid OOF files), `oof.txt`, `compare_{primary,pa4,member}.txt`,
+`detail_{primary,member}.txt`, `full.txt`, `validate_*.txt`, `pytest.txt`.
