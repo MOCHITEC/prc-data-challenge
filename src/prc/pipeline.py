@@ -232,6 +232,13 @@ def main(argv: list[str] | None = None) -> int:
         help="stop after cross-validation: no full-data refit, no submission file. About a quarter of the "
         "wall clock of a run, and pure waste for an experiment whose only output is a CV number.",
     )
+    ap.add_argument(
+        "--fold-cache",
+        type=Path,
+        default=None,
+        help="checkpoint each CV fold under DIR/<exp_id>/ and reuse the folds found there on a re-run "
+        "(resume after a restart). Off by default: nothing is read or written.",
+    )
     ap.add_argument("--submit", action="store_true", help="upload after the gate passes (uses the daily counter)")
     ap.add_argument("--version", type=int, help="submission version number, required with --submit")
     a = ap.parse_args(argv)
@@ -292,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     log_name = "synthetic_smoke.jsonl" if a.synthetic else "experiments.jsonl"
     cv_rec = None
     if not a.skip_cv:
-        cv_rec = run_cv(f_tr, cfg, log_name=log_name)
+        cv_rec = run_cv(f_tr, cfg, log_name=log_name, fold_cache=a.fold_cache)
         print(
             f"CV {cv_rec['exp_id']}: full={cv_rec['overall']['rmse_full']:.2f} "
             f"clean={cv_rec['overall']['rmse_clean']:.2f} ({cv_rec['train_seconds']}s)"
