@@ -1,6 +1,6 @@
 """Build the LB file for the clipped-member stacker (plan_clipped_member.md): v16 + w_s (clip - v16) on matched rows.
 
-    .venv/bin/python docs/gm_research_2026-10-01/apply_stack.py V16_PARQUET CLIP_REFIT_PARQUET OUT_PARQUET
+    .venv/bin/python docs/gm_research_2026-10-01/apply_stack.py BASE_PARQUET CLIP_REFIT_PARQUET OUT_PARQUET [BASE_ID CLIP_ID]
 
 The segment weights are fitted on all three pooled OOF folds of main_flseq-8615e6a194 and clip1800-935169f2ee (the
 same rule as stack_clip.py: least squares in [0, 1] per airport x |c - b| band, w = 0 below 200 rows). v16 is the
@@ -25,11 +25,11 @@ def seg_of(adep: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
     return np.char.add(adep.astype(str), band.astype(str))
 
 
-def main(v16_path: str, clip_path: str, out_path: str) -> None:
+def main(v16_path: str, clip_path: str, out_path: str, base_id: str = BASE, clip_id: str = CLIP) -> None:
     f = pl.read_parquet(WORK / "feat_train.parquet", columns=["MVT_ID_mvt", LABEL, PROXY, "ADEP_mvt"])
     d = (
-        f.join(pl.read_parquet(EXP / f"oof_{BASE}.parquet").rename({"oof": "b"}), on="MVT_ID_mvt")
-        .join(pl.read_parquet(EXP / f"oof_{CLIP}.parquet").rename({"oof": "c"}), on="MVT_ID_mvt")
+        f.join(pl.read_parquet(EXP / f"oof_{base_id}.parquet").rename({"oof": "b"}), on="MVT_ID_mvt")
+        .join(pl.read_parquet(EXP / f"oof_{clip_id}.parquet").rename({"oof": "c"}), on="MVT_ID_mvt")
         .filter(
             pl.col("b").is_not_null()
             & pl.col("c").is_not_null()
@@ -73,4 +73,4 @@ def main(v16_path: str, clip_path: str, out_path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:4])
+    main(*sys.argv[1:6])

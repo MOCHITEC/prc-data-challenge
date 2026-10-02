@@ -1,0 +1,45 @@
+A = main_flseq-8615e6a194
+B = tc_drop-86a3693e18
+rows = 672,428
+top-20 share of B's squared error: 0.298
+
+ dropped         A         B     diff                 CI95   P(B)
+       0    272.96    273.17    +0.21    [  -0.33,  +0.80]  0.274
+      20    229.14    229.03    -0.11    [  -0.40,  +0.21]  0.748
+     200    215.81    215.79    -0.02    [  -0.20,  +0.17]  0.580
+    2000    192.78    192.70    -0.09    [  -0.18,  +0.01]  0.970
+
+month-level bootstrap (4 months): +0.21 s [-0.24, +0.56]  P(B better) = 0.194
+
+   matched: n=664,050  A=   211.7  B=   211.7
+ unmatched: n=  8,378  A=  1558.4  B=  1561.5
+
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+and none of these lines change adopt/reject):
+
+  unmatched rows            n=  8,378  A=   1558.4  B=   1561.5      +3.05 [    -4.28,    +11.65]
+  unmatched @ LIRF          n=    537  A=   3737.3  B=   3778.4     +41.10 [    -1.71,    +86.08]   56.5% of the unmatched disagreement
+
+  unmatched difference by airport (ordered by share of sum (p_a - p_b)^2):
+     airport       n         A         B      diff                   CI95  gap share
+        LIRF     537    3737.3    3778.4    +41.10    [   -1.71,  +86.08]     56.5%
+        LFPG   1,565    2623.2    2622.5     -0.71    [   -5.72,   +3.36]      9.3%
+        LTFM   1,297     513.5     500.7    -12.83    [  -34.32,   +1.26]      7.1%
+        EHAM   1,353     477.9     464.7    -13.16    [  -23.41,   -6.03]      6.1%
+        EGLL     647    1019.7    1014.9     -4.87    [  -12.85,   +2.48]      4.6%
+        LEBL     652     388.1     373.0    -15.14    [  -55.68,  +12.87]      4.3%
+        EDDM     402     732.2     717.2    -15.02    [  -34.06,   -0.68]      4.1%
+        LSZH     722     606.8     591.4    -15.39    [  -47.41,   -0.78]      4.0%
+        EDDF     787     415.7     405.7    -10.01    [  -16.73,   -4.38]      2.2%
+        LEMD     416     304.5     286.8    -17.74    [  -28.52,   -7.63]      1.7%
+
+  the K=200 drop removes 200 rows (149 unmatched, 51 matched) - these are the rows the K=200 CI is blind to:
+    rank     MVT_ID_mvt  airport       grp          y        p_a        p_b
+       0      182378789     LFPG unmatched    84240.0     1064.2     1090.8
+       1      182377662     LFPG unmatched    58206.0      947.5      926.4
+       2      200297323     LIRF unmatched    87480.0    60288.6    58911.0
+       3      192628959     LIRF unmatched    87186.0    59919.8    60128.7
+       4      182646487     LIRF unmatched    87177.0    61490.1    61752.2
+    ... 195 more (raise --max-listed to see them)
+
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: +0.21 s [-0.33, +0.80]

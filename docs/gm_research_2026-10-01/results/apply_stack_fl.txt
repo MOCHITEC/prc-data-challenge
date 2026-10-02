@@ -1,0 +1,5 @@
+weights: {np.str_('EDDF0'): 0.725, np.str_('EDDF1'): 0.935, np.str_('EDDF2'): 0.0, np.str_('EDDM0'): 0.796, np.str_('EDDM1'): 0.424, np.str_('EDDM2'): 0.248, np.str_('EGLL0'): 0.557, np.str_('EGLL1'): 0.623, np.str_('EGLL2'): 0.107, np.str_('EHAM0'): 0.743, np.str_('EHAM1'): 0.514, np.str_('EHAM2'): 0.0, np.str_('LEBL0'): 0.542, np.str_('LEBL1'): 0.362, np.str_('LEBL2'): 0.0, np.str_('LEMD0'): 0.567, np.str_('LEMD1'): 0.515, np.str_('LEMD2'): 0.0, np.str_('LFPG0'): 0.704, np.str_('LFPG1'): 0.691, np.str_('LFPG2'): 0.116, np.str_('LIRF0'): 0.832, np.str_('LIRF1'): 0.286, np.str_('LIRF2'): 0.0, np.str_('LSZH0'): 0.905, np.str_('LSZH1'): 0.617, np.str_('LSZH2'): 0.0, np.str_('LTFM0'): 0.668, np.str_('LTFM1'): 0.543, np.str_('LTFM2'): 0.0}
+matched rows 339,551: mean |change| 10.76 s, max 505 s; unmatched rows unchanged: True
+submission gate warning: max prediction 113603 exceeds 10800s; check outliers
+submission gate warning: rounded to int32 for the template dtype (max shift 0.500s)
+wrote outputs/stack_F_clipfl.parquet
