@@ -51,12 +51,14 @@ BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else 
 # `--base l2m | l2w | l2c | l2wc` (handoff/2026-10-02/README.md): hybrid_blend_l2 with the window-fixed model B on
 # the unmatched lane (w), the clipped-member segment stacker on the matched lane (c), or both; l2m is the fair
 # control for w. b is read from experiments/oof_hybrid_blend_<name>.parquet, built by
-# scripts/build_hybrid_variants.py. S4 compares with l2 (for w, compare with l2m instead: see the README).
+# scripts/build_hybrid_variants.py.
 L2_VARIANTS = ("l2m", "l2w", "l2c", "l2wc")
 assert BASE_NAME in ("h2", "plainy", "cb", "l2", *L2_VARIANTS), BASE_NAME
 SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
+# S4's previous base is each variant's FAIR control: l2w and l2wc against l2m (same test-like unmatched OOF regime),
+# l2c and l2m against l2. Run l2 (already done for v28), then l2m, then the others.
 PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"),
-        **{v: ("l2", "_l2") for v in L2_VARIANTS}}.get(BASE_NAME)  # (name, file suffix) for S4
+        "l2m": ("l2", "_l2"), "l2w": ("l2m", "_l2m"), "l2c": ("l2", "_l2"), "l2wc": ("l2m", "_l2m")}.get(BASE_NAME)
 REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
            "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet",
            **{v: f"l2exp/oof_hybrid_blend_{v}.parquet" for v in L2_VARIANTS}}[BASE_NAME]
