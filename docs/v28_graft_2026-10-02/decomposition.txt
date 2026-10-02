@@ -1,0 +1,2 @@
+v26-v16 dSSE -7.437e+07 = matched -1.003e+07 (13%) + ADS-B-untouched unmatched -5.919e+05 (1%) + ADS-B-corrected unmatched -6.374e+07 (86%)
+if the corrected-unmatched part carried over to v28 in full: -0.366 s
