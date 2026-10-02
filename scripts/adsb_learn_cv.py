@@ -48,11 +48,18 @@ L2_MEMBERS = ["oof_main_flseq_osm_nolirf_l2-ef204b44ff", "oof_main_flseq_osm_nol
 # names change. `--base l2` (hybrid_blend_l2: matched = mean of the three L2 members, unmatched = main_flseq;
 # blend-l2.md). S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy, l2 vs cb.
 BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
-assert BASE_NAME in ("h2", "plainy", "cb", "l2"), BASE_NAME
+# `--base l2m | l2w | l2c | l2wc` (handoff/2026-10-02/README.md): hybrid_blend_l2 with the window-fixed model B on
+# the unmatched lane (w), the clipped-member segment stacker on the matched lane (c), or both; l2m is the fair
+# control for w. b is read from experiments/oof_hybrid_blend_<name>.parquet, built by
+# scripts/build_hybrid_variants.py. S4 compares with l2 (for w, compare with l2m instead: see the README).
+L2_VARIANTS = ("l2m", "l2w", "l2c", "l2wc")
+assert BASE_NAME in ("h2", "plainy", "cb", "l2", *L2_VARIANTS), BASE_NAME
 SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
-PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb")}.get(BASE_NAME)  # (name, file suffix) for S4
+PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"),
+        **{v: ("l2", "_l2") for v in L2_VARIANTS}}.get(BASE_NAME)  # (name, file suffix) for S4
 REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
-           "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet"}[BASE_NAME]
+           "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet",
+           **{v: f"l2exp/oof_hybrid_blend_{v}.parquet" for v in L2_VARIANTS}}[BASE_NAME]
 
 pl.Config.set_tbl_rows(60)
 pl.Config.set_tbl_width_chars(250)
@@ -91,7 +98,7 @@ def load_labelled() -> pl.DataFrame:
             D = D.join(oc, on="MVT_ID_mvt", how="left").with_columns(
                 ((pl.col("oa") + pl.col("op") + pl.col("oc")) / 3.0).alias("oa"))
             assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
-    if BASE_NAME == "l2":
+    if BASE_NAME == "l2" or BASE_NAME in L2_VARIANTS:
         cols = []
         for i, mem in enumerate(L2_MEMBERS):
             fm = pl.read_parquet(ROOT + f"experiments/{mem}_folds.parquet").filter(
@@ -102,6 +109,12 @@ def load_labelled() -> pl.DataFrame:
             cols.append(f"m{i}")
         D = D.with_columns(((pl.col("m0") + pl.col("m1") + pl.col("m2")) / 3.0).alias("oa"))
         assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
+    if BASE_NAME in L2_VARIANTS:
+        # Both lanes of b come from the variant file; the l2 members above are joined only for the fold checks.
+        V = pl.read_parquet(ROOT + f"experiments/oof_hybrid_blend_{BASE_NAME}.parquet").rename({"oof": "bv"})
+        D = D.join(V, on="MVT_ID_mvt", how="left")
+        assert D["bv"].null_count() == 0, f"oof_hybrid_blend_{BASE_NAME} misses labelled jan/jul rows"
+        D = D.with_columns(pl.col("bv").alias("oa"), pl.col("bv").alias("ob")).drop("bv")
     D = D.with_columns(pl.when(pl.col("mvt_minus_aobt3").is_not_null()).then("oa").otherwise("ob").alias("b"),
                        pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
                        pl.col("MVT_TIME_UTC_mvt").dt.date().cast(pl.String).alias("day"))
