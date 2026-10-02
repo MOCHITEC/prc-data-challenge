@@ -541,3 +541,34 @@ final LGB plus 0.5 × the V1 final fit.
   `outputs/hybrid_blend_l2_pa_adsb_v2.parquet`: the final fit applied to `outputs/hybrid_blend_l2_pa.parquet`, with
   c = 0 at LTFM and negatives reverted to base. It is validated as before and not submitted.
 - If no variant passes, keep the current model and build no file.
+
+### 9.2 Results (after the pre-registration commit 548538c)
+
+The variants were run by `scripts/adsb_learn_mlp.py cv --base pa` (log `$SCRATCH/adsb/learn_mlp_cv.log`, rows
+`$SCRATCH/adsb/learn/cv_rows_v2.parquet`).
+- The base and the folds match section 8: max |b − ref| 0.0, and the fold map equals `cv_pa.json`.
+- The MLP has 122 inputs: 55 scaled numerics, 48 missing indicators and 19 one-hot columns.
+- The best epochs per fold and seed ranged from 5 to 16. Each fit took 18–36 s.
+- Peak `total_rss` was 1.45 GB.
+
+All 344,419 rows, paired against the current LGB, with a day-block bootstrap (B = 2,000). Positive means the
+variant is better. Base RMSE 313.767; current LGB 300.307.
+
+| variant | paired gain vs LGB (s²) | CI95 | RMSE | ΔRMSE vs LGB | gain vs base (s²) | passes |
+|---|---:|---|---:|---:|---|---|
+| V1 MLP | −512.3 | [−873.0, −121.0] | 301.159 | +0.852 | 7,753.0 [6,858.1, 8,750.2] | no |
+| V2 0.5 LGB + 0.5 MLP | +151.0 | [−29.9, +356.5] | 300.055 | −0.252 | 8,416.3 [7,457.8, 9,505.5] | no |
+| V3 | not run (9.0) | | | | | |
+
+**Decision: no variant passes. The current learned LGB (section 8, v32) is kept, and
+`outputs/hybrid_blend_l2_pa_adsb_v2.parquet` is not built.**
+- V1 alone is worse than the LGB.
+- V2's point estimate is −0.25 s RMSE, but its CI includes 0.
+- **Per airport** (information only), the V2 paired gain in s²:
+
+  | EDDF | EDDM | EGLL | EHAM | LEBL | LEMD | LFPG | LIRF | LSZH |
+  |---:|---:|---:|---:|---:|---:|---:|---:|---:|
+  | +39 | +23 | +99 | −86 | +80 | +25 | +159 | +1,380 | +155 |
+
+  Most of V2's point gain is LIRF, the airport with the widest CIs in sections 2–8.
+- corr(c_LGB, c_MLP) on ADS-B rows = 0.893.
