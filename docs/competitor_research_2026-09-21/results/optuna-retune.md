@@ -1,7 +1,9 @@
 # Hyperparameter retune of the pooled anchored LGB+L2 member (model A) — pre-registration (2026-10-02)
 
-**Status: pre-registered, nothing run.** §0 is written and committed before any tuning trial, confirmation or
-blend run. Results will be appended as §1+ without editing §0 (except this status line and the one measured
+**Status (2026-10-03): done. Member ADOPT (−2.41 s [−2.85, −2.02], K=200 −3.08 [−3.35, −2.85]); blend
+`hybrid_blend_l2_pa` → `hybrid_blend_l2_pa_opt` ADOPT (−0.89 s [−1.10, −0.72], K=200 −1.17 [−1.31, −1.03]);
+`outputs/hybrid_blend_l2_pa_opt.parquet` written and validated. Nothing uploaded or submitted.** §0 was written and
+committed (3026785) before any tuning trial, confirmation or blend run. Results will be appended as §1+ without editing §0 (except this status line and the one measured
 number §0.4 asks to be filled in, the trial budget N, which is fixed by a rule stated here before it is measured).
 
 ## 0. Pre-registration
@@ -218,3 +220,65 @@ LTFM −3.84).
 the same `matched_params`. Runs, in order, one at a time (`logs/retune/chain.sh`, each step gated by
 `logs/retune/run2.sh`, which also sums total_rss over every session cgroup): PA CV, plain-y CV, then full fits of
 `_opt`, `_pa_opt`, `_plainy_l2_opt`. Started 20:15:54 UTC.
+
+Two container events: none touched a result. (1) ~18:26 UTC, see §2. (2) ~23:55 UTC a real restart killed the chain
+during the plain-y CV's forward fold; jan/jul/jul_fwd were in the fold cache. `chain.sh` was relaunched at 23:56:02,
+skipped the finished PA step, reloaded the three cached folds and fitted forward only (first attempt's log:
+`logs/retune/plainy_opt_cv_attempt1.log`).
+
+| step | exp id | exit | wall s | peak total_rss MB (own / all) |
+|---|---|---|---:|---:|
+| PA CV | `main_flseq_osm_nolirf_l2_pa_opt-8d54effc06` | 0 | 7,177 | 9,007 / 9,177 |
+| plain-y CV (resumed; forward fold only) | `main_flseq_osm_nolirf_plainy_l2_opt-dd8b8e2c7c` | 0 | 1,302 | 10,781 / 10,947 |
+| full fit, pooled `_opt` | | 0 | 1,633 | 9,579 / 9,746 |
+| full fit, PA `_opt` | | 0 | 1,263 | 7,613 / 7,778 |
+| full fit, plain-y `_opt` | | 0 | 1,332 | 9,695 / 9,861 |
+
+Member CV, matched RMSE per fold, base → opt (overall pooled):
+
+| member | jan | jul | jul_fwd | forward | pooled matched | overall |
+|---|---|---|---|---|---|---|
+| M1 pooled (a2) | 201.51 → 197.64 | 241.45 → 238.14 | 250.19 → 246.09 | 196.73 → 193.97 | 211.307 → 208.144 | 273.57 → 271.17 |
+| M1 per-airport (pa) | 200.04 → 196.52 | 243.87 → 238.74 | 251.61 → 247.34 | 195.71 → 192.33 | 211.307 → 207.346 | 273.57 → 270.56 |
+| M2 plain-y (p2) | 204.13 → 199.22 | 242.08 → 239.00 | 250.99 → 247.18 | 197.05 → 194.09 | 212.233 → 208.816 | 274.28 → 271.68 |
+
+Model B is untouched in all three: CV unmatched-lane numbers equal to the base runs, and in each full-fit file the
+5,290 unmatched rows equal the base file's exactly (matched rows move by RMS 39.67 / 46.73 / 43.97 s).
+
+**Blend.** `scripts/blend_pa_opt.py oof --scratch logs/retune/scratch` reproduces the base `hybrid_blend_l2_pa`
+at **269.21** (as `per-airport-member.md` §2); `hybrid_blend_l2_pa_opt` 268.32. `prc.compare hybrid_blend_l2_pa
+hybrid_blend_l2_pa_opt --work-dir data/work_flseq --exp-dir logs/retune/scratch` (`logs/retune/compare_blend.txt`):
+
+| K | A | B | diff [CI95] |
+|---|---|---|---|
+| 0 | 269.21 | 268.32 | **−0.89 [−1.10, −0.72]** |
+| 20 | 224.65 | 223.59 | −1.06 [−1.22, −0.92] |
+| 200 | 211.15 | 209.99 | **−1.17 [−1.31, −1.03]** |
+| 2000 | 188.28 | 187.17 | −1.11 [−1.19, −1.03] |
+
+Month bootstrap −0.89 [−0.99, −0.79]. **Verdict: ADOPT.** Lane split (`detail_blend.txt`): matched −1.17
+[−1.32, −1.00], unmatched +0.00, all except LIRF −0.98 [−1.24, −0.77]. Per calendar month (all rows): Jan −1.01,
+Jul −0.85, Nov −0.71, Dec −1.04, every CI below zero. Per airport (all rows): LIRF −0.57 [−1.08, −0.08], EGLL −1.50,
+LFPG −0.95, LTFM −1.50, EHAM −1.06, EDDM −0.90, EDDF −0.50, LEMD −0.86, LEBL −0.67, LSZH −1.05; all ten below zero.
+Reading: each retuned LGB member gains ~3.2–4.0 s on the matched lane alone, but the blend gains 1.17 s there: the
+CatBoost third is unchanged, and the retuned members are partly the same errors the blend was already averaging away.
+
+## 4. Output (ADOPT, so §0.5 applies)
+
+`scripts/blend_pa_opt.py full` → **`outputs/hybrid_blend_l2_pa_opt.parquet`** (`logs/retune/full.txt`):
+- matched rows `rint(((0.5·a2o + 0.5·pao) + p2o + c2) / 3)` from `outputs/main_flseq_osm_nolirf_l2_opt.parquet`,
+  `outputs/main_flseq_osm_nolirf_l2_pa_opt.parquet`, `outputs/main_flseq_osm_nolirf_plainy_l2_opt.parquet`,
+  `outputs/main_flseq_osm_nolirf_cb_l2.parquet`; unmatched rows from `outputs/main_flseq.parquet`.
+- 344,841 rows (= template; 339,551 matched, 5,290 unmatched); schema `{MVT_ID_mvt: double, TAXITIME_SEC_mvt: int32}`
+  equals the template; ids and order equal `data/raw/submitting.parquet`; 0 nulls, 0 negatives, min 0, max 113,641.
+- Against `outputs/hybrid_blend_l2_pa.parquet`: differs on 324,976 rows, all matched (unmatched untouched), max |d|
+  820 s, RMS 20.44 s.
+- `prc.validate_submission` OK (only the usual > 10,800 s max warning); the three `_opt` member files also pass.
+
+Nothing was uploaded or submitted, and no ADS-B residual was applied: v32 = `hybrid_blend_l2_pa` + the learned
+ADS-B residual, so the like-for-like candidate is this file + the same residual, a separate step. Expect less on
+the board than the OOF gain (the per-airport member's −0.77 s OOF came with a smaller board gain).
+
+Code and tests: §0.2. Full suite 251 passed before any run (`logs/retune/pytest_full.txt`); `tests/test_matched_params.py`
+(11 tests, incl. the `_opt` recipes vs their bases and the blend script's members/formula) passes (with test_per_airport_member.py: 19 passed, `logs/retune/pytest_final.txt`) with the three
+`_opt` recipes in place. Logs (git-ignored): `logs/retune/`.
