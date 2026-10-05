@@ -1,0 +1,99 @@
+--- a/scripts/adsb_learn_cv.py	2026-10-05 03:31:23.242064000 +0000
++++ b/scripts/adsb_learn_cv.py	2026-10-05 03:31:23.249974088 +0000
+@@ -23,6 +23,7 @@
+ 
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ import adsb_learn_features as L
++import adsb_opdi as O
+ 
+ ROOT = L.s1.REPO_DIR
+ OUT = L.OUT
+@@ -56,8 +57,12 @@
+ # l2 vs cb, pa vs l2. `--base opt` (hybrid_blend_l2_pa_opt, same formula as pa with the retuned members) vs pa.
+ BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
+ assert BASE_NAME in ("h2", "plainy", "cb", "l2", "pa", "opt"), BASE_NAME
+-SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
++# `--opdi` / `--opdi-shuffle` (scripts/adsb_opdi.py, handoff/2026-10-05/README.md): OPDI stand-exit columns added to
++# the design; S4 then compares with the same base's run without them.
++SFX = ("" if BASE_NAME == "h2" else "_" + BASE_NAME) + O.SFX
+ PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"), "pa": ("l2", "_l2"), "opt": ("pa", "_pa")}.get(BASE_NAME)  # (name, file suffix) for S4
++if O.MODE:
++    PREV = (f"{BASE_NAME} without OPDI", SFX[: -len(O.SFX)])
+ REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
+            "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet",
+            "pa": ROOT + "logs/per_airport/scratch/oof_hybrid_blend_l2_pa.parquet",
+@@ -183,6 +188,8 @@
+     D = load_labelled()
+     F = pl.read_parquet(os.path.join(OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
+     D = D.join(F, on="MVT_ID_mvt", how="left").with_columns(pl.col("icao").is_not_null().alias("has"))
++    if O.MODE:
++        D = O.add(D, ROOT)
+     chk = D.filter(pl.col("has")).select(
+         (pl.col("t_mvt") - pl.col("MVT_TIME_UTC_mvt").dt.epoch("ms") / 1000).abs().max().alias("max|t_mvt-MVT|"))
+     print("ADS-B rows", int(D["has"].sum()), "of", D.height, "|", chk.row(0, named=True))
+@@ -193,6 +200,8 @@
+                        pl.col("day").replace_strict({d: i for i, d in enumerate(days)}).alias("day_idx"))
+     print("folds:", {k: sorted(d for d, f in fold_of.items() if f == k) for k in range(K)})
+     X, feats, cats = L.design(D, "b")
++    if O.MODE:
++        X, feats = O.design(X, feats, "b")
+     print(f"{len(feats)} features:", feats)
+ 
+     head("S1  leave-days-out folds")
+@@ -310,6 +319,9 @@
+                                 "d_rmse_lo": float(np.percentile(drm, 2.5)), "d_rmse_hi": float(np.percentile(drm, 97.5)),
+                                 "mse_gain": g, "mse_lo": lo, "mse_hi": hi}
+ 
++    if O.MODE:
++        res["opdi"] = O.report(D, bv + c_learn, OUT, PREV[1])
++
+     D.select("MVT_ID_mvt", "day", "cvfold", "ADEP_mvt", "y", "b", "has").with_columns(
+         pl.Series("c_learned", c_learn), pl.Series("c_rule", c_rule)).write_parquet(os.path.join(OUT, f"cv_rows{SFX}.parquet"))
+     json.dump({"best_iters": best_its, "final_rounds": int(np.median(best_its)), "results": res, "adopt": adopt,
+--- a/scripts/adsb_learn_apply.py	2026-10-05 03:31:23.245902213 +0000
++++ b/scripts/adsb_learn_apply.py	2026-10-05 03:31:23.250007933 +0000
+@@ -21,6 +21,7 @@
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ import adsb_learn_cv as CV
+ import adsb_learn_features as L
++import adsb_opdi as O
+ 
+ ROOT = L.s1.REPO_DIR
+ # `--base plainy` (see adsb_learn_cv.py): base outputs/hybrid_H2_plainy.parquet, CV json cv_plainy.json
+@@ -30,7 +31,10 @@
+             "l2": "outputs/hybrid_plainy_cb_adsb_learned.parquet",
+             "pa": "outputs/hybrid_blend_l2_adsb_learned.parquet",
+             "opt": "outputs/hybrid_blend_l2_pa_adsb_learned.parquet"}.get(CV.BASE_NAME)
+-OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
++assert O.MODE != "opdishuf", "--opdi-shuffle is a CV control only"
++if O.MODE:  # compare with the same base's residual without the OPDI columns
++    PREV_OUT = f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
++OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned{O.SFX}.parquet"
+ BASE_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}.parquet"
+ V20_FILE = ROOT + "outputs/v20_hybridH2_adsb.parquet"
+ NO_CORR = ["LTFM"]  # section 0a
+@@ -49,7 +53,11 @@
+     D = CV.load_labelled()
+     F = pl.read_parquet(os.path.join(L.OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
+     D = D.join(F, on="MVT_ID_mvt", how="inner")
++    if O.MODE:
++        D = O.add(D, ROOT)
+     X, feats, cats = L.design(D, "b")
++    if O.MODE:
++        X, feats = O.design(X, feats, "b")
+     assert feats == cvj["features"]
+     r = np.clip(D["y"].to_numpy() - D["b"].to_numpy(), -CV.CLIP_Y, CV.CLIP_Y)
+     dtr = lgb.Dataset(X.select(feats).to_numpy().astype(np.float64), r, feature_name=feats, categorical_feature=cats)
+@@ -73,7 +81,12 @@
+     print(f"2026 ADS-B feature rows {F26.height}; matched to template {G.height}; "
+           f"max |t_mvt - MVT| {(G['t_mvt'] - G['MVT_TIME_UTC_mvt'].dt.epoch('ms') / 1000).abs().max()}")
+     G = G.with_columns(pl.col("base").cast(pl.Float64).alias("b"))
++    if O.MODE:
++        G = O.add(G, ROOT)
++        O.parity(D, G)
+     X26, feats26, _ = L.design(G, "b")
++    if O.MODE:
++        X26, feats26 = O.design(X26, feats26, "b")
+     assert feats26 == feats
+     c26 = np.clip(model.predict(X26.select(feats).to_numpy().astype(np.float64)), -CV.CLIP_C, CV.CLIP_C)
+     G = G.with_columns(pl.Series("c", c26)).with_columns(
