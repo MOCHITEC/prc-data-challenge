@@ -46,7 +46,7 @@ import polars as pl
 from .arrival_fill import ARR_FILL_COLS
 from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
 from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
-from .levers import L1_COLS, L2_COLS, L3_COLS, L5_COLS, LEVER_COLS
+from .levers import L1_COLS, L2_COLS, L3_COLS, L5_COLS, L6_COLS, LEVER_COLS
 
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
@@ -152,6 +152,8 @@ _HASH_OPTIONAL: dict = {
     "fe_push_queue": False,
     # L5 (prc.levers; docs/research_2026-10-01/README.md). Off, every existing id is unchanged.
     "fe_tx_nm": False,
+    # L6 (docs/research_2026-10-05_measure/congestion.md): off, every existing id is unchanged.
+    "fe_retention": False,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -427,6 +429,8 @@ class TrainConfig:
     fe_push_queue: bool = False
     #   fe_tx_nm             L5, the sixteen same-period tx_* context columns (docs/research_2026-10-01), model A only
     fe_tx_nm: bool = False
+    #   fe_retention         L6, the four ret_* gate-retention columns at the own AOBT_3, model A only
+    fe_retention: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -681,6 +685,8 @@ def lever_columns(cfg: TrainConfig) -> list[str]:
         want |= set(L3_COLS)
     if cfg.fe_tx_nm:
         want |= set(L5_COLS)
+    if cfg.fe_retention:
+        want |= set(L6_COLS)
     return [c for c in LEVER_COLS if c in want]
 
 
@@ -695,6 +701,7 @@ def unmatched_columns(num_cols: list[str]) -> list[str]:
         and c not in L1_COLS
         and c not in L3_COLS
         and c not in L5_COLS
+        and c not in L6_COLS
     ]
 
 
@@ -1147,6 +1154,8 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
         hidden |= set(L3_COLS)
     if not cfg.fe_tx_nm:
         hidden |= set(L5_COLS)
+    if not cfg.fe_retention:
+        hidden |= set(L6_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:

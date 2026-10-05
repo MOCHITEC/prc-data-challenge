@@ -84,7 +84,13 @@ L5_COLS = (
     + tuple(f"tx_{k}_{w}" for k in ("unm", "late3h") for w, _, _ in TX_SHARE_WINDOWS)
     + ("tx_tko_c60", "tx_tko_c60_rel")
 )
-LEVER_COLS = L1_COLS + L2_COLS + L3_COLS + L5_COLS
+# L6 (fe_retention, model A only; docs/research_2026-10-05_measure/congestion.md): gate retention at the
+# flight's own NM off-block, i.e. departures at the same airport (or runway) whose planned off-block has passed
+# but whose AOBT_3 has not, plus the mean NM delay of the pushes in the previous 15 min. Label-free.
+RET_MAX_S = 7200.0
+RET_DLY_CLIP = (-3600.0, 14400.0)
+L6_COLS = ("ret_overdue_eobt", "ret_overdue_sched", "ret_overdue_eobt_rwy", "ret_dly15")
+LEVER_COLS = L1_COLS + L2_COLS + L3_COLS + L5_COLS + L6_COLS
 
 
 def _ep(s: pl.Series) -> np.ndarray:
@@ -107,6 +113,10 @@ def _departures(raw: pl.DataFrame) -> pl.DataFrame:
             else pl.lit(None, dtype=pl.Datetime("us", "UTC"))
         ).alias("SCHED_TIME_UTC_mvt"),
         (pl.col("ARVT_1_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().cast(pl.Float64).alias("_plan"),
+        # L6 only; absent in the hand-built L1-L3 test frames.
+        (pl.col("EOBT_1_flt") if "EOBT_1_flt" in raw.columns else pl.lit(None, dtype=pl.Datetime("us", "UTC"))).alias(
+            "EOBT_1_flt"
+        ),
     )
 
 
@@ -356,6 +366,52 @@ def _tx_frame(dep: pl.DataFrame, mma_norm: dict[str, float], hour_norm: dict[tup
     return frame.with_columns([pl.col(c).cast(pl.Float32).fill_nan(None) for c in L5_COLS])
 
 
+def _overdue(plan: np.ndarray, push: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """#{j: plan_j <= q < push_j} over pairs with 0 < push_j - plan_j < RET_MAX_S, as #{plan_j <= q} - #{push_j <= q}.
+    A flight counted at its own push q cancels out of both terms."""
+    ok = np.isfinite(plan) & np.isfinite(push) & (push > plan) & (push - plan < RET_MAX_S)
+    pl_, pu = np.sort(plan[ok]), np.sort(push[ok])
+    out = np.full(len(q), np.nan)
+    m = np.isfinite(q)
+    out[m] = np.searchsorted(pl_, q[m], "right") - np.searchsorted(pu, q[m], "right")
+    return out
+
+
+def _retention_frame(dep: pl.DataFrame) -> pl.DataFrame:
+    """L6_COLS per departure, from the departures of its own frame at the same airport (runway for *_rwy)."""
+    n = dep.height
+    cols = {c: np.full(n, np.nan) for c in L6_COLS}
+    apt = dep["ADEP_mvt"].to_numpy()
+    rwy = dep["RUNWAY_mvt"].to_numpy()
+    a_all, e_all, s_all = _ep(dep["AOBT_3_flt"]), _ep(dep["EOBT_1_flt"]), _ep(dep["SCHED_TIME_UTC_mvt"])
+    dly_all = np.clip(a_all - s_all, *RET_DLY_CLIP)
+    for ap in sorted({x for x in apt if x is not None}):
+        ia = np.flatnonzero(apt == ap)
+        a, e, s, dly = a_all[ia], e_all[ia], s_all[ia], dly_all[ia]
+        cols["ret_overdue_eobt"][ia] = _overdue(e, a, a)
+        cols["ret_overdue_sched"][ia] = _overdue(s, a, a)
+        # mean NM delay of pushes in [q - 15 min, q), the flight itself excluded by the open right end
+        ok = np.isfinite(a) & np.isfinite(dly)
+        order = np.argsort(a[ok])
+        at, dv = a[ok][order], dly[ok][order]
+        cs = np.concatenate([[0.0], np.cumsum(dv)])
+        m = np.isfinite(a)
+        lo = np.searchsorted(at, a[m] - 900.0, "left")
+        hi = np.searchsorted(at, a[m], "left")
+        cnt = hi - lo
+        mean = np.full(m.sum(), np.nan)
+        mean[cnt > 0] = (cs[hi] - cs[lo])[cnt > 0] / cnt[cnt > 0]
+        out = np.full(len(ia), np.nan)
+        out[m] = mean
+        cols["ret_dly15"][ia] = out
+        r = rwy[ia]
+        for rw in sorted({x for x in r if x is not None}):
+            ir = np.flatnonzero(r == rw)
+            cols["ret_overdue_eobt_rwy"][ia[ir]] = _overdue(e[ir], a[ir], a[ir])
+    frame = pl.DataFrame({"MVT_ID_mvt": dep["MVT_ID_mvt"], **{c: cols[c] for c in L6_COLS}})
+    return frame.with_columns([pl.col(c).cast(pl.Float32).fill_nan(None) for c in L6_COLS])
+
+
 def attach_levers(
     f_tr: pl.DataFrame,
     f_rk: pl.DataFrame,
@@ -365,10 +421,11 @@ def attach_levers(
     l2: bool,
     l3: bool,
     l5: bool = False,
+    l6: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """The two feature frames with the requested lever columns appended (in LEVER_COLS order), each frame's
     context taken from its own raw rows and L1's median table fitted on both frames' departures together."""
-    if not (l1 or l2 or l3 or l5):
+    if not (l1 or l2 or l3 or l5 or l6):
         return f_tr, f_rk
     d_tr, d_rk = _departures(raw_tr), _departures(raw_rk)
     fine = coarse = None
@@ -390,6 +447,8 @@ def attach_levers(
             parts.append(_lever_frame(dep, arr, l2, l3))
         if l5:
             parts.append(_tx_frame(dep, *tx_norms))
+        if l6:
+            parts.append(_retention_frame(dep))
         g = feats.select("MVT_ID_mvt")
         for p in parts:
             g = g.join(p, on="MVT_ID_mvt", how="left", maintain_order="left")
