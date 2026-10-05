@@ -32,3 +32,16 @@ gain of v34 (2,090 MSE) exceeded the estimate, which says the rule worked there.
 
 The candidate is v34 plus the residual on 890 rows (`local_posjoin_learned_apply.py`). Its squared change is
 307 MSE, and the expected gain is about 150–250 MSE. It is held back so it can be combined with finding 2.
+
+## v35 candidate (held, not submitted): v34 plus three overlays
+
+| step | script | rows | 2025 check | expected board gain |
+|---|---|---|---|---|
+| learned residual on positional-join rows | `local_posjoin_learned_apply.py` | 890 | +151.5 MSE (unmatched) / +6.9 (matched) | ≈ 150–250 |
+| LIRF schedule-copy blend, `p + 0.4·q·(MVT−SCHED − p)` | `local_lirf_copy_overlay.py` | 26,277 | +390 MSE with A fixed in advance (Jan +15, Jul +375); +407 with p = base, i.e. without ADS-B (the 2026-July case) | ≈ 300–400 |
+| LOBT identity clip ±3,606 s | `local_lobt_clip.py` | 17 | identity holds on all 2.06 M matched 2025 rows | ≈ 1–6 |
+
+For the copy blend, the classifier is refit on all 12 months for 2026 (rounds = the check's best iteration × 1.1).
+On 2026 LIRF its mean q is 0.167, against a 2025 copy rate of 0.178.
+
+Compared with v34, the candidate changes 27,179 rows, and its squared change is 524 MSE.
