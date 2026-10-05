@@ -134,6 +134,8 @@ _HASH_OPTIONAL: dict = {
     "fe_arr_fill": False,
     "fe_arr_fill_permute": False,
     "sim_unseen_stands": 0.0,
+    # stand-dropout (docs/research_2026-10-05_newstand/plan.md): off, every existing id is unchanged.
+    "stand_dropout": 0.0,
     "fe_opdi": False,
     "opdi_target_null_day_share": 0.0,
     "fe_fl_rate_window": "",
@@ -372,6 +374,11 @@ class TrainConfig:
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
+    # New-stand token (docs/research_2026-10-05_newstand/plan.md): this share of training rows, chosen by a stable
+    # CRC32 of MVT_ID, gets STAND_mvt = NEW_STAND and its stand-keyed encodings blanked to their fallback, so the
+    # model learns one path for "stand unknown"; every target row whose (airport, stand) the training side never
+    # saw is sent down it. Applied after the fold features, so the OSM distance still comes from the real stand.
+    stand_dropout: float = 0.0
     # OPDI airframe turnaround (docs/opdi_2026-09-30/plan.md). LICENCE FLAG, see src/prc/opdi.py.
     fe_opdi: bool = False
     # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
@@ -1036,6 +1043,57 @@ def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
     return (u < share) & df["STAND_mvt"].is_not_null().to_numpy()
 
 
+NEW_STAND = "__NEW__"
+# The encodings keyed on the stand (reference_table); blanked on a dropped row exactly as on an unseen stand.
+_STAND_REF_COLS = ("ref_p10", "ref_p20", "ref_med", "ref_n")
+
+
+def apply_new_stand_token(
+    tr: pl.DataFrame, tg: pl.DataFrame, share: float, info: dict | None = None
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Training: `share` of rows (CRC32 of MVT_ID) get STAND_mvt = NEW_STAND and the stand reference blanked,
+    so `ref_p10_fb` falls back to airport x runway x hour, then airport. Target: rows whose (airport, stand) is
+    absent from the training side get NEW_STAND; their reference is already missing. Nothing reads a label."""
+    import zlib
+
+    seen = tr.select(["ADEP_mvt", "STAND_mvt"]).unique().with_columns(pl.lit(True).alias("_seen"))
+    ids = tr["MVT_ID_mvt"].cast(pl.Int64).cast(pl.Utf8).to_list()
+    u = np.array([zlib.crc32(f"newstand|{k}".encode()) / 2**32 for k in ids])
+    drop = pl.Series("_drop", (u < share) & tr["STAND_mvt"].is_not_null().to_numpy())
+    blank = [
+        pl.when(pl.col("_drop")).then(None).otherwise(pl.col(c)).alias(c) for c in _STAND_REF_COLS if c in tr.columns
+    ]
+    tr = (
+        tr.with_columns(drop)
+        .with_columns(
+            pl.when(pl.col("_drop")).then(pl.lit(NEW_STAND)).otherwise(pl.col("STAND_mvt")).alias("STAND_mvt"), *blank
+        )
+        .with_columns(
+            pl.when(pl.col("_drop"))
+            .then(pl.coalesce([pl.col("arh_med"), pl.col("apt_med")]))
+            .otherwise(pl.col("ref_p10_fb"))
+            .cast(tr.schema["ref_p10_fb"])
+            .alias("ref_p10_fb"),
+            pl.when(pl.col("_drop")).then(1).otherwise(pl.col("ref_missing")).cast(pl.Int8).alias("ref_missing"),
+        )
+        .drop("_drop")
+    )
+    tg = (
+        tg.join(seen, on=["ADEP_mvt", "STAND_mvt"], how="left", maintain_order="left")
+        .with_columns(
+            pl.when(pl.col("_seen").is_null() & pl.col("STAND_mvt").is_not_null())
+            .then(pl.lit(NEW_STAND))
+            .otherwise(pl.col("STAND_mvt"))
+            .alias("STAND_mvt")
+        )
+        .drop("_seen")
+    )
+    if info is not None:
+        info["stand_dropout_train_rows"] = int(drop.sum())
+        info["stand_new_target_rows"] = int((tg["STAND_mvt"] == NEW_STAND).sum())
+    return tr, tg
+
+
 def add_fold_features(
     tr: pl.DataFrame, tg: pl.DataFrame, cfg: TrainConfig, info: dict
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -1643,6 +1701,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         or cfg.fe_seq_window
     ):
         tr, tg = add_fold_features(tr, tg, cfg, info)
+    if cfg.stand_dropout > 0:
+        tr, tg = apply_new_stand_token(tr, tg, cfg.stand_dropout, info)
 
     # P2 Fix 1. One factory per lane so the two lanes' records stay separable in `info`; the month-keyed
     # cache lives inside each factory, and the encoder build is shared within a lane, not across them.
