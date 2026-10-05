@@ -154,6 +154,8 @@ _HASH_OPTIONAL: dict = {
     "fe_tx_nm": False,
     # L6 (docs/research_2026-10-05_measure/congestion.md): off, every existing id is unchanged.
     "fe_retention": False,
+    # copy-mixture (docs/research_2026-10-05_measure/copy_plan.md): empty, every existing id is unchanged.
+    "copy_mix_airports": [],
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -431,6 +433,11 @@ class TrainConfig:
     fe_tx_nm: bool = False
     #   fe_retention         L6, the four ret_* gate-retention columns at the own AOBT_3, model A only
     fe_retention: bool = False
+    # Two-stage schedule-copy mixture on matched rows at these airports (docs/research_2026-10-05_measure/
+    # copy_plan.md): a classifier gives p = P(|BLOCK - SCHED| <= 60 s), model A is refit on that airport's
+    # non-copy rows, and the prediction is p*(MVT - SCHED) + (1-p)*that refit. p is 0 where SCHED lies outside the
+    # LOBT window. Empty (the default): model A is exactly what it was.
+    copy_mix_airports: list = field(default_factory=list)
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -1794,7 +1801,10 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
             g = np.zeros(m_tg.height)
-        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": add_back + g}))
+        pred_a = add_back + g
+        if cfg.copy_mix_airports and m_tr.height >= 200:
+            pred_a = _copy_mixture(m_tr, m_tg, pred_a, _target_a, plain_a, cfg_a, cols_a, cat_cols, info)
+        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": pred_a}))
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
@@ -1831,6 +1841,76 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["es_encoder_matched"] = es_stats_a
         info["es_encoder_unmatched"] = es_stats_b
     return _assemble(parts, tr, tg, target_f, info, cfg)
+
+
+COPY_TOL_S = 60.0
+COPY_CLS_PARAMS = {
+    "objective": "binary",
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "min_data_in_leaf": 100,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "verbose": -1,
+    "seed": 0,
+    "deterministic": True,
+    "num_threads": 4,
+}
+COPY_CLS_ROUNDS = 400
+
+
+def _copy_mixture(
+    m_tr: pl.DataFrame,
+    m_tg: pl.DataFrame,
+    pred_a: np.ndarray,
+    target_a,
+    plain_a: bool,
+    cfg: TrainConfig,
+    cols_a: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_a` with the copy mixture applied to the matched target rows at cfg.copy_mix_airports.
+
+    The copy label |y - (MVT - SCHED)| <= 60 s is read on the training side only. Inputs are model A's columns."""
+    import lightgbm as lgb
+
+    out = pred_a.copy()
+    tg_apt = m_tg["ADEP_mvt"].to_numpy()
+    stats = {}
+    for ap in cfg.copy_mix_airports:
+        tr_a = m_tr.filter((pl.col("ADEP_mvt") == ap) & pl.col(SCHED_OFFSET).is_not_null())
+        sel = np.flatnonzero((tg_apt == ap) & m_tg[SCHED_OFFSET].is_not_null().to_numpy())
+        if tr_a.height < 1000 or sel.size == 0:
+            stats[ap] = {"skipped": True, "train_rows": tr_a.height}
+            continue
+        tg_a = m_tg[sel]
+        echo = np.abs(tr_a[LABEL].to_numpy().astype(float) - tr_a[SCHED_OFFSET].to_numpy().astype(float)) <= COPY_TOL_S
+        X, _ = _matrix(pl.concat([tr_a, tg_a], how="diagonal_relaxed"), cols_a, cat_cols)
+        cat_idx = list(range(len(cols_a), len(cols_a) + len(cat_cols)))
+        clf = lgb.train(
+            COPY_CLS_PARAMS,
+            lgb.Dataset(X[: tr_a.height], label=echo.astype(float), categorical_feature=cat_idx),
+            COPY_CLS_ROUNDS,
+        )
+        p = clf.predict(X[tr_a.height :])
+        ms = tg_a[SCHED_OFFSET].to_numpy().astype(float)
+        if LOBT_OFFSET in tg_a.columns:
+            lo = tg_a[LOBT_OFFSET].to_numpy().astype(float)
+            outside = np.isfinite(lo) & (np.abs(ms - lo) > float(cfg.lobt_bound_slack))
+            p = np.where(outside, 0.0, p)
+        (g_ne,), _ = _fit(tr_a.filter(pl.Series(~echo)), target_a, cfg, cols_a, cat_cols, [tg_a])
+        base_ne = (np.zeros(tg_a.height) if plain_a else tg_a[PROXY].to_numpy().astype(float)) + g_ne
+        out[sel] = p * ms + (1.0 - p) * base_ne
+        stats[ap] = {
+            "train_rows": tr_a.height,
+            "train_copy_share": float(echo.mean()),
+            "target_rows": int(sel.size),
+            "target_mean_p": float(p.mean()),
+        }
+    info["copy_mix"] = stats
+    return out
 
 
 def _lobt_bound(out: pl.DataFrame, cfg: TrainConfig, info: dict) -> pl.DataFrame:
