@@ -1,6 +1,6 @@
 # Re-review of rejected and closed levers against the v35 base — inventory and OOF-only re-checks (2026-10-05)
 
-**Status (2026-10-05): §0 and §1 written and committed before any re-check was computed.** Results go in §2+.
+**Status (2026-10-05): done.** R1 (LOFO weights) ADOPT −0.25 s [−0.34, −0.18], K=200 −0.29 [−0.38, −0.20]; R2 (pa as its own member) ADOPT −0.18 [−0.24, −0.13], K=200 −0.22 [−0.28, −0.17]; R3 no difference; R4 and R5 REJECT (worse). §0 and §1 were committed as a0743f5 before any re-check was computed. Results are in §2+.
 §0–§1 will not be edited after that, except for this status line.
 
 Scope: analysis only. No model was trained, nothing in `src/` or `configs/` was changed, nothing was submitted.
@@ -147,3 +147,106 @@ Nothing is written to `outputs/`. Hybrid OOFs go to the session scratchpad. The 
 
 Resources: `POLARS_MAX_THREADS=1`; only the columns needed; the cgroup `total_rss` (path read from
 `/proc/self/cgroup`) is checked before each step, and the step waits while it is above 10,500 MB.
+
+## 2. Results (computed after the §0–§1 commit a0743f5)
+
+Script: `docs/competitor_research_2026-09-21/scripts/rejected_rereview.py` (`align`, then `build --scratch DIR`).
+Comparisons: `python -m prc.compare hybrid_blend_l2_pa_opt_mlp <B> --work-dir data/work_flseq --exp-dir DIR`, and
+`scripts/plainy_blend.py`'s `detail` on the same pair. DIR was the session scratchpad. Peak RSS of each step was
+about 0.84 GB. The cgroup `total_rss` was 7.1–7.2 GB before each step (gate 10,500 MB; it never had to wait).
+
+### 2.0 Row alignment and reproduction
+
+- All nine OOF files used (a2o, pao, p2o, c2, m4, u, u_l2b, u_osm, lt) have 2,085,047 rows and no duplicate ids.
+- Each has a non-null `oof` on exactly the base's 672,428 scored rows: same id set, 0 missing, 0 extra.
+- Each `_folds` sidecar gives the same pooled fold as a2o's on every scored row (0 mismatches).
+- The base rebuilt with `scripts/blend_mlp.py`'s own `build_oof` equals the stored
+  `logs/mlp/scratch/oof_hybrid_blend_l2_pa_opt_mlp.parquet` (max |diff| 0, RMSE 267.5733). The rebuilt LOFO file
+  equals the stored `oof_hybrid_blend_l2_pa_opt_mlp_lofo.parquet` (max |diff| 0).
+
+### 2.1 Primaries (the decision)
+
+A = `hybrid_blend_l2_pa_opt_mlp` (267.57) in every row. 672,428 pooled OOF rows.
+
+| id | B | K=0 | K=20 | K=200 | K=2000 | month bootstrap | verdict |
+|---|---|---|---|---|---|---|---|
+| **R1** | LOFO weights | **−0.25 [−0.34, −0.18]** | −0.30 [−0.39, −0.21] | **−0.29 [−0.38, −0.20]** | −0.36 [−0.42, −0.29] | −0.25 [−0.29, −0.19] | **ADOPT** |
+| **R2** | pa as its own member, 1/5 each | **−0.18 [−0.24, −0.13]** | −0.21 [−0.27, −0.16] | **−0.22 [−0.28, −0.17]** | −0.26 [−0.30, −0.23] | −0.18 [−0.20, −0.16] | **ADOPT** |
+| R3 | unmatched 0.5·u + 0.5·u_l2b | +0.08 [−0.22, +0.42] | −0.21 [−0.36, −0.05] | −0.20 [−0.29, −0.12] | −0.12 [−0.15, −0.08] | +0.08 [−0.32, +0.44] | no difference on all rows (tail-side K=200 excludes zero) |
+| R4 | unmatched 0.5·u + 0.5·u_osm | +0.40 [+0.07, +0.73] | +0.06 [−0.16, +0.32] | −0.13 [−0.23, −0.02] | −0.10 [−0.13, −0.07] | +0.40 [−0.01, +0.77] | worse on all rows (REJECT) |
+| R5 | lt as a 5th matched member | +0.20 [+0.13, +0.28] | +0.24 [+0.15, +0.31] | +0.23 [+0.15, +0.31] | +0.25 [+0.20, +0.31] | +0.20 [+0.11, +0.34] | **REJECT** (both CIs on the worse side) |
+
+`prc.compare` prints "REJECT" for every non-ADOPT branch; the branch is given above.
+
+Detail (report only):
+- **R1.** Matched −0.33 [−0.42, −0.24]; unmatched +0.00 (identical). All except LIRF −0.20 [−0.28, −0.13].
+  - Every month improves: 2025-01 −0.29, 2025-07 −0.29, 2025-11 −0.26, 2025-12 −0.15 [−0.29, −0.01].
+  - Every airport's point estimate is ≤ 0. CIs exclude zero at LIRF −0.60, EHAM −0.48, EDDM −0.55, LEMD −0.51 and
+    LSZH −0.31. LFPG, EGLL, LTFM, EDDF and LEBL cross zero.
+  - The LOFO weights on (M1, M2, M3, M4) are those of `mlp-member.md` §3: per held-out fold 0.505–0.535 /
+    0.089–0.110 / 0.126–0.146 / 0.220–0.249; on all folds 0.520 / 0.103 / 0.138 / 0.239.
+- **R2.** Matched −0.24 [−0.30, −0.18]; unmatched +0.00.
+  - Every month's CI is below zero (2025-01 −0.21, 2025-07 −0.17, 2025-11 −0.20, 2025-12 −0.14).
+  - Eight of ten airports' CIs are below zero. LTFM −0.06 [−0.16, +0.04] and EDDF −0.14 [−0.32, +0.03] cross zero.
+  - R2 moves the a2o + pao weight from 1/4 to 2/5. R1 moves M1 (= a2o + pao) to about 0.52. Both point the same
+    way, so they are not independent evidence (inference).
+- **R3.** Matched +0.00 by construction; unmatched +1.16 [−3.85, +6.74]. All except LIRF **−0.19 [−0.31, −0.08]**.
+  LIRF all rows +1.70 [−0.51, +4.25] (46.1 % of the squared disagreement). CIs below zero at LTFM −0.39, EHAM
+  −0.41, EDDM −0.33, LSZH −0.68, EDDF −0.12 and LEMD −0.12. Months: 2025-11 +0.61, 2025-12 −0.56, both CIs crossing.
+- **R4.** Unmatched +5.51 [+1.10, +11.61]. All except LIRF **−0.26 [−0.38, −0.16]**. LIRF all rows **+4.31
+  [+2.07, +6.75]** (62.1 % of the squared disagreement). Every other airport's point estimate is negative, and eight
+  of nine CIs exclude zero (LFPG −0.06 [−0.28, +0.05] does not).
+- **R5.** Matched +0.26 [+0.17, +0.35]. Worse at 8 of 10 airports with CIs above zero (LTFM +0.70, EDDM +0.65).
+  Matched-lane error correlation of lt: 0.966 with M1, 0.961 with M2, 0.927 with M3, 0.898 with M4. Its RMSE alone
+  is 212.16 (M1 205.94, M4 213.27). Inference: lt is nearly as correlated with M1 as M2 is (0.976), and it is
+  6.2 s worse than M1, so it adds error without adding much diversity.
+
+### 2.2 Secondaries (report only)
+
+| id | B | K=0 | K=200 | month bootstrap | branch |
+|---|---|---|---|---|---|
+| R3s | unmatched = u_l2b alone | +0.36 [−0.22, +1.05] | −0.22 [−0.38, −0.05] | +0.36 [−0.31, +1.06] | no difference on all rows |
+| R4s | unmatched = u_osm alone | +1.04 [+0.38, +1.70] | −0.08 [−0.26, +0.11] | +1.04 [+0.33, +1.76] | worse on all rows |
+| R34 | unmatched = (u + u_l2b + u_osm) / 3 | +0.34 [−0.04, +0.76] | −0.21 [−0.32, −0.10] | +0.34 [−0.18, +0.69] | no difference on all rows |
+| R25 | (a2o + pao + p2o + c2 + m4 + lt) / 6 | +0.05 [−0.03, +0.14] | +0.06 [−0.04, +0.15] | +0.05 [−0.03, +0.17] | no difference |
+
+R3s and R4s reproduce the original notes' numbers on the current base: L2-B +0.35 / −0.21 and OSM +0.95 / −0.12
+before; +0.36 / −0.22 and +1.04 / −0.08 now. That is expected: the unmatched lane has not changed since v16.
+
+### 2.3 Reading
+
+- **Truly ineffective, confirmed:** linear_tree as a member (R5, worse on both CIs) and OSM in model B (R4, worse on
+  all rows). The "worse alone, helps in the blend" pattern did not hold for linear_tree. Its error correlation with
+  M1 (0.966) is far above that of the members it held for (CatBoost 0.941, MLP 0.920).
+- **Rejected or closed, but they pass now:** the blend-weight levers R1 (LOFO weights, −0.25 s) and R2 (pa as its
+  own member, −0.18 s). Both were report-only secondaries, never rejected on their own numbers. Both pass the rule
+  on the v35 base, at every month, with no unmatched-lane change.
+- **Same as before:** L2 and OSM in model B. Both keep the pattern the notes described. They are better on the
+  non-LIRF rows (−0.19 and −0.26 s) and worse at LIRF unmatched, and they fail the full-data leg. A LIRF-excluded
+  unmatched blend was **not** pre-registered and was not run. Choosing LIRF from these rows would make it post hoc.
+
+### 2.4 Recommendations (nothing here was run)
+
+OOF-only follow-ups. Each needs its own pre-registration because it is chosen after §2.1.
+- R1 + R2 combined: LOFO weights on (a2o, pao, p2o, c2, m4). OOF-only, a few minutes.
+- R3 restricted to non-LIRF unmatched rows (LIRF keeps u). It is post hoc: LIRF was picked on these same rows, in
+  `osm-on-flseq.md` §7 as well. OOF-only.
+- A production version of R1 or R2 needs only `scripts/blend_mlp.py full`-style arithmetic on the existing test
+  files: no retraining, minutes. Then the ADS-B residual has to be refitted on the new base
+  (`adsb-learned-residual.md` §12 design). The M3 CatBoost retune in progress will change one member, so the
+  weights should be redone after it lands.
+
+Retrain-needed (ranked as in §0.3; the costs are the notes' measured wall times on this 4-CPU box):
+1. C1 two-column `proxy_is_nominal` on the anchored opt member, with an arity-matched noise arm: about
+   2 × 7,000 s of CV (`optuna-retune.md` §2 confirmation 6,992 s). Entering all members adds the plain-y CV (about
+   1,300–4,100 s), PA (about 7,200 s), CatBoost (about 10,300 s) and MLP (about 9,000 s).
+2. P8-E dead-column removal on the current recipe: one anchored opt CV (about 7,000 s) plus a control arm.
+3. P8-B wxcodes repair: a feature-cache rebuild (about 4 min) plus 2 × 7,000 s.
+4. ADS-B residual V2 (0.5 LGB + 0.5 MLP) on the v35 base: residual-stage CV only. The fits took 18–36 s each, so
+   the whole stage is about 15–30 min (inference from §9.2's fit times).
+5. `dest_distance_km` in model B: a model-B CV of about 3,800 s (L2-B's run) plus a cache rebuild.
+6. `planned_flight_s`, A1 and the aggregate-difference features: about 7,000 s each. These are tier B, with both CIs
+   crossing zero.
+
+Peak `total_rss` of every retraining run in the notes was 9.0–12.5 GB. None of them can run next to the CatBoost
+tuning job (8.1 GB) under the 13,681 MB limit.
