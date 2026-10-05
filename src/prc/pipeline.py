@@ -260,6 +260,11 @@ def main(argv: list[str] | None = None) -> int:
 
         f_tr = attach_arrival_fill(f_tr, train, permute=cfg.fe_arr_fill_permute)
         f_rk = attach_arrival_fill(f_rk, rank, permute=cfg.fe_arr_fill_permute)
+    if cfg.fe_month_scope:
+        # prc.scope: label-free, frame columns only; off, the frames are untouched.
+        from .scope import month_scope_columns
+
+        f_tr, f_rk = month_scope_columns(f_tr), month_scope_columns(f_rk)
     if cfg.fe_plan_nm_taxi or cfg.fe_fwd_nm or cfg.fe_fwd_nm_unmatched or cfg.fe_push_queue or cfg.fe_tx_nm:
         # The public-code levers (prc.levers). Need raw departure and arrival rows, so they run before those are
         # freed; not cached and not in features.py, so a recipe with every lever off is untouched.

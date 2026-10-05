@@ -136,6 +136,8 @@ _HASH_OPTIONAL: dict = {
     "sim_unseen_stands": 0.0,
     # stand-dropout (docs/research_2026-10-05_newstand/plan.md): off, every existing id is unchanged.
     "stand_dropout": 0.0,
+    # month-scope (docs/research_2026-10-05_drift/plan.md): off, every existing id is unchanged.
+    "fe_month_scope": False,
     "fe_opdi": False,
     "opdi_target_null_day_share": 0.0,
     "fe_fl_rate_window": "",
@@ -379,6 +381,9 @@ class TrainConfig:
     # model learns one path for "stand unknown"; every target row whose (airport, stand) the training side never
     # saw is sent down it. Applied after the fold features, so the OSM distance still comes from the real stand.
     stand_dropout: float = 0.0
+    # Recompute fl_nm_rate_other and stand_rwy_share within the calendar month in both frames (prc.scope), so a
+    # 12-month training frame and a 2-month ranking frame give them the same resolution.
+    fe_month_scope: bool = False
     # OPDI airframe turnaround (docs/opdi_2026-09-30/plan.md). LICENCE FLAG, see src/prc/opdi.py.
     fe_opdi: bool = False
     # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
