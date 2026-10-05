@@ -311,3 +311,311 @@ session's permission classifier. It was not retried, and no other route was used
 **R6 OOF:** it is in this session's scratchpad (`.../scratchpad/rr/oof_rr_R6_pa5_lofo.parquet`). The copy to
 `logs/rereview/scratch/` was in the same denied command, so it was not made. Rebuild it anywhere with
 `rejected_rereview.py r6 --scratch DIR`, which is deterministic: lstsq on fixed OOFs.
+
+## Per-item review of retrain candidates (2026-10-05)
+
+Scope: the seven retrain-needed items of §2.4 (inventory rows 11, 12, 13, 15, 14, 16 and 6). For each one, this
+section reads the original note to find out **why** it failed. The inventory ranked them only by their CIs. Nothing
+was trained, nothing in `src/` or `configs/` was changed, and nothing was submitted.
+
+Marking: quotes are verbatim from the named note. **[new]** = a read-only check made for this section (below).
+**[X]** = inference.
+
+**The [new] checks.** One `POLARS_MAX_THREADS=1` read, peak RSS 0.58 GB, with the cgroup `total_rss` at 7.8 GB
+before it.
+- Inputs: columns of `data/work_flseq/feat_train.parquet`, joined to the base OOF
+  `logs/mlp/scratch/oof_hybrid_blend_l2_pa_opt_mlp.parquet` and to a2o's `_folds` sidecar (pooled rows).
+- Residual = `TAXITIME_SEC_mvt − oof`, the sign convention of `scripts/c1_2col_mechanism.py`.
+- Lane = `mvt_minus_aobt3` null or non-null.
+- No script was committed. The computation is fully described where each number is used.
+
+Facts about the current base used below (the §0 header, `configs/`, `docs/posjoin_2026-10-05/README.md`):
+- **Matched lane.** `((0.5·a2o + 0.5·pao) + p2o + c2 + m4) / 4`.
+  - Every member carries L2 (`fe_fwd_nm: true`) and the OSM distance nulled at LIRF.
+  - The LGB members a2o, pao and p2o carry `matched_params` with `feature_fraction: 0.4178`. The old recipes had 0.8.
+  - None of the five member configs, and not `main_flseq.yaml`, has `exclude_features`, `wx_codes` or `fe_arr_fill`.
+- **Unmatched lane.** u = `main_flseq-8615e6a194` (v16's model B), unchanged since v16.
+- **Test-time stages.** These come after the base:
+  - The learned ADS-B residual. It has `c = 0` at LTFM. The posjoin README says of unmatched 2026 rows: "the callsign
+    ADS-B join, and with it the learned ADS-B residual, never reaches them".
+  - The 430-row positional overlay. It covers unmatched rows only: EHAM 351, LSZH 53 and EDDF 26
+    (`replacements_v33.csv`). "LIRF excluded (schedule-fill labels)".
+
+### R-1. C1 two-column (`C1-two-column-remeasured.md`)
+
+1. **Definition and entry.**
+   - Two columns: `proxy_at_mode`, "1 when this row's offset is exactly the modal minute of its airport x runway"
+     (`src/prc/features.py:367`), and `proxy_minus_mode_min`. The mode table is fitted on train ∪ rank, label-free.
+   - They were added by `include_candidates` to the **`main_gap` (v14) single anchored LightGBM**, both lanes
+     (`configs/c13_c1_2col.yaml`).
+   - Forward fold only, 3 seeds, `es_holdout_encodings: true`, frame `data/work_c1c3`.
+   - Model B never used them: "Lane B RMSE is 1004.0424 on the base, on the three-column C1 and on the two-column C1
+     - identical to four decimals, with the same 80 boosting rounds".
+2. **Measured.**
+   - Forward fold vs `c13_base`: **−0.361 [−0.610, −0.122] / −0.292 [−0.464, −0.114]**.
+     - Month bootstrap −0.361 [−0.422, −0.302].
+     - Lane A −0.404. Lane B identical.
+   - Vs the arity-matched `c13_noise2`: −0.422 [−1.030, +0.085] / −0.201 [−0.416, −0.004].
+   - `jul_fwd` (§9.x): `c13_base_jf` 314.4240 → `c13_c1_2col_jf` 314.3446 = **−0.079**. Lane B identical
+     (1333.7191). "No CI exists for it". The noise arm was never run.
+   - Commits:
+     - forward arms at `4faa313`; `c13_base` at `f52f741`;
+     - `jul_fwd` at `42e8d95` / `cc972f1`.
+   - No per-airport split was reported.
+3. **Why rejected.**
+   - §9.x: "the one thing this replication existed to test has an answer: the forward effect does not carry across at
+     its measured size. That is the same shape as v15 … A −0.08 on the second fold is inside the ±0.5 s single-column
+     noise floor".
+   - The pre-registered kill D1 (§9.0): "`jul_fwd` base → C1 reads **≥ −0.10 s at K=0 or at K=200** (point estimate)".
+   - The mechanism the feature targets (§3.3): "On the flagged fifth of the rows the production model is biased by
+     −9.78 s against −3.73 s elsewhere". That was on the forward fold, `c13_base` OOF.
+4. **What changed since.**
+   - The matched lane is now a 4-member blend, retuned. It carries L2 `fw_*` columns: means of other departures'
+     `MVT − AOBT_3` in forward windows, per airport and per airport × runway (`feature-levers-L1-L4.md` §3).
+   - C1 has never been measured on the flseq family or on four folds.
+   - **[new]** Current-base matched-lane mean residual, flagged (`proxy_at_mode = 1`) vs not:
+
+     | fold | flagged | unflagged |
+     |---|---|---|
+     | forward | −10.20 s (n = 66,704) | −4.85 s (n = 258,300) |
+     | jan | −5.03 | −4.76 |
+     | jul | **+1.16** | −3.32 |
+     | pooled | −5.90 | −4.40 |
+
+     The pooled correlation of the flag with the residual is −0.003.
+5. **Class: (a).**
+   - The failure was non-transfer across folds. It is not tied to the base.
+   - **[new]** The bias C1 targets is still present on the current base, at about the old size on forward: a gap of
+     −5.35 s now against −6.05 s then. It is absent in jan and reversed in jul.
+   - [X] So the base change has not turned a forward-only signal into a pooled one. The `jul_fwd` result is what that
+     pattern predicts.
+   - [X] Caveat: a first-moment check cannot rule out a gain that comes through interactions.
+
+### R-2. P8-E dead-column removal (`dead-column-removal.md`, shipped as v15)
+
+1. **Definition and entry.**
+   - `exclude_features: [precip_mm, precip_mm_prev1h, temp_x_precip, temp_x_precip_prev1h, runway_null]`.
+   - Entered both lanes of the `main_gap` single LGB: model A 90 → 85 columns, model B 84 → 79.
+   - `forward` + `jul_fwd`, 3 seeds.
+   - Built as `configs/main_v15.yaml`.
+2. **Measured.**
+   - Pooled over 518,722 rows: base → drop **−0.13 [−0.25, −0.02] / −0.14 [−0.28, −0.01]**, month −0.13
+     [−0.17, −0.12].
+   - Control (five live columns removed) → drop: −0.35 [−0.92, +0.11] / +0.16 [−0.08, +0.37].
+   - Lanes:
+     - "unmatched n= 6,943 rows where base != drop: 0";
+     - forward matched −0.17 [−0.33, −0.01];
+     - `jul_fwd` matched −0.15 [−0.38, +0.09].
+   - Four-fold v15 CV (`b6375c8`): 277.53 against v14's 277.54. By fold: jan +0.09, jul −0.11, `jul_fwd` −0.12,
+     forward 0.00.
+   - Board (`4faa313`): v15 279.5397 against v14 279.5234, **+0.0163**.
+   - Commits: arms at `1a80f48` and a worktree pinned to `95ec23e`; note `f45c1cb`.
+3. **Why rejected.**
+   - Pre-registered, §0.2: "Five columns that are identically zero cannot carry −0.5 s of signal-by-removal; an ADOPT
+     would mean the `feature_fraction` reshuffle drew lucky on these two folds".
+   - §3.3: "the narrow CI is a true statement about this particular pair of models … and **not** evidence that the
+     effect is large".
+   - `4faa313`: "it still came to nothing on four folds and on the board. A two-fold arm can read optimistic against
+     the same change measured on the full fold set".
+4. **What changed since.**
+   - The flseq family descends from `main_gap`, not from v15. The `main_flseq.yaml` header says
+     "configs/main_gap.yaml (v14, LB 279.52) + the fl and seq groups".
+   - So all members still see the five columns.
+   - **[new]** In `data/work_flseq` the four precip columns are 0 on every non-null row, and `runway_null` is
+     constant 0.
+   - The LGB members now use `feature_fraction` 0.4178. Two members are CatBoost and MLP.
+5. **Class: (a).**
+   - The mechanism the note gives is base-independent: the columns are provably constant, and any measured effect is
+     the column-sampling redraw.
+   - Four folds and the board both read null.
+   - [X] A new `feature_fraction` or more members changes which redraw happens. It does not give the redraw a sign.
+   - [X] The coverage-gate and correctness case (`P8-D`) is a separate decision, not a scoring re-test.
+
+### R-3. P8-B wxcodes repair (`P8-B-wxcodes-repair.md`)
+
+1. **Definition and entry.**
+   - `wx_codes: true` swaps the four constant precip columns for `wet_wx`, `shower_wx`, `obscuration_wx` and
+     `frozen_wx_i8`, plus their `_prev1h` copies.
+   - It redefines `deicing_gate` as `(temp_c ≤ 3) ∧ (frozen_wx ∨ wet_wx)`.
+   - Model-visible features 90 → 94, on the `main_gap` single LGB.
+   - `forward` + `jul_fwd`, 3 seeds.
+2. **Measured.**
+   - Noise → repair: −0.35 [−1.01, +0.22] / **−0.35 [−0.59, −0.12]**.
+   - Base → repair: −0.18 [−0.64, +0.26] / −0.50 [−0.71, −0.24].
+   - Base → noise: +0.16 [−0.58, +1.06].
+   - Lanes, vs noise: forward matched −0.24 [−0.39, −0.08]; `jul_fwd` matched −0.13 [−0.38, +0.13].
+   - Subsets: `shower_wx = 1` −1.49 [−3.23, +0.26]; `deicing_gate = 1` −0.42 [−2.74, +1.65].
+   - Commits `3b40254` / `338e020`.
+3. **Why rejected.**
+   - "The repair's point estimate is inside the range that adding four signal-free columns produces. It is not
+     distinguishable from doing nothing."
+   - The distribution shift (§4): "July 2026 was a dry July … a July rain feature is much less active at serve time
+     than at train time, and it is a concrete reason not to expect the LB to reward this even if CV had."
+     - On the scored set, 2026-07: `wet_wx` 2.15 %, `deicing_gate` 0.00 %.
+     - `shower_wx @EDDM 2026-07 23.82% -> 6.41%`.
+4. **What changed since.**
+   - `wx_codes` is still off by default and in every current config.
+   - The 2026 METAR support is a property of the scored data and cannot change.
+   - The base is now a blend, followed by the ADS-B residual.
+5. **Class: (a).**
+   - Both stated reasons still hold: arity-level size, and the 2025 → 2026 July support shift.
+   - No base change touches either.
+
+### R-4. ADS-B residual V2 = 0.5 LGB + 0.5 MLP (`adsb-learned-residual.md` §9)
+
+1. **Definition and entry.**
+   - `c = 0.5 × c_LGB + 0.5 × c_V1`.
+   - V1 is an sklearn `MLPRegressor` (128, 64), 3 seeds, 122 inputs.
+   - It replaces the correction of the residual stage on ADS-B rows (286,008 in 2025). It is a stage after the base,
+     for both lanes, with `c = 0` at LTFM.
+   - Measured on the `hybrid_blend_l2_pa` base: matched `((0.5·a2 + 0.5·pa) + p2 + c2) / 3`, unmatched u.
+2. **Measured.**
+   - 344,419 jan + jul 2025 rows, day-block bootstrap.
+     - V2 vs the current LGB: **+151.0 s² [−29.9, +356.5]**, RMSE 300.307 → 300.055 (−0.252).
+     - V1 alone: −512.3 [−873.0, −121.0].
+   - Per airport (V2, s²): LIRF **+1,380**, LFPG +159, LSZH +155, EGLL +99, LEBL +80, EDDF +39, LEMD +25, EDDM +23,
+     EHAM −86.
+   - corr(c_LGB, c_MLP) = 0.893.
+   - Commits: pre-registration `548538c`, results `0ce97ec`.
+   - Peak `total_rss` 1.45 GB. "Each fit took 18–36 s."
+3. **Why rejected.**
+   - "no variant passes"; "V2's point estimate is −0.25 s RMSE, but its CI includes 0."
+   - "Most of V2's point gain is LIRF, the airport with the widest CIs in sections 2–8."
+   - The note gives no base-specific mechanism.
+4. **What changed since.**
+   - The base moved twice: §10 `pa_opt`, then §12 `pa_opt_mlp`.
+   - The LGB residual was refitted each time. Its gain went 8,265.3 → 8,208.1 → 8,018.2 s².
+   - The matched lane now includes a tabular MLP member (m4). Its inputs are not the residual's ADS-B features.
+   - Variant U was rejected (§11.2).
+   - Posjoin README: LIRF ADS-B ground coverage was 0 in Jan 2025. [X] So LIRF's residual training rows are Jul 2025.
+   - V2 was never re-run.
+5. **Class: (c).**
+   - The rejection is a power statement: the CI crosses zero, and the point gain is concentrated at LIRF.
+   - It is not a mechanism that a base change could remove.
+   - Nothing measured since says whether the LIRF concentration remains on the new base.
+   - It is not (b) by this section's definition.
+   - Fact for the coordinator: a re-run is residual-stage CV only. Fits took 18–36 s, peak 1.45 GB.
+     [X] It would be a second draw at the same power, not a test of a removed mechanism.
+
+### R-5. `dest_distance_km` in model B (`docs/features_log.md` exp. 8, 9)
+
+1. **Definition and entry.**
+   - The great-circle distance ADEP → ADES from OurAirports (`src/prc/airports.py:61`). "被覆率 99.45%".
+   - Shown to both lanes of the `main` single LGB (baseline 285.52).
+   - Forward fold, 1 seed, `feature_fraction` 1.0, against a noise column.
+   - Arms: `feat_f9_dist-5ed94c00a3` vs `ff1_noise2-856a62b645`, both at `9e6fe61`.
+   - "マッチ行 203.3 → 203.3（不変）"; "未マッチ行 2171.7 → **2129.3**（−42）". The gain was all in model B.
+   - Both records have `rounds_unmatched` 45.
+2. **Measured.**
+   - K=0 **−2.89 [−4.32, −1.56]**, K=200 +0.02 [−0.24, +0.25].
+   - Exp. 9: three folds, combined with `op_offset_med`. K=200 +0.15 [−0.21, +0.52], matched 218.2 → 218.3.
+   - No per-airport split was reported.
+3. **Why rejected.**
+   - "典型的な「尾部のみ」。棄却。 model B の 255 葉と同じ形（CV full −34.8 → 本番 +13.2）で、規則が存在する理由そのもの。"
+   - "その群は CI 幅 62 秒で測定不能なので規則上採用できない。"
+   - The rule header: "未マッチ行だけを動かす変更は測定不能なので対象外。"
+4. **What changed since.**
+   - u is now v16's model B: fl + seq, `stand_arrival_gap`, LIRF schedule reparam, 3 seeds. `dest_distance_km` is not
+     in its `include_candidates`.
+   - Measurement is now four folds and 672,428 rows, with a lane split.
+   - **[new]** On the current base:
+     - 8,378 unmatched scored rows carry 42.3 % of the SSE.
+     - Spearman(`dest_distance_km`, residual) on those rows is +0.003 (LIRF −0.022, n = 537; non-LIRF +0.015).
+     - Spearman with |residual| is +0.118.
+   - `model-b-ceiling.md` S1.4 (main_gap lane B): "`dest_distance_km` 0.22 %", against noise controls at 0.12–0.35 %.
+   - Two model-B additions on the current model B failed the full-data leg here: R3 (L2-B) +0.08 [−0.22, +0.42] and
+     R4 (OSM-B) +0.40 [+0.07, +0.73].
+   - The 2026 unmatched rows get no learned residual. So a model-B change would reach the board unaltered, except on
+     the 430 overlay rows.
+5. **Class: (a).**
+   - The stated mechanism is the lane structure plus the both-CI rule. Unmatched rows are about 1 % of rows and
+     about 42 % of the SSE. Both are unchanged.
+   - Current model-B additions still fail one leg (R3, R4).
+   - **[new]** The column has no monotone relation to the current model B's signed residual.
+   - [X] Any gain would have to come through interactions on about 8 k rows. That is the regime the note called
+     unmeasurable.
+
+### R-6. `planned_flight_s` (`docs/features_log.md` exp. 10)
+
+1. **Definition and entry.**
+   - `ARVT_1_flt − EOBT_1_flt` in seconds (`src/prc/features.py:610`). "正解との相関 +0.2575".
+   - **[new]** It is null on 100 % of the 8,378 unmatched scored rows and on 0 % of matched rows. So it is a model-A
+     column in effect, as `feature-levers-L1-L4.md` §3 says for EOBT_1 and ARVT_1.
+   - Measured on `main`, pooled 3 folds (672k rows), 1 seed, `feature_fraction` 1.0.
+   - Arms: `f10_plannedflight-b416261a17` vs `pw_noise2-7672c5b2b7`, both at `5794f24`.
+2. **Measured.**
+   - K=0 −0.06 [−0.89, +0.70]; K=20 −0.99 [−1.71, −0.35]; **K=200 −0.21 [−0.49, +0.08]**; K=2000 −0.25
+     [−0.41, −0.10].
+   - "マッチ行 218.5 → **218.1**".
+   - No per-airport split was reported.
+3. **Why rejected.**
+   - "**10 本中もっとも本物に近い**が、判定レベルでゼロを跨ぐので棄却。"
+   - Loop conclusion: "効きそうなものは全部 0.25 秒未満で、測定器の分解能を下回る。"
+   - No base-specific mechanism is given.
+4. **What changed since.**
+   - Its residualised relative L1 `plan_nm_taxi` was measured on the current family (`main_flseq_osm_nolirf`, four
+     folds). L1 is `clip(ARVT_1 − EOBT_1 − median over ADEP × ADES × type)`.
+     - Result: −0.03 [−0.11, +0.07] / −0.04 [−0.15, +0.06], matched −0.04 [−0.15, +0.09].
+     - Reading: "Our model already carries those clocks."
+   - `delay-mechanisms.md` lists "aircraft class and speed | … `dest_distance_km`, `planned_flight_s` | yes | dead".
+   - L2 has since been added to every member.
+5. **Class: (a).**
+   - The rejection was resolution.
+   - The closest relative, re-measured on the current family, was null.
+   - [X] L1 is a residualised form, not the raw column, so this is close evidence rather than the same test.
+
+### R-7. A1 LIRF arrival mirror (`A1-lirf-arrival-mirror.md`)
+
+1. **Definition and entry.**
+   - Four columns: `arr_link_fill`, `arr_link_bs_abs`, `arr_link_same_op` and `arr_opday_fill`. They come from the
+     same-stand latest arrival within 6 h; "A fill is `|in-block − sched| ≤ 12 s`".
+   - **Model A only**: `unmatched_columns` excludes them. Flag `fe_arr_fill`.
+   - Shown at all airports. The LIRF-only variant was "Not run".
+   - Measured on `main_flseq` (v16) and on `main_flseq_osm_nolirf`. Both were non-L2 and untuned, four folds.
+2. **Measured.**
+   - On v16: **−0.09 [−0.21, +0.03] / −0.09 [−0.21, +0.04]**, matched −0.12 [−0.27, +0.02].
+     - LIRF −0.52 [−1.07, −0.03].
+     - EHAM −0.34 [−0.59, −0.12].
+     - EDDF **+0.50 [+0.17, +0.91]**; LEBL +0.26 [+0.04, +0.49].
+   - On osm_nolirf: −0.04 [−0.14, +0.06] / −0.07 [−0.18, +0.05], matched −0.05.
+     - LSZH −0.38 [−0.71, −0.09].
+     - LIRF −0.24 [−0.73, +0.25].
+   - Kill (a), LIRF lane-A RMSE:
+     - jul +0.43 on v16;
+     - jul +0.62 and `jul_fwd` +0.77 on OSM.
+   - Commits: runs at `7a9cb65`, results `f67a8c1`.
+   - CV 7,750 s and 8,254 s ("about 2× the base runs"), peak 11.78 GB.
+3. **Why rejected.**
+   - "(a) **fails** on jul. (b) also fails: the pooled CI crosses zero."
+   - On OSM: "'jul_fwd ≥ 0, close it' applies".
+   - Mechanism of the failure: "It reverses in July on both configs. The note named July as the fold most likely to
+     fail: LIRF's lowest-fill month".
+   - Size: "At this size the ±0.5 s noise of adding any column to this model … is the same order as the effect."
+4. **What changed since.**
+   - All members now carry L2, the LGB members are retuned, and the matched lane is a 4-member blend.
+   - A held v35 overlay, not in the base, targets the same LIRF schedule-copy population: "LIRF schedule-copy blend …
+     26,277 [rows] … +390 MSE with A fixed in advance (Jan +15, Jul +375)" (`docs/posjoin_2026-10-05/deeper_checks.md`).
+5. **Class: (a).**
+   - The July reversal appeared on two different model-A bases, so it is not base-specific.
+   - The effect shrank as the base improved (−0.09 → −0.04).
+   - Its own close-out rule fired.
+   - [X] If the LIRF schedule-copy overlay is adopted, it acts on the same rows from outside the model. That makes A1
+     less, not more, likely to add anything.
+
+### Summary
+
+| item | class | key reason (quoted) |
+|---|---|---|
+| C1 two-column | (a) | "the forward effect does not carry across at its measured size". [new] Its target bias is still forward-only on the current base. |
+| dead-column removal | (a) | "an ADOPT would mean the `feature_fraction` reshuffle drew lucky". Four-fold CV −0.01, board +0.0163. |
+| P8-B wxcodes | (a) | "not distinguishable from doing nothing", plus the July 2026 support shift |
+| ADS-B residual V2 | (c) | "its CI includes 0 … Most of V2's point gain is LIRF". No mechanism is given. |
+| `dest_distance_km` in model B | (a) | "典型的な「尾部のみ」" and "CI 幅 62 秒で測定不能". The lane structure and the rule are unchanged. |
+| `planned_flight_s` | (a) | "判定レベルでゼロを跨ぐ". Its relative L1 is null on the current family. |
+| A1 | (a) | "It reverses in July on both configs" |
+
+**No item is (b), so no re-test is pre-registered here.**
+- [X] §2.4's retrain list carried these items on their CI tier alone. On the notes' own reasons, none of them failed
+  for a cause that the move to the v35 base removes.
+- The only one whose rejection is just a power statement is V2. It is also the only cheap one: residual-stage CV,
+  18–36 s per fit, peak 1.45 GB.
