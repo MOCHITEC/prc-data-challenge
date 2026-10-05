@@ -1,7 +1,9 @@
 # MLP as a fourth matched-lane member (M4) of hybrid_blend_l2_pa_opt — pre-registration (2026-10-05)
 
-**Status: pre-registered; no run yet.** §0 is committed before any MLP fit on real data. Results will be appended as
-§1+ without editing §0 (except this status line).
+**Status (2026-10-05): done. ADOPT.** `hybrid_blend_l2_pa_opt` → `hybrid_blend_l2_pa_opt_mlp` (equal 1/4 weights):
+−0.75 s [−0.93, −0.58], K=200 −0.83 s [−1.00, −0.67]. M4 alone is worse than M1 by +5.59 s [+4.67, +6.69].
+`outputs/hybrid_blend_l2_pa_opt_mlp.parquet` is written and validated. Nothing was uploaded or submitted. §0 was
+committed as 9a8bc61 before any run. Results are in §1+, and §0 has not been edited except for this status line.
 
 ## 0. Pre-registration
 
@@ -195,3 +197,124 @@ residual is applied.
 - Logs go to `logs/mlp/` (git-ignored), and every exit code is checked.
 - Cost estimate from a synthetic benchmark (random data, 550 inputs, (512, 256), batch 1,024): about 20–30 s per
   1.9M-row epoch on 4 cores. That gives at most about 80 min per fold, and about 3–5 h for CV.
+
+## 1. Run (CV)
+
+`logs/mlp/run.sh cv --config configs/main_flseq_osm_nolirf_l2_mlp.yaml --work-dir data/work_flseq --skip-predict
+--fold-cache logs/mlp/fold_cache` (with `PRC_MLP_CKPT=logs/mlp/ckpt`). Exp id **`main_flseq_osm_nolirf_l2_mlp-2b9a3b9348`**.
+- Exit 0, not killed. Wall **9,037 s** (01:11:26 → 03:42:03 UTC).
+- Peak cgroup `total_rss` **10,246 MB** (10,442 MB over all sessions), during feature load. MLP epochs ran at about
+  9.3 GB.
+- No restart happened. A first launch, attached to the tool shell, was stopped after 4 s during feature load
+  (`logs/mlp/cv_attempt0.*`). It was relaunched detached. No fold was cached at that point.
+- Epochs took 33–64 s each.
+- **Model B is untouched.** All 8,378 pooled unmatched OOF predictions equal `main_flseq_osm_nolirf_l2-ef204b44ff`'s
+  exactly.
+
+| fold | input width | ES best epoch / epochs run | best holdout RMSE (s of g) | M4 matched RMSE | M1 (0.5 a2o + 0.5 pao) |
+|---|---:|---|---:|---:|---:|
+| jan | 582 | 13 / 18 | 205.67 | 202.63 | 195.24 |
+| jul | 581 | 15 / 20 | 204.75 | 243.94 | 236.36 |
+| jul_fwd (shadowed) | 568 | 9 / 14 | 229.64 | 253.94 | — |
+| forward | 580 | 15 / 20 | 213.50 | 198.73 | 191.55 |
+| pooled matched | | | | **213.27** | **205.94** |
+
+Pooled matched RMSE of the other members: M2 208.82, M3 212.40. M4 is the worst member alone, but close to M3.
+
+Matched-lane error correlations:
+
+| | M1 | M2 | M3 | M4 |
+|---|---:|---:|---:|---:|
+| M1 | 1 | 0.9755 | 0.9414 | **0.9201** |
+| M2 | | 1 | 0.9355 | **0.9098** |
+| M3 | | | 1 | **0.9054** |
+
+M4 is the least correlated member with each of the other three.
+
+## 2. Blend vs hybrid_blend_l2_pa_opt (the decision)
+
+`scripts/blend_mlp.py oof --scratch logs/mlp/scratch --m4 main_flseq_osm_nolirf_l2_mlp-2b9a3b9348`
+(`logs/mlp/oof.txt`) reproduces the base at **268.32**. The candidate reads 267.57.
+
+`python -m prc.compare hybrid_blend_l2_pa_opt hybrid_blend_l2_pa_opt_mlp --work-dir data/work_flseq --exp-dir
+logs/mlp/scratch` (`logs/mlp/compare_primary.txt`), on 672,428 pooled OOF rows:
+
+| K | A | B | diff [CI95] |
+|---|---|---|---|
+| 0 | 268.32 | 267.57 | **−0.75 [−0.93, −0.58]** |
+| 20 | 223.59 | 222.70 | −0.90 [−1.07, −0.73] |
+| 200 | 209.99 | 209.15 | **−0.83 [−1.00, −0.67]** |
+| 2000 | 187.19 | 186.56 | −0.63 [−0.72, −0.53] |
+
+Month bootstrap −0.75 [−1.07, −0.49]. **Verdict: ADOPT** (`ADOPT - adopt (-0.75 s, still -0.83 s at 200 rows dropped)`).
+
+Detail (`logs/mlp/detail.txt`):
+- **Lane split.** Matched 205.58 → 204.59: −0.99 [−1.18, −0.80]. Unmatched +0.00 (identical by construction). All rows
+  except LIRF −0.55 [−0.73, −0.41].
+- **Per calendar month**, all rows / matched. Every CI is below zero.
+  - 2025-01: −0.43 [−0.79, −0.24] / −0.75
+  - 2025-07: −1.13 [−1.50, −0.77] / −1.42
+  - 2025-11: −0.60 [−0.89, −0.35] / −0.70
+  - 2025-12: −0.83 [−1.17, −0.53] / −0.90
+- **Per airport**, all rows. Eight of ten CIs are below zero; LEBL, EGLL and LSZH include zero.
+  - LIRF −2.09 [−2.76, −1.33]
+  - LTFM −1.05
+  - LFPG −0.60
+  - EGLL +0.18 [−0.29, +0.63]
+  - EDDF −0.75
+  - EDDM −1.30
+  - EHAM −0.90
+  - LEBL −0.24 [−0.49, +0.02]
+  - LEMD −0.53
+  - LSZH +0.01 [−0.31, +0.38]
+
+## 3. Secondary (report only)
+
+- **M4 alone vs M1 alone** (`member_m1` → `member_m4`, both with the same unmatched lane;
+  `logs/mlp/compare_member.txt`): K=0 **+5.59 [+4.67, +6.69]**, K=200 +7.00 [+6.40, +7.66]. That is REJECT as a
+  replacement. Matched 205.9 → 213.3. This falls within the prior (+3 to +15 s).
+- **LOFO sum-to-one weights** on (M1, M2, M3, M4), each fitted on the other two folds:
+  - held-out jan: 0.505 / 0.107 / 0.143 / 0.245
+  - held-out jul: 0.524 / 0.110 / 0.146 / 0.220
+  - held-out forward: 0.535 / 0.089 / 0.126 / 0.249
+  - All three folds: 0.520 / 0.103 / 0.138 / 0.239.
+  - LOFO hybrid vs base (`logs/mlp/compare_lofo.txt`): K=0 −1.00 [−1.23, −0.81], K=200 −1.12 [−1.31, −0.95], month
+    bootstrap −1.00 [−1.33, −0.76]. That is 0.25 s better than equal weights.
+  - The weights move weight from M2/M3 to M1 and keep M4 at about 1/4. They do not enter the decision; the file uses
+    1/4 each.
+
+**Reading.**
+- The rule passes: the K=200 upper end is −0.67.
+- As with plain-y and CatBoost, the member that is worst alone helps the blend, because its errors are the least
+  correlated with the others.
+- The gain is larger in July and at LIRF, and is near zero at EGLL, LSZH and LEBL.
+- Caveats:
+  - The MLP's settings were fixed a priori and not tuned. One seed set (42–44) was run.
+  - On the board, expect less than the OOF gain.
+
+## 4. Full fit and output (ADOPT, so §0.5 applies)
+
+`logs/mlp/run.sh full --config configs/main_flseq_osm_nolirf_l2_mlp.yaml --work-dir data/work_flseq --skip-cv`:
+- Exit 0, not killed. Wall **3,687 s**. Peak `total_rss` **9,031 MB** (9,268 MB over all sessions).
+- 2,062,577 matched training rows and input width 583. The holdout is 2025-12 (164,028 rows).
+- Early stopping chose E* = 15 (20 epochs run, best holdout 204.65). Three refits of 15 epochs each.
+- `outputs/main_flseq_osm_nolirf_l2_mlp.parquet` passes `prc.validate_submission` (OK, with only the usual >10,800 s
+  warning). Its 5,290 unmatched rows equal `outputs/main_flseq_osm_nolirf_l2.parquet` (model B untouched).
+
+`scripts/blend_mlp.py full` → **`outputs/hybrid_blend_l2_pa_opt_mlp.parquet`** (`logs/mlp/full_blend.txt`):
+- Matched rows: `rint(((0.5·a2o + 0.5·pao) + p2o + c2 + m4) / 4)`. Unmatched rows: `outputs/main_flseq.parquet`.
+- 344,841 rows, the same as the template: 339,551 matched and 5,290 unmatched.
+- The schema `{MVT_ID_mvt: double, TAXITIME_SEC_mvt: int32}` equals the template, and the ids and their order equal
+  `data/raw/submitting.parquet`.
+- 0 nulls and 0 negatives; min 0, max 113,641.
+- `prc.validate_submission` OK, with only the >10,800 s warning.
+- Against `outputs/hybrid_blend_l2_pa_opt.parquet`: differs on 325,625 rows, all matched (unmatched untouched), with
+  max |d| 1,533 s and RMS 22.34 s.
+
+Nothing was uploaded or submitted, and no ADS-B residual was applied. v33 = `hybrid_blend_l2_pa_opt` + the learned
+ADS-B residual, so the like-for-like candidate is this file plus a residual refitted on this base, which is a
+separate step.
+
+Logs (git-ignored): `logs/mlp/` contains `cv.*`, `full.*`, `oof.txt`, `compare_{primary,member,lofo}.txt`,
+`detail.txt`, `full_blend.txt` and `validate_*.txt`. Checkpoints are in `logs/mlp/ckpt`, and the fold cache in
+`logs/mlp/fold_cache`.
