@@ -205,3 +205,40 @@ roughly 4× M3's 10,819 s.
 tuning study, trial 7 peaked 1.5 GB above trial 0 (9,655 vs 8,132 MB). So the trial-7 settings
 (`max_ctr_complexity` 2, depth 8) need about 1.5 GB more than the CV process's 12 GB, which does not fit.
 Per the run rules, nothing was retried; no confirmation verdict exists. §0.4/§0.5 are on hold.
+
+**Attempt 2 (coordinator-approved retry, memory only; no model parameter, fold or rule changed).** What was used:
+1. **Each fold in its own process, through the fold cache** — `scripts/cv_per_fold.py run`. A fold process builds the
+   labelled feature frame with the pipeline's own calls (`retune_lgb.train_features`), slices the fold exactly as
+   `run_cv` does, **drops the full 2.08M-row frame** (`del` + `gc.collect()`), and fits through `prc.train._cached_fold`
+   under the same exp id, so the fold lands in `logs/cbretune/fold_cache/<exp_id>/<fold>.*` as `run_cv` writes it.
+   Then the unchanged `prc.pipeline --skip-predict --fold-cache logs/cbretune/fold_cache` loads all three folds and
+   writes the OOF and the record (its documented resume path).
+2. **Raw frames / unused columns:** the pipeline already frees the raw frames and drops hidden candidate columns
+   (`drop_hidden_candidates`); the per-fold process does the same and in addition frees the full feature frame. No
+   other column is dropped.
+3. **Polars threads: not changed.**
+4. **CatBoost `thread_count`: not changed (stays 4).** Checked: on a 60k-row toy problem with depth 8,
+   `max_ctr_complexity` 2 and two categoricals, `thread_count` 4, 2 and 1 gave bit-identical predictions. But
+   `thread_count` is part of the hashed resolved `cb_params` (it would change the exp id) and per-thread buffers are
+   not where the memory is, so it was left alone.
+5. **Snapshots** (restart resume, not memory): new env flag `PRC_CB_SNAPSHOT_DIR` (default unset → the fitter's
+   calls are unchanged). Set, every CatBoost fit gets `save_snapshot`, its own `snapshot_file`
+   (`<dir>/<digest>.cbsnap`, digest of params, stage, round cap, seed, stopping rule, label, holdout mask and the
+   training block), `snapshot_interval` 300 s, and `allow_writing_files: True` with a `train_dir` beside it. The driver
+   sets it per fold (`fold_cache/snapshots/<fold>`) and deletes a fold's snapshots once its cache entry exists.
+
+Checks before launch:
+- `tests/test_cb_matched_params.py` (+3 tests): snapshots on vs off give identical predictions and `info` on a
+  synthetic fold with the trial-7-like settings (`max_ctr_complexity` 2), and a second run reading the finished
+  snapshots is identical; a fit killed mid-training (subprocess, snapshot interval 1 s) and rerun equals the
+  unsnapshotted reference exactly; on a four-fold synthetic frame, the per-fold path (slice + `_cached_fold` per fold,
+  then `run_cv` reading that cache) writes fold parquet/JSON, OOF and `overall` identical to a plain `run_cv`.
+- Real data: the per-fold feature frame equals the pipeline's (`main` with `run_cv` intercepted): 2,085,047 × 155,
+  row-hash digest `490c347f3ca74061` both (`logs/cbretune/feat_eq_*.txt`).
+- Full suite: 272 passed (`logs/cbretune/pytest_full2.txt`). The unchanged-path digests (`PRED_BEFORE`, all 129
+  recipe ids) still hold.
+- Gate: `/proc/self/cgroup` → `process_api/01a10ddc-…/claude-code-bash`. total_rss right before: 244 MB in this
+  session's cgroup (the `claude` CLI ≈ 350 MB RSS, `environment-manager` ≈ 44 MB, shell), 0 MB in the previous
+  session's cgroup (`01a10b15-…`, only 2.0 GB page cache, no processes). So attempt 1's 13,693 MB "all sessions" was
+  the pipeline's 13,460 MB plus ~230 MB of these tools.
+Rule unchanged: if a fold goes over 13,000 MB again, M3 tuning is closed as "not runnable within memory".

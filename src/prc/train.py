@@ -1177,6 +1177,53 @@ def _cb_pool(Xnum: np.ndarray, Xcat: np.ndarray, feature_cols: list[str], cat_co
     return Pool(fd, label=None if label is None else np.asarray(label, dtype=float))
 
 
+def _cb_snapshot_factory(params: dict, cfg: TrainConfig, y, hold, Xnum, Xcat):
+    """Per-fit CatBoost snapshot settings, keyed by a digest of everything the fit depends on.
+
+    Only when the environment variable PRC_CB_SNAPSHOT_DIR is set; otherwise every call returns ({}, {}) and the
+    fitter makes exactly the calls it always made. Set, each fit gets `save_snapshot`, its own `snapshot_file`
+    (`<dir>/<digest>.cbsnap`) and a `train_dir` beside it, with `allow_writing_files` on (CatBoost refuses a
+    snapshot otherwise; it writes only logs and the snapshot, and does not change the model). A fit whose snapshot
+    exists resumes from it: on catboost 1.2.10 a resumed fit, early stopping included, is bit-identical to an
+    uninterrupted one (tests/test_cb_matched_params.py). The digest covers the resolved params, the stage, round
+    cap, seed, stopping rule, the label, the holdout mask and the training block (numeric bytes and categorical
+    values), so a snapshot can only be resumed by the fit that wrote it. PRC_CB_SNAPSHOT_INTERVAL (s, default 300)
+    sets how often it is written."""
+    import os
+
+    root = os.environ.get("PRC_CB_SNAPSHOT_DIR")
+    if not root:
+        return lambda stage, iterations, seed: ({}, {})
+    h = hashlib.sha1()
+    h.update(np.ascontiguousarray(Xnum).tobytes())
+    for j in range(Xcat.shape[1]):
+        h.update(b"\x00".join(Xcat[:, j].tolist()))
+    h.update(np.asarray(y, dtype=np.float64).tobytes())
+    h.update(np.asarray(hold, dtype=bool).tobytes())
+    base = h.hexdigest()
+    interval = int(os.environ.get("PRC_CB_SNAPSHOT_INTERVAL", "300"))
+
+    def snap(stage: str, iterations: int, seed: int):
+        key = json.dumps(
+            [base, stage, iterations, seed, cfg.early_stopping, sorted(params.items())], sort_keys=True, default=str
+        )
+        d = hashlib.sha1(key.encode()).hexdigest()[:20]
+        out = Path(root)
+        out.mkdir(parents=True, exist_ok=True)
+        _CB_SNAPSHOTS.append(str(out / f"{d}.cbsnap"))
+        return (
+            {"allow_writing_files": True, "train_dir": str(out / f"{d}_info")},
+            {"save_snapshot": True, "snapshot_file": str(out / f"{d}.cbsnap"), "snapshot_interval": interval},
+        )
+
+    return snap
+
+
+# Snapshot files the fitter used in this process (only with PRC_CB_SNAPSHOT_DIR set), so a caller can delete them
+# once the fold's result is safely on disk.
+_CB_SNAPSHOTS: list[str] = []
+
+
 def _fit_catboost(
     train: pl.DataFrame,
     target_expr,
@@ -1228,6 +1275,9 @@ def _fit_catboost(
     a, b = offs[0]
     y = target_expr(train)
     rounds = cfg.num_rounds
+    # Off unless PRC_CB_SNAPSHOT_DIR is set (catboost-retune.md §2): then every fit below snapshots its state
+    # and a restarted fit resumes from it. Unset, `snap` is {} and the calls are exactly what they were.
+    snap = _cb_snapshot_factory(params, cfg, y, hold, Xnum[a:b], Xcat[a:b])
     if 0 < n_hold < train.height:
         if es_block is not None:
             s_, e_ = offs[-1]
@@ -1235,15 +1285,16 @@ def _fit_catboost(
         else:
             dva = _cb_pool(Xnum[a:b][hold], Xcat[a:b][hold], feature_cols, cat_cols, y[hold])
         dtr = _cb_pool(Xnum[a:b][~hold], Xcat[a:b][~hold], feature_cols, cat_cols, y[~hold])
+        es_kw, es_fit = snap("es", cfg.num_rounds, cfg.seed)
         m = CatBoostRegressor(
-            **params,
+            **{**params, **es_kw},
             iterations=cfg.num_rounds,
             random_seed=cfg.seed,
             od_type="Iter",
             od_wait=cfg.early_stopping,
             use_best_model=False,
         )
-        m.fit(dtr, eval_set=dva)
+        m.fit(dtr, eval_set=dva, **es_fit)
         best_it = m.get_best_iteration()
         best = int(best_it + 1) if best_it is not None else cfg.num_rounds
         rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
@@ -1257,8 +1308,9 @@ def _fit_catboost(
     del Xnum, Xcat
     acc = [np.zeros(p.num_row()) for p in dpred]
     for k in range(max(1, cfg.n_seeds)):
-        model = CatBoostRegressor(**params, iterations=rounds, random_seed=cfg.seed + k)
-        model.fit(dfull)
+        rf_kw, rf_fit = snap(f"refit{k}", rounds, cfg.seed + k)
+        model = CatBoostRegressor(**{**params, **rf_kw}, iterations=rounds, random_seed=cfg.seed + k)
+        model.fit(dfull, **rf_fit)
         for j, p in enumerate(dpred):
             acc[j] += model.predict(p)
         if k == 0:

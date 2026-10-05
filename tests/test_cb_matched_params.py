@@ -363,3 +363,108 @@ def test_the_blend_script_matches_the_preregistration():
     v = {"a2o": 1.0, "pao": 3.0, "p2o": 10.0, "c2": 100.0, "c2o": 200.0, "m4": 1000.0}
     assert mod.base_value(v.__getitem__) == pytest.approx((2.0 + 10 + 100 + 1000) / 4)
     assert mod.candidate_value(v.__getitem__) == pytest.approx((2.0 + 10 + 200 + 1000) / 4)
+
+
+# ---------- PRC_CB_SNAPSHOT_DIR: opt-in CatBoost snapshots (catboost-retune.md §2), memory-retry of the CV ----------
+
+_SNAP_CFG = {"depth": 6, "max_ctr_complexity": 2, "l2_leaf_reg": 18.24, "border_count": 153, "one_hot_max_size": 4}
+
+
+def _snap_cb(rounds=60):
+    return replace(
+        _cb(), num_rounds=rounds, unmatched_num_rounds=rounds, early_stopping=10, cb_matched_params=dict(_SNAP_CFG)
+    )
+
+
+def test_snapshots_on_change_nothing_and_a_complete_snapshot_reads_back(four_months, tmp_path, monkeypatch):
+    tr, tg = four_months
+    monkeypatch.delenv("PRC_CB_SNAPSHOT_DIR", raising=False)
+    p0, i0 = predict_fold(tr, tg, _snap_cb())
+    monkeypatch.setenv("PRC_CB_SNAPSHOT_DIR", str(tmp_path))
+    p1, i1 = predict_fold(tr, tg, _snap_cb())
+    snaps = sorted(tmp_path.glob("*.cbsnap"))
+    assert len(snaps) == 4  # model A es + refit, model B es + refit
+    assert p1.equals(p0) and _pdigest(p1, i1) == _pdigest(p0, i0)
+    p2, i2 = predict_fold(tr, tg, _snap_cb())  # every fit resumes from its finished snapshot
+    assert sorted(tmp_path.glob("*.cbsnap")) == snaps
+    assert p2.equals(p0) and _pdigest(p2, i2) == _pdigest(p0, i0)
+
+
+_KILL_SCRIPT = """
+import sys
+from dataclasses import replace
+import polars as pl
+sys.path.insert(0, "tests")
+import test_cb_matched_params as T
+from prc.features import build_departure_features
+from prc.synth import generate_month
+from prc.train import predict_fold
+tr = pl.concat([build_departure_features(generate_month(2025, m, seed=60 + m, deps_per_airport_day=16)) for m in (1, 2, 3, 4)])
+tg = build_departure_features(generate_month(2025, 5, seed=70, deps_per_airport_day=8))
+c = replace(T._snap_cb(int(sys.argv[2])), early_stopping=100000)
+p, info = predict_fold(tr, tg, c)
+p.write_parquet(sys.argv[1])
+"""
+
+
+def test_a_fit_killed_mid_training_resumes_bit_identically(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+
+    script = tmp_path / "run.py"
+    script.write_text(_KILL_SCRIPT)
+    rounds = "1500"
+    env0 = {k: v for k, v in os.environ.items() if k != "PRC_CB_SNAPSHOT_DIR"}
+    ref = tmp_path / "ref.parquet"
+    subprocess.run([sys.executable, str(script), str(ref), rounds], env=env0, check=True, cwd=Path.cwd())
+    snapdir = tmp_path / "snaps"
+    env = {**env0, "PRC_CB_SNAPSHOT_DIR": str(snapdir), "PRC_CB_SNAPSHOT_INTERVAL": "1"}
+    out = tmp_path / "got.parquet"
+    proc = subprocess.Popen([sys.executable, str(script), str(out), rounds], env=env, cwd=Path.cwd())
+    deadline = time.time() + 300
+    while time.time() < deadline and not (list(snapdir.glob("*.cbsnap")) if snapdir.exists() else []):
+        time.sleep(0.2)
+    time.sleep(2.0)  # let at least one snapshot of the first fit be written mid-training
+    proc.kill()
+    proc.wait()
+    assert not out.exists(), "the run finished before it could be killed; the test did not test a resume"
+    subprocess.run([sys.executable, str(script), str(out), rounds], env=env, check=True, cwd=Path.cwd())
+    assert pl.read_parquet(out).equals(pl.read_parquet(ref))
+
+
+def test_per_fold_processes_give_the_run_cv_result(tmp_path):
+    """scripts/cv_per_fold.py: each fold fitted on its own slice, then run_cv reading the cache, equals run_cv."""
+    from prc.train import run_cv
+
+    spec = importlib.util.spec_from_file_location("cv_per_fold", Path("scripts/cv_per_fold.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    from prc.cv import year_month_key
+
+    feats = pl.concat(
+        [build_departure_features(generate_month(2025, m, seed=80 + m, deps_per_airport_day=8)) for m in (1, 6, 7, 11)],
+        how="diagonal_relaxed",
+    )
+
+    cfg = _snap_cb()
+    names = [f.name for f in mod.fold_list(cfg, year_month_key(feats))]
+    assert len(names) >= 2, names
+    cfg = replace(cfg, folds=tuple(names))
+    ref = run_cv(feats, cfg, out_dir=tmp_path / "a", log_name="a.jsonl", fold_cache=tmp_path / "ca")
+    for n in names:
+        a_tr, a_va = mod.slice_fold(feats, cfg, n)
+        mod.fit_fold(a_tr, a_va, cfg, n, tmp_path / "cb")
+    got = run_cv(feats, cfg, out_dir=tmp_path / "b", log_name="b.jsonl", fold_cache=tmp_path / "cb")
+    exp = ref["exp_id"]
+    assert got["exp_id"] == exp
+    for n in names:
+        assert pl.read_parquet(tmp_path / "ca" / exp / f"{n}.parquet").equals(
+            pl.read_parquet(tmp_path / "cb" / exp / f"{n}.parquet")
+        )
+        assert (tmp_path / "ca" / exp / f"{n}.json").read_text() == (tmp_path / "cb" / exp / f"{n}.json").read_text()
+    assert pl.read_parquet(tmp_path / "a" / f"oof_{exp}.parquet").equals(
+        pl.read_parquet(tmp_path / "b" / f"oof_{exp}.parquet")
+    )
+    assert ref["overall"] == got["overall"]
