@@ -1,6 +1,6 @@
 # Re-review of rejected and closed levers against the v35 base — inventory and OOF-only re-checks (2026-10-05)
 
-**Status (2026-10-05): done.** R1 (LOFO weights) ADOPT −0.25 s [−0.34, −0.18], K=200 −0.29 [−0.38, −0.20]; R2 (pa as its own member) ADOPT −0.18 [−0.24, −0.13], K=200 −0.22 [−0.28, −0.17]; R3 no difference; R4 and R5 REJECT (worse). §0 and §1 were committed as a0743f5 before any re-check was computed. Results are in §2+.
+**Status (2026-10-05): done.** R1 (LOFO weights) ADOPT −0.25 s [−0.34, −0.18], K=200 −0.29 [−0.38, −0.20]; R2 (pa as its own member) ADOPT −0.18 [−0.24, −0.13], K=200 −0.22 [−0.28, −0.17]; R3 no difference; R4 and R5 REJECT (worse). R6 (pa as member + LOFO weights) ADOPT −0.32 [−0.44, −0.24], K=200 −0.36 [−0.48, −0.26], chosen by §3's rule; full-fit file not built (write to outputs/ denied by the permission classifier). §0 and §1 were committed as a0743f5 before any re-check was computed. Results are in §2+.
 §0–§1 will not be edited after that, except for this status line.
 
 Scope: analysis only. No model was trained, nothing in `src/` or `configs/` was changed, nothing was submitted.
@@ -273,3 +273,41 @@ The coordinator asked for this follow-up after §2. It is chosen after seeing R1
   `data/raw/submitting.parquet`. There are 0 nulls and 0 negatives. `prc.validate_submission` passes.
 - **OOF for the ADS-B refit.** The winner's OOF is copied to
   `logs/rereview/scratch/oof_hybrid_blend_reweight.parquet`.
+
+## 4. R6 result and choice (computed after 23a30d9)
+
+`rejected_rereview.py r6`, then `prc.compare hybrid_blend_l2_pa_opt_mlp rr_R6_pa5_lofo` on 672,428 rows.
+
+| K | A | B | diff [CI95] |
+|---|---|---|---|
+| 0 | 267.57 | 267.25 | **−0.32 [−0.44, −0.24]** |
+| 20 | 222.70 | 222.31 | −0.39 [−0.51, −0.28] |
+| 200 | 209.11 | 208.75 | **−0.36 [−0.48, −0.26]** |
+| 2000 | 186.49 | 185.95 | −0.54 [−0.62, −0.47] |
+
+Month bootstrap −0.32 [−0.38, −0.23]. **Verdict: ADOPT.**
+
+Detail:
+- Lanes: matched −0.43 [−0.55, −0.31]; unmatched +0.00; all except LIRF −0.30 [−0.42, −0.20].
+- Months (all rows): 2025-01 −0.40, 2025-07 −0.20 [−0.45, +0.07], 2025-11 −0.38, 2025-12 −0.38. July's CI crosses
+  zero; the other three are below zero.
+- Airports (all rows): LIRF −0.55 [−0.95, −0.12], LFPG −0.14 [−0.41, +0.03], EGLL −0.05 [−0.43, +0.35], LTFM −0.29
+  [−0.49, −0.09], EHAM −0.56 [−0.86, −0.27], EDDF −0.36 [−0.77, −0.00], EDDM −0.78 [−1.19, −0.37], LEMD −0.76
+  [−0.95, −0.56], LSZH −0.42 [−0.76, −0.02], LEBL −0.12 [−0.32, +0.06]. Every point estimate is negative; LFPG, EGLL
+  and LEBL cross zero.
+- LOFO weights on (a2o, pao, p2o, c2, m4):
+  - held-out forward: 0.133 / 0.345 / 0.143 / 0.134 / 0.246
+  - held-out jan: 0.069 / 0.360 / 0.181 / 0.149 / 0.240
+  - held-out jul: 0.015 / 0.422 / 0.196 / 0.156 / 0.211
+  - The a2o weight ranges from 0.015 to 0.133 across folds.
+- Weights fitted on all OOF folds: a2o 0.069428, pao 0.374785, p2o 0.176099, c2 0.147002, m4 0.232686 (sum 1).
+
+**Choice (rule of §3).** R1 −0.25, R2 −0.18 and R6 −0.32 all pass. **R6 is chosen.**
+
+**Full-fit file: not built.** The command that would write `outputs/hybrid_blend_reweight.parquet` was denied by the
+session's permission classifier. It was not retried, and no other route was used. The build code is in the script
+(`rejected_rereview.py full --weights '<json above>'`), for someone with permission to write to `outputs/`.
+
+**R6 OOF:** it is in this session's scratchpad (`.../scratchpad/rr/oof_rr_R6_pa5_lofo.parquet`). The copy to
+`logs/rereview/scratch/` was in the same denied command, so it was not made. Rebuild it anywhere with
+`rejected_rereview.py r6 --scratch DIR`, which is deterministic: lstsq on fixed OOFs.

@@ -115,16 +115,98 @@ def build(scratch: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("what", choices=["align", "build"])
+    ap.add_argument("what", choices=["align", "build", "r6", "full"])
     ap.add_argument("--scratch", type=Path, required=False)
+    ap.add_argument("--weights", help='full: JSON {member: weight}, members from blend_mlp.FULL_FILES')
+    ap.add_argument("--out", type=Path, default=ROOT / "outputs/hybrid_blend_reweight.parquet")
     a = ap.parse_args()
     if a.what == "align":
         align()
+    elif a.what == "full":
+        import json
+
+        build_full_file(json.loads(a.weights), a.out)
+    elif a.what == "r6":
+        build_r6(a.scratch)
     else:
         if a.scratch is None:
             raise SystemExit("--scratch required")
         build(a.scratch)
     return 0
+
+
+# ---- §3: R6 and the full-fit file (appended after the R6 pre-registration commit 23a30d9) ----
+R6_MEMBERS = ("a2o", "pao", "p2o", "c2", "m4")
+
+
+def build_r6(scratch: Path) -> dict:
+    from catboost_blend import sum_to_one_weights
+
+    d = frame()
+    folds = pl.read_parquet(EXP / f"oof_{A2O}_folds.parquet").filter(pl.col("pooled")).drop("pooled")
+    d = d.join(folds, on="MVT_ID_mvt", how="left", maintain_order="left")
+    matched = pl.col(PROXY).is_not_null()
+    mask = d[LABEL].is_not_null() & d["a2o"].is_not_null()
+    m = d.filter(mask & matched)
+    y = m[LABEL].to_numpy().astype(float)
+    X = np.column_stack([m[c].to_numpy().astype(float) for c in R6_MEMBERS])
+    fold = m["fold"].to_numpy()
+    w_by_fold = {f: sum_to_one_weights(y[fold != f], X[fold != f]).tolist() for f in sorted(set(fold))}
+    w_all = sum_to_one_weights(y, X).tolist()
+
+    def w_col(j):
+        return pl.col("fold").replace_strict({f: w[j] for f, w in w_by_fold.items()}, default=None, return_dtype=pl.Float64)
+
+    expr = sum(w_col(j) * pl.col(c) for j, c in enumerate(R6_MEMBERS))
+    h = d.select("MVT_ID_mvt", pl.when(matched).then(expr).otherwise(pl.col("u")).alias("oof"))
+    if h.filter(mask)["oof"].null_count():
+        raise AssertionError("R6: null on scored rows")
+    h.write_parquet(scratch / "oof_rr_R6_pa5_lofo.parquet")
+    e = h.filter(mask)["oof"].to_numpy() - d.filter(mask)[LABEL].to_numpy()
+    print(f"R6 rmse {np.sqrt((e**2).mean()):.4f}")
+    print(f"w_by_fold {w_by_fold}")
+    print(f"w_all {w_all}")
+    return {"w_by_fold": w_by_fold, "w_all": w_all}
+
+
+def build_full_file(weights: dict, out: Path) -> None:
+    """Matched rows: rint(sum_c w_c * member_c) over full-fit member files; unmatched rows: main_flseq."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from blend_mlp import FULL_FILES
+
+    template = pq.read_table(ROOT / "data/raw/submitting.parquet")
+    ids = pl.from_arrow(template.select(["MVT_ID_mvt"]))
+    lane = pl.read_parquet(WORK / "feat_rank.parquet", columns=["MVT_ID_mvt", PROXY])
+    d = ids.join(lane, on="MVT_ID_mvt", how="left", maintain_order="left")
+    assert d.height == template.num_rows
+    for c in (*weights, "u"):
+        s = pl.read_parquet(ROOT / FULL_FILES[c])
+        if not s["MVT_ID_mvt"].equals(ids["MVT_ID_mvt"]):
+            raise AssertionError(f"{FULL_FILES[c]}: ids or order differ")
+        d = d.with_columns(s["TAXITIME_SEC_mvt"].cast(pl.Float64).alias(c))
+    m = d[PROXY].is_not_null().to_numpy()
+    blend = sum(w * d[c].to_numpy() for c, w in weights.items())
+    vals = np.where(m, np.rint(blend), d["u"].to_numpy())
+    tgt = template.schema.field("TAXITIME_SEC_mvt").type
+    sub = pa.table(
+        {"MVT_ID_mvt": template["MVT_ID_mvt"], "TAXITIME_SEC_mvt": pa.array(vals, type=pa.float64()).cast(tgt)},
+        schema=template.schema,
+    )
+    pq.write_table(sub, out)
+    back = pq.read_table(out)
+    v = pl.from_arrow(back)["TAXITIME_SEC_mvt"]
+    print(f"wrote {out}: weights {weights}; members {[FULL_FILES[c] for c in weights]}; unmatched {FULL_FILES['u']}")
+    print(f"  rows {back.num_rows:,} == template {template.num_rows:,}: {back.num_rows == template.num_rows}"
+          f" (matched {int(m.sum()):,}, unmatched {int((~m).sum()):,})")
+    print(f"  schema == template: {back.schema.equals(template.schema)}")
+    print(f"  ids and order == template: {back['MVT_ID_mvt'].combine_chunks().equals(template['MVT_ID_mvt'].combine_chunks())}")
+    vv = v.to_numpy().astype(float)
+    print(f"  nulls {v.null_count()}  negatives {int((vv < 0).sum())}  min {vv.min():.0f}  max {vv.max():.0f}")
+    base = pl.read_parquet(ROOT / "outputs/hybrid_blend_l2_pa_opt_mlp.parquet")["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    diff = vv - base
+    print(f"  vs hybrid_blend_l2_pa_opt_mlp: differs on {int((diff != 0).sum()):,} rows, unmatched untouched "
+          f"{int((diff[~m] != 0).sum()) == 0}, max |d| {np.abs(diff).max():.0f}, RMS {np.sqrt((diff**2).mean()):.2f}")
 
 
 if __name__ == "__main__":
