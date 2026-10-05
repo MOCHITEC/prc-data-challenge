@@ -17,12 +17,16 @@ import adsb_learn_features as L
 import adsb_stage1_feasibility as s1
 
 
+# "2025nd": Nov+Dec 2025, for the 4-month re-measure (plan.md section 6.2); its files are feat_2025nd / appear_2025nd.
+DAYS = {**L.DAYS, "2025nd": [f"2025-{m:02d}-{d:02d}" for m in (11, 12) for d in range(1, 32) if not (m == 11 and d == 31)]}
+
+
 def main(years: list[str]) -> None:
     os.makedirs(L.OUT, exist_ok=True)
     ST = A.stands()
     for y in years:
-        have = [d for d in L.DAYS[y] if os.path.exists(os.path.join(s1.SCRATCH, f"{L.tag_of(d)}_joined.parquet"))]
-        print(f"{y}: {len(have)} of {len(L.DAYS[y])} days; missing {sorted(set(L.DAYS[y]) - set(have))}", flush=True)
+        have = [d for d in DAYS[y] if os.path.exists(os.path.join(s1.SCRATCH, f"{L.tag_of(d)}_joined.parquet"))]
+        print(f"{y}: {len(have)} of {len(DAYS[y])} days; missing {sorted(set(DAYS[y]) - set(have))}", flush=True)
         for d in have:
             fp, ap = os.path.join(L.OUT, f"feat_{d}.parquet"), os.path.join(L.OUT, f"appear_{d}.parquet")
             if not os.path.exists(fp):
