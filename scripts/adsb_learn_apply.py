@@ -21,16 +21,20 @@ import polars as pl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adsb_learn_cv as CV
 import adsb_learn_features as L
+import adsb_opdi as O
 
 ROOT = L.s1.REPO_DIR
 # `--base plainy` (see adsb_learn_cv.py): base outputs/hybrid_H2_plainy.parquet, CV json cv_plainy.json
-BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb", "l2": "blend_l2",
-            **{v: f"blend_{v}" for v in CV.L2_VARIANTS}}[CV.BASE_NAME]
+BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb", "l2": "blend_l2", "pa": "blend_l2_pa", "opt": "blend_l2_pa_opt"}[CV.BASE_NAME]
 PREV_OUT = {"plainy": "outputs/hybrid_H2_adsb_learned.parquet",
             "cb": "outputs/hybrid_H2_plainy_adsb_learned.parquet",
             "l2": "outputs/hybrid_plainy_cb_adsb_learned.parquet",
-            **{v: "outputs/hybrid_blend_l2_adsb_learned.parquet" for v in CV.L2_VARIANTS}}.get(CV.BASE_NAME)
-OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
+            "pa": "outputs/hybrid_blend_l2_adsb_learned.parquet",
+            "opt": "outputs/hybrid_blend_l2_pa_adsb_learned.parquet"}.get(CV.BASE_NAME)
+assert O.MODE != "opdishuf", "--opdi-shuffle is a CV control only"
+if O.MODE:  # compare with the same base's residual without the OPDI columns
+    PREV_OUT = f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
+OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned{O.SFX}.parquet"
 BASE_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}.parquet"
 V20_FILE = ROOT + "outputs/v20_hybridH2_adsb.parquet"
 NO_CORR = ["LTFM"]  # section 0a
@@ -49,7 +53,11 @@ def main() -> None:
     D = CV.load_labelled()
     F = pl.read_parquet(os.path.join(L.OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
     D = D.join(F, on="MVT_ID_mvt", how="inner")
+    if O.MODE:
+        D = O.add(D, ROOT)
     X, feats, cats = L.design(D, "b")
+    if O.MODE:
+        X, feats = O.design(X, feats, "b")
     assert feats == cvj["features"]
     r = np.clip(D["y"].to_numpy() - D["b"].to_numpy(), -CV.CLIP_Y, CV.CLIP_Y)
     dtr = lgb.Dataset(X.select(feats).to_numpy().astype(np.float64), r, feature_name=feats, categorical_feature=cats)
@@ -73,7 +81,12 @@ def main() -> None:
     print(f"2026 ADS-B feature rows {F26.height}; matched to template {G.height}; "
           f"max |t_mvt - MVT| {(G['t_mvt'] - G['MVT_TIME_UTC_mvt'].dt.epoch('ms') / 1000).abs().max()}")
     G = G.with_columns(pl.col("base").cast(pl.Float64).alias("b"))
+    if O.MODE:
+        G = O.add(G, ROOT)
+        O.parity(D, G)
     X26, feats26, _ = L.design(G, "b")
+    if O.MODE:
+        X26, feats26 = O.design(X26, feats26, "b")
     assert feats26 == feats
     c26 = np.clip(model.predict(X26.select(feats).to_numpy().astype(np.float64)), -CV.CLIP_C, CV.CLIP_C)
     G = G.with_columns(pl.Series("c", c26)).with_columns(

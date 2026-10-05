@@ -23,6 +23,7 @@ import polars as pl
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adsb_learn_features as L
+import adsb_opdi as O
 
 ROOT = L.s1.REPO_DIR
 OUT = L.OUT
@@ -42,26 +43,30 @@ PLAIN = "oof_main_flseq_osm_nolirf_plainy-b971f4b81b"  # plain-y member of the h
 CB = "oof_main_flseq_osm_nolirf_cb-6297d62f5f"          # anchored CatBoost member of hybrid_plainy_cb
 L2_MEMBERS = ["oof_main_flseq_osm_nolirf_l2-ef204b44ff", "oof_main_flseq_osm_nolirf_plainy_l2-c74a27239b",
               "oof_main_flseq_osm_nolirf_cb_l2-4aa341b206"]  # hybrid_blend_l2 (blend-l2.md, P): mean of the three
+PA_MEMBER = "oof_main_flseq_osm_nolirf_l2_pa-85f815edf4"  # per-airport anchored LGB+L2 (per-airport-member.md)
+# hybrid_blend_l2_pa_opt (optuna-retune.md section 3): same formula as pa with a2o / p2o / pao retuned, c2 unchanged;
+# order matches L2_MEMBERS + [PA_MEMBER]: m0 = a2o, m1 = p2o, m2 = c2, m3 = pao
+OPT_MEMBERS = ["oof_main_flseq_osm_nolirf_l2_opt-7244b3004f", "oof_main_flseq_osm_nolirf_plainy_l2_opt-dd8b8e2c7c",
+               "oof_main_flseq_osm_nolirf_cb_l2-4aa341b206", "oof_main_flseq_osm_nolirf_l2_pa_opt-8d54effc06"]
 # base choice: `--base h2` (default, the pre-registered run) or `--base plainy` (hybrid_H2_plainy: matched lane
 # = 0.5 x anchored + 0.5 x plain OOF, unmatched = main_flseq; plainy-blend.md) or `--base cb` (hybrid_plainy_cb:
 # matched = (anchored + plain + CatBoost) / 3, unmatched = main_flseq; catboost-blend.md). Only the base and file
 # names change. `--base l2` (hybrid_blend_l2: matched = mean of the three L2 members, unmatched = main_flseq;
-# blend-l2.md). S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy, l2 vs cb.
+# blend-l2.md). `--base pa` (hybrid_blend_l2_pa: matched = ((0.5 a2 + 0.5 pa) + p2 + c2) / 3, unmatched =
+# main_flseq; per-airport-member.md). S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy,
+# l2 vs cb, pa vs l2. `--base opt` (hybrid_blend_l2_pa_opt, same formula as pa with the retuned members) vs pa.
 BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
-# `--base l2m | l2w | l2c | l2wc` (handoff/2026-10-02/README.md): hybrid_blend_l2 with the window-fixed model B on
-# the unmatched lane (w), the clipped-member segment stacker on the matched lane (c), or both; l2m is the fair
-# control for w. b is read from experiments/oof_hybrid_blend_<name>.parquet, built by
-# scripts/build_hybrid_variants.py.
-L2_VARIANTS = ("l2m", "l2w", "l2c", "l2wc")
-assert BASE_NAME in ("h2", "plainy", "cb", "l2", *L2_VARIANTS), BASE_NAME
-SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
-# S4's previous base is each variant's FAIR control: l2w and l2wc against l2m (same test-like unmatched OOF regime),
-# l2c and l2m against l2. Run l2 (already done for v28), then l2m, then the others.
-PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"),
-        "l2m": ("l2", "_l2"), "l2w": ("l2m", "_l2m"), "l2c": ("l2", "_l2"), "l2wc": ("l2m", "_l2m")}.get(BASE_NAME)
+assert BASE_NAME in ("h2", "plainy", "cb", "l2", "pa", "opt"), BASE_NAME
+# `--opdi` / `--opdi-shuffle` (scripts/adsb_opdi.py, handoff/2026-10-05/README.md): OPDI stand-exit columns added to
+# the design; S4 then compares with the same base's run without them.
+SFX = ("" if BASE_NAME == "h2" else "_" + BASE_NAME) + O.SFX
+PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"), "pa": ("l2", "_l2"), "opt": ("pa", "_pa")}.get(BASE_NAME)  # (name, file suffix) for S4
+if O.MODE:
+    PREV = (f"{BASE_NAME} without OPDI", SFX[: -len(O.SFX)])
 REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
            "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet",
-           **{v: f"l2exp/oof_hybrid_blend_{v}.parquet" for v in L2_VARIANTS}}[BASE_NAME]
+           "pa": ROOT + "logs/per_airport/scratch/oof_hybrid_blend_l2_pa.parquet",
+           "opt": ROOT + "logs/retune/scratch/oof_hybrid_blend_l2_pa_opt.parquet"}[BASE_NAME]
 
 pl.Config.set_tbl_rows(60)
 pl.Config.set_tbl_width_chars(250)
@@ -100,23 +105,22 @@ def load_labelled() -> pl.DataFrame:
             D = D.join(oc, on="MVT_ID_mvt", how="left").with_columns(
                 ((pl.col("oa") + pl.col("op") + pl.col("oc")) / 3.0).alias("oa"))
             assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
-    if BASE_NAME == "l2" or BASE_NAME in L2_VARIANTS:
+    if BASE_NAME in ("l2", "pa", "opt"):
         cols = []
-        for i, mem in enumerate(L2_MEMBERS):
+        mems = {"l2": L2_MEMBERS, "pa": L2_MEMBERS + [PA_MEMBER], "opt": OPT_MEMBERS}[BASE_NAME]
+        for i, mem in enumerate(mems):
             fm = pl.read_parquet(ROOT + f"experiments/{mem}_folds.parquet").filter(
                 pl.col("pooled") & pl.col("fold").is_in(["jan", "jul"]))
             assert fold.sort("MVT_ID_mvt").equals(fm.sort("MVT_ID_mvt")), f"{mem}: jan/jul folds differ"
             D = D.join(pl.read_parquet(ROOT + f"experiments/{mem}.parquet").rename({"oof": f"m{i}"}),
                        on="MVT_ID_mvt", how="left")
             cols.append(f"m{i}")
-        D = D.with_columns(((pl.col("m0") + pl.col("m1") + pl.col("m2")) / 3.0).alias("oa"))
+        if BASE_NAME == "l2":
+            D = D.with_columns(((pl.col("m0") + pl.col("m1") + pl.col("m2")) / 3.0).alias("oa"))
+        else:  # same expression as scripts/blend_pa.py's primary
+            D = D.with_columns(((0.5 * pl.col("m0") + 0.5 * pl.col("m3") + pl.col("m1") + pl.col("m2")) / 3.0)
+                               .alias("oa"))
         assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
-    if BASE_NAME in L2_VARIANTS:
-        # Both lanes of b come from the variant file; the l2 members above are joined only for the fold checks.
-        V = pl.read_parquet(ROOT + f"experiments/oof_hybrid_blend_{BASE_NAME}.parquet").rename({"oof": "bv"})
-        D = D.join(V, on="MVT_ID_mvt", how="left")
-        assert D["bv"].null_count() == 0, f"oof_hybrid_blend_{BASE_NAME} misses labelled jan/jul rows"
-        D = D.with_columns(pl.col("bv").alias("oa"), pl.col("bv").alias("ob")).drop("bv")
     D = D.with_columns(pl.when(pl.col("mvt_minus_aobt3").is_not_null()).then("oa").otherwise("ob").alias("b"),
                        pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
                        pl.col("MVT_TIME_UTC_mvt").dt.date().cast(pl.String).alias("day"))
@@ -184,6 +188,8 @@ def main() -> None:
     D = load_labelled()
     F = pl.read_parquet(os.path.join(OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
     D = D.join(F, on="MVT_ID_mvt", how="left").with_columns(pl.col("icao").is_not_null().alias("has"))
+    if O.MODE:
+        D = O.add(D, ROOT)
     chk = D.filter(pl.col("has")).select(
         (pl.col("t_mvt") - pl.col("MVT_TIME_UTC_mvt").dt.epoch("ms") / 1000).abs().max().alias("max|t_mvt-MVT|"))
     print("ADS-B rows", int(D["has"].sum()), "of", D.height, "|", chk.row(0, named=True))
@@ -194,6 +200,8 @@ def main() -> None:
                        pl.col("day").replace_strict({d: i for i, d in enumerate(days)}).alias("day_idx"))
     print("folds:", {k: sorted(d for d, f in fold_of.items() if f == k) for k in range(K)})
     X, feats, cats = L.design(D, "b")
+    if O.MODE:
+        X, feats = O.design(X, feats, "b")
     print(f"{len(feats)} features:", feats)
 
     head("S1  leave-days-out folds")
@@ -310,6 +318,9 @@ def main() -> None:
         res["vs_h2_learned"] = {"rmse_new": r_new, "rmse_h2_learned": r_h2l, "d_rmse": r_new - r_h2l,
                                 "d_rmse_lo": float(np.percentile(drm, 2.5)), "d_rmse_hi": float(np.percentile(drm, 97.5)),
                                 "mse_gain": g, "mse_lo": lo, "mse_hi": hi}
+
+    if O.MODE:
+        res["opdi"] = O.report(D, bv + c_learn, OUT, PREV[1])
 
     D.select("MVT_ID_mvt", "day", "cvfold", "ADEP_mvt", "y", "b", "has").with_columns(
         pl.Series("c_learned", c_learn), pl.Series("c_rule", c_rule)).write_parquet(os.path.join(OUT, f"cv_rows{SFX}.parquet"))

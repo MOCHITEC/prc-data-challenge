@@ -399,3 +399,333 @@ submitted.
   - The signed change quantiles are p1 −290, p10 −115, p50 −12, p90 +119 and p99 +358.
   - The mean prediction goes from 1,039.47 to 1,034.25 s.
 - **Against v23 (`hybrid_plainy_cb_adsb_learned`).** 330,422 rows differ, with RMS 26.1 s and max 792 s.
+
+## 8. Re-run on the `hybrid_blend_l2_pa` base (2026-10-02, after v28 scored 252.4111)
+
+**Setup.** The design is unchanged from section 0/0a. Only the base is swapped.
+- `b` follows `per-airport-member.md` (primary), with the same expression as `scripts/blend_pa.py`:
+  - matched lane: `((0.5·a2 + 0.5·pa) + p2 + c2) / 3`, where
+    - a2 = `oof_main_flseq_osm_nolirf_l2-ef204b44ff`,
+    - pa = `oof_main_flseq_osm_nolirf_l2_pa-85f815edf4`,
+    - p2 = `…plainy_l2-c74a27239b`,
+    - c2 = `…cb_l2-4aa341b206`;
+  - unmatched lane: `oof_main_flseq-8615e6a194`.
+- It equals `logs/per_airport/scratch/oof_hybrid_blend_l2_pa.parquet` on all 344,419 rows (max |diff| 0.0).
+- All four members' jan/jul folds equal H2's.
+- Commands: `adsb_learn_cv.py --base pa` and `adsb_learn_apply.py --base pa`. Logs:
+  `$SCRATCH/adsb/learn_cv_pa.log` and `learn_apply_pa.log`.
+- **Restart checks.**
+  - The memory cgroup path was re-read from `/proc/self/cgroup` (`/process_api/01a0fa39-…/claude-code-bash`). The
+    root `total_rss` was about 250 MB.
+  - `feat_2025.parquet`, `feat_2026.parquet` and `cv_rows_l2.parquet` were present.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the pa base | **8,265.3** | [7,232.0, 9,384.1] | 313.767 → **300.307** (−13.460) |
+| rule on the pa base | 1,744.3 | [1,585.1, 1,926.5] | 313.767 → 310.975 (−2.792) |
+| paired: learned − rule | 6,521.0 | [5,541.1, 7,608.1] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 522, 293, 332, 333 and 150, so the final fit uses **332 rounds**.
+- Every airport's learned CI excludes 0 except LTFM.
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| blend_l2 | 314.470 |
+| pa | 313.767 |
+| blend_l2 + learned (section 7) | 300.855 |
+| **pa + learned** | **300.307** |
+
+**(pa + learned) − (blend_l2 + learned) = −0.548 s, CI95 [−0.800, −0.348].** As MSE: 329.5 s² [219.5, 439.3].
+pa's base advantage on these rows is −0.70 s, and about 0.55 s of it survives the residual model.
+
+**Production file** `outputs/hybrid_blend_l2_pa_adsb_learned.parquet`. It is the final fit (286,008 rows, 62 days,
+332 rounds) applied to `outputs/hybrid_blend_l2_pa.parquet`, with c = 0 at LTFM. It is git-ignored and not
+submitted.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. **2 negatives were reverted to base.**
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 282,938 rows (82.05 %) are changed.
+  - Over the changed rows, the RMS change is 115.1 s, with median |Δ| 44 s, p90 170, p99 416 and max 1,754.
+  - The signed change quantiles are p1 −288, p10 −114, p50 −11, p90 +117 and p99 +353.
+  - The mean prediction goes from 1,039.36 to 1,034.18 s.
+- **Against `hybrid_blend_l2_adsb_learned`.** 324,921 rows differ, with RMS 16.4 s and max 509 s.
+
+## 9. Improving the learned model: variants V1–V3 on the `hybrid_blend_l2_pa` base (2026-10-02)
+
+Context: v32 (= section 8) scored 251.7333 on the board. Public fact (`public-code-deep-dive-2026-09-30.md` §1, §2):
+merry-quicksand's ADS-B stage is a LightGBM + MLP stacker with 26 features, and its "joined mid-taxi" rows
+(coverage code 2) carry 41 % of its ADS-B fold gain. No competitor code was opened.
+
+### 9.0 How rows first seen mid-taxi are handled today (check; criterion fixed before computing it)
+
+Coverage classes of the 344,419 labelled rows, from the joined/feature files:
+- **K0**: no ADS-B feature row.
+- **K1**: joined, but no ground fix before take-off.
+- **K2 (mid-taxi first)**: there is a ground fix, but no stand episode was found (`t_move` null).
+- **K3**: a stand episode was observed (`t_move` non-null).
+
+The criterion was written before any number was computed. **K2 counts as under-served if its relative MSE
+reduction under the current model (section 8 CV rows, `1 − MSE_learned / MSE_base`) is below half of K3's, and K2
+holds ≥ 5 % of rows.**
+
+**Check result** (`scripts/adsb_learn_v2_check.py`, log `$SCRATCH/adsb/learn_v2_check.log`; section 8 CV rows):
+
+| class | rows | share | MSE base | MSE learned | rel. reduction | share of gain |
+|---|---:|---:|---:|---:|---:|---:|
+| K0 no ADS-B | 58,411 | 0.170 | 93,829 | 93,829 | 0 | 0 |
+| K1 air only | 89,202 | 0.259 | 169,691 | 169,081 | 0.004 | 0.019 |
+| **K2 mid-taxi first** | 82,786 | 0.240 | 75,095 | 63,063 | **0.160** | **0.350** |
+| K3 stand seen | 114,020 | 0.331 | 62,039 | 46,286 | 0.254 | 0.631 |
+
+**How K2 rows are handled today.** They are **not excluded**: every row with a joined aircraft gets the full feature
+vector.
+- With no stand run, the anchor falls back to `t_dep1`, the first departure fix after the last ≥ 10 min silence.
+- The post-anchor features are then computed from the first fix seen: gs thresholds, path, stops, last ground fix
+  and take-off. 80,204 of the 82,786 K2 rows have them.
+- The model also sees `stand_rule`, `dep1_gs` (the speed at the first fix) and the first-fix position `x_a`/`y_a`.
+- Stage-1 reasons within K2: `moving_when_first_seen` 56,701, no qualifying run 13,303, `run_at_dep1` whose run
+  ends < 60 s before the phase end 12,739, `longest_run` 43.
+- The first-fix gs median is 13.8 kt (p10 3.8, p90 30.5).
+- K2 already carries 35 % of the gain, close to the 41 % merry-quicksand reports for its code 2.
+
+**Criterion: K2 is not under-served.** Its relative reduction is 0.160, against half of K3's (0.127). **V3 is
+therefore not run.** Other observations:
+- By airport, K2 lags K3 most at EGLL (0.14 vs 0.36), LEMD (0.19 vs 0.52) and LSZH (0.24 vs 0.54).
+- K1 (air only, 26 % of rows) gets almost nothing (0.004). It is not part of this task.
+
+### 9.1 Pre-registration of V1/V2 (written and committed before any variant is run)
+
+The base is the `hybrid_blend_l2_pa` OOF, as in section 8. The features (58), target, rows, 5 day-folds, the
+inner 20 % early-stopping days per fold, the ±1,800 s correction clip, "no ADS-B → c = 0" and, in production, LTFM
+c = 0 are all exactly as in section 0. **Reference = the current learned LGB** (section 8 CV rows,
+`cv_rows_pa.parquet`; in production `final_model_pa.txt`).
+
+**V1: MLP regressor** (sklearn 1.9.0 `MLPRegressor`; torch is not installed and nothing is installed).
+- **Inputs.**
+  - The 55 numeric features. Each is clipped to the 0.5–99.5 % quantiles of its fit rows, standardised with the fit
+    rows' mean and sd, and NaN is set to 0. A 0/1 missing indicator is added for every feature that has a NaN in the
+    fit rows.
+  - The 3 categoricals (ADEP, join, stand_rule) are one-hot encoded, with an extra level for missing.
+- **Target.** `r` clipped to ±3,600 s, divided by 600.
+- **Network.** Hidden layers (128, 64), ReLU, Adam, learning_rate_init 1e-3, alpha (L2) 1e-4, batch 512.
+- **Training.** Epochs via `partial_fit`, with the rows shuffled every epoch. At most 60 epochs, with early stopping
+  on the inner early-stopping days' MSE (patience 8). The best epoch's weights are kept.
+- **Seeds.** 3 (20260930 + 0/1/2), and the prediction is the mean of the 3. Prediction × 600, then clipped to
+  ±1,800 s.
+- **Final fit.** All 62 days, for each seed the median best epoch over the 5 folds, with no early stopping. The
+  scaling is fitted on all rows.
+- Threads: `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` = 2.
+
+**V2.** `c = 0.5 × c_LGB + 0.5 × c_V1`, using the same folds' predictions. In production it is 0.5 × the current
+final LGB plus 0.5 × the V1 final fit.
+
+**V3.** Not run (check above).
+
+**Metric.**
+- Per row `d = (y − b − c_ref)² − (y − b − c_var)²`, the mean over all 344,419 rows. A positive value means the
+  variant is better.
+- 95 % CI from a day-block bootstrap (62 days, B = 2,000, seed 20260930).
+- Also reported: RMSE, and per airport (information only).
+
+**Decision.**
+- A variant **passes** if the 2.5 % bound of its paired CI is > 0.
+- If any variant passes, **adopt the single best** by point estimate among those that pass, and build
+  `outputs/hybrid_blend_l2_pa_adsb_v2.parquet`: the final fit applied to `outputs/hybrid_blend_l2_pa.parquet`, with
+  c = 0 at LTFM and negatives reverted to base. It is validated as before and not submitted.
+- If no variant passes, keep the current model and build no file.
+
+### 9.2 Results (after the pre-registration commit 548538c)
+
+The variants were run by `scripts/adsb_learn_mlp.py cv --base pa` (log `$SCRATCH/adsb/learn_mlp_cv.log`, rows
+`$SCRATCH/adsb/learn/cv_rows_v2.parquet`).
+- The base and the folds match section 8: max |b − ref| 0.0, and the fold map equals `cv_pa.json`.
+- The MLP has 122 inputs: 55 scaled numerics, 48 missing indicators and 19 one-hot columns.
+- The best epochs per fold and seed ranged from 5 to 16. Each fit took 18–36 s.
+- Peak `total_rss` was 1.45 GB.
+
+All 344,419 rows, paired against the current LGB, with a day-block bootstrap (B = 2,000). Positive means the
+variant is better. Base RMSE 313.767; current LGB 300.307.
+
+| variant | paired gain vs LGB (s²) | CI95 | RMSE | ΔRMSE vs LGB | gain vs base (s²) | passes |
+|---|---:|---|---:|---:|---|---|
+| V1 MLP | −512.3 | [−873.0, −121.0] | 301.159 | +0.852 | 7,753.0 [6,858.1, 8,750.2] | no |
+| V2 0.5 LGB + 0.5 MLP | +151.0 | [−29.9, +356.5] | 300.055 | −0.252 | 8,416.3 [7,457.8, 9,505.5] | no |
+| V3 | not run (9.0) | | | | | |
+
+**Decision: no variant passes. The current learned LGB (section 8, v32) is kept, and
+`outputs/hybrid_blend_l2_pa_adsb_v2.parquet` is not built.**
+- V1 alone is worse than the LGB.
+- V2's point estimate is −0.25 s RMSE, but its CI includes 0.
+- **Per airport** (information only), the V2 paired gain in s²:
+
+  | EDDF | EDDM | EGLL | EHAM | LEBL | LEMD | LFPG | LIRF | LSZH |
+  |---:|---:|---:|---:|---:|---:|---:|---:|---:|
+  | +39 | +23 | +99 | −86 | +80 | +25 | +159 | +1,380 | +155 |
+
+  Most of V2's point gain is LIRF, the airport with the widest CIs in sections 2–8.
+- corr(c_LGB, c_MLP) on ADS-B rows = 0.893.
+
+## 10. Re-run on the `hybrid_blend_l2_pa_opt` base (2026-10-03, after v32 scored 251.7333)
+
+**Setup.** The section 8 design is unchanged (section 0/0a; the section 9 variants were not adopted). Only the base
+is swapped.
+- `b` follows `optuna-retune.md` §3, with the same expression as section 8:
+  - matched lane: `((0.5·a2o + 0.5·pao) + p2o + c2) / 3`, where
+    - a2o = `oof_main_flseq_osm_nolirf_l2_opt-7244b3004f`,
+    - pao = `…l2_pa_opt-8d54effc06`,
+    - p2o = `…plainy_l2_opt-dd8b8e2c7c`,
+    - c2 = `…cb_l2-4aa341b206`;
+  - unmatched lane: `oof_main_flseq-8615e6a194`.
+- It equals `logs/retune/scratch/oof_hybrid_blend_l2_pa_opt.parquet` on all 344,419 rows (max |diff| 0.0).
+- All members' jan/jul folds equal H2's.
+- Commands: `adsb_learn_cv.py --base opt` and `adsb_learn_apply.py --base opt`. Logs:
+  `$SCRATCH/adsb/learn_cv_opt.log` and `learn_apply_opt.log`.
+- **Restart checks.**
+  - The memory cgroup path was re-read from `/proc/self/cgroup` (`/process_api/01a0ff0b-…/claude-code-bash`). The
+    root `total_rss` was about 230–240 MB.
+  - `feat_2025.parquet`, `feat_2026.parquet`, `cv_rows_pa.parquet` and `cv_pa.json` were present.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the opt base | **8,208.1** | [7,195.4, 9,320.0] | 312.845 → **299.439** (−13.406) |
+| rule on the opt base | 1,717.4 | [1,559.2, 1,897.0] | 312.845 → 310.088 (−2.757) |
+| paired: learned − rule | 6,490.7 | [5,529.3, 7,560.6] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 490, 235, 305, 357 and 135, so the final fit uses **305 rounds**.
+- Every airport's learned CI excludes 0 except LTFM.
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| pa | 313.767 |
+| opt | 312.845 |
+| pa + learned (section 8, v32) | 300.307 |
+| **opt + learned** | **299.439** |
+
+**(opt + learned) − (pa + learned) = −0.868 s, CI95 [−1.267, −0.570].** As MSE: 520.3 s² [367.8, 690.3].
+opt's base advantage on these rows is −0.92 s, and about 0.87 s of it survives the residual model.
+
+**Production file** `outputs/hybrid_blend_l2_pa_opt_adsb_learned.parquet`. It is the final fit (286,008 rows,
+62 days, 305 rounds) applied to `outputs/hybrid_blend_l2_pa_opt.parquet`, with c = 0 at LTFM. It is git-ignored and
+not submitted.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. **2 negatives were reverted to base.**
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 282,946 rows (82.05 %) are changed.
+  - Over the changed rows, the RMS change is 113.5 s, with median |Δ| 44 s, p90 167, p99 411 and max 1,734.
+  - The signed change quantiles are p1 −281, p10 −113, p50 −12, p90 +115 and p99 +346.
+  - The mean prediction goes from 1,039.45 to 1,034.12 s.
+- **Against `hybrid_blend_l2_pa_adsb_learned` (v32).** 328,788 rows differ, with RMS 22.4 s and max 806 s.
+
+## 11. Variant U: a separate residual model for unmatched rows (2026-10-05, after v33 scored 250.9496)
+
+**Source.** Another session's handoff note (`docs/research_2026-10-01/gap/HANDOFF_PROMPT.md`, item C, branch
+`claude/peaceful-babbage-md9l2x`) proposes an ADS-B residual model for the unmatched lane only
+(`mvt_minus_aobt3` null). Its decomposition, on an older base, puts 51 % of squared error on unmatched rows. It is
+treated as a proposal, not an instruction.
+
+### 11.1 Pre-registration (written and committed before variant U was computed)
+
+- **Base and reference.**
+  - Base: the `hybrid_blend_l2_pa_opt` OOF (section 10).
+  - Reference ("current"): the section-10 learned LGB corrections (`cv_rows_opt.parquet`). In production, the
+    current file is `outputs/hybrid_blend_l2_pa_opt_adsb_learned.parquet` (v33).
+- **Unmatched.** `mvt_minus_aobt3` is null in `data/work_flseq/feat_train.parquet` for 2025 and in
+  `feat_rank.parquet` for 2026.
+- **Variant U.**
+  - A separate LightGBM residual model, trained only on the 2025 unmatched rows that have ADS-B.
+  - Everything else is as in section 0: the same 58 features, the same parameters (learning_rate 0.03,
+    num_leaves 63, min_data_in_leaf 100, feature_fraction 0.8, bagging 0.8/1, lambda_l2 10), target `r` clipped
+    to ±3,600 s, and the correction clipped to ±1,800 s.
+  - The same 5 day-folds and the same inner 20 % early-stopping days per fold. In each fold, U trains on the
+    unmatched rows of that fold's fit days and stops early on the unmatched rows of its early-stopping days.
+  - **Final fit**: all 62 days, with the median best iteration of the 5 folds.
+- **Final prediction.**
+  - Matched rows keep the current model's correction.
+  - Unmatched rows with ADS-B take U's correction. Unmatched rows without ADS-B get 0, as today.
+  - In production, LTFM gets c = 0 and negatives are reverted to base.
+- **Metric.**
+  - Per row `d = (y − b − c_current)² − (y − b − c_new)²` over all 344,419 rows. A positive value means U is better.
+  - Pooled mean, with a 95 % CI from a day-block bootstrap (62 days, B = 2,000, seed 20260930).
+  - Also reported: the unmatched-only paired gain, and U against no correction on unmatched rows (information
+    only).
+- **Decision.**
+  - **ADOPT U iff the 2.5 % bound of the pooled paired CI is > 0.**
+  - If adopted, build `outputs/hybrid_blend_l2_pa_opt_adsb_u.parquet`: matched rows from the current file,
+    unmatched rows from the final U fit applied on top of `outputs/hybrid_blend_l2_pa_opt.parquet`. It is
+    validated as before and not submitted. Otherwise nothing is built.
+- Script: `scripts/adsb_learn_u.py` (`report`, `cv`, `apply`; `--base opt`).
+
+### 11.0 How the current model (section 10 CV) does on unmatched rows
+
+`scripts/adsb_learn_u.py report --base opt`, log `$SCRATCH/adsb/learn_u_report.log`. The run waited 42 min at the
+memory gate (`total_rss` > 9,500 MB while the MLP job ran).
+- **Rows.** 5,373 of the 344,419 labelled rows are unmatched (1.56 %). 2,994 of them have ADS-B.
+- **Share of squared error.** Unmatched rows carry 51.9 % of the base squared error, which matches the 51 % in the
+  proposal. After the learned model they carry 55.5 %.
+
+| lane | n | RMSE before → after | gain (mean over that lane's rows, s²) | CI95 |
+|---|---:|---|---:|---|
+| matched | 339,046 | 218.62 → 201.29 | 7,276.5 | [6,738.5, 7,852.9] |
+| unmatched | 5,373 | 1,804.95 → 1,786.30 | 66,993.7 | [23,975.7, 109,975.2] |
+| all | 344,419 | 312.85 → 299.44 | 8,208.1 | [7,195.4, 9,320.0] |
+
+The unmatched rows contribute 1,045.1 s² [351.0, 1,779.4] of the pooled 8,208 s² gain, i.e. 13 %, from 1.6 % of
+the rows.
+
+**Unmatched rows by airport.** CI95 is the day-block bootstrap.
+
+| ADEP | n | ADS-B | RMSE before → after | gain (s²) | CI95 |
+|---|---:|---:|---|---:|---|
+| EDDF | 599 | 38 | 370.7 → 369.9 | 606 | [−492, 1,692] |
+| EDDM | 237 | 233 | 600.3 → 543.9 | 64,473 | [23,792, 114,516] |
+| EGLL | 466 | 465 | 1,131.2 → 1,088.2 | 95,399 | [27,543, 163,332] |
+| EHAM | 808 | 25 | 531.9 → 531.4 | 479 | [−31, 1,121] |
+| LEBL | 496 | 487 | 358.3 → 295.2 | 41,236 | [24,136, 60,233] |
+| LEMD | 309 | 294 | 252.4 → 218.9 | 15,784 | [7,046, 23,380] |
+| LFPG | 880 | 863 | 3,441.3 → 3,440.1 | 8,385 | [−8,065, 25,185] |
+| LIRF | 397 | 329 | 3,739.9 → 3,653.9 | 635,659 | [80,301, 1,155,400] |
+| LSZH | 524 | 258 | 656.2 → 634.9 | 27,563 | [4,084, 53,923] |
+| LTFM | 657 | 2 | 589.8 → 589.9 | −56 | [−180, 0] |
+
+**Reading.**
+- The pooled model already corrects unmatched rows wherever ADS-B covers them: EDDM, EGLL, LEBL, LEMD, LIRF and
+  LSZH.
+- EDDF and EHAM unmatched rows have almost no ADS-B: 38 and 25 rows.
+- At LFPG and LIRF the unmatched RMSE stays above 3,400 s. The ADS-B signal does not reach that error. These are
+  presumably the hours-long tail rows that ADS-B cannot explain.
+
+### 11.2 Variant U result (after the pre-registration commit f071610)
+
+`scripts/adsb_learn_u.py cv --base opt`, log `$SCRATCH/adsb/learn_u_cv.log`. The gate was clear when it ran
+(`total_rss` about 7.0 GB).
+- **Training.** U trained on 1,633–2,145 unmatched rows per fold. The best iterations were 201, 100, 88, 250 and 24.
+- **Pooled, all 344,419 rows, paired vs current:** **−43.55 s² CI95 [−251.02, +176.23]**. RMSE 299.439 → 299.512
+  (+0.073 s).
+- **Unmatched only, 5,373 rows, paired vs current:** −2,791.8 s² [−16,527.5, +11,224.0]. Unmatched RMSE is
+  1,786.30 for the current model and 1,787.08 for U (base 1,804.95).
+- **U vs no correction, unmatched rows:** 64,201.9 s² [22,441.9, 108,424.5]. U does help, but slightly less than
+  the pooled model already does (66,993.7).
+- **Per airport (information only), paired gain vs current in s²:**
+  - U is worse at EDDM −23,796, EGLL −62,888, LEBL −16,822, LEMD −6,030, LFPG −4,928 and LSZH −8,566.
+  - U is better at LIRF +99,921.
+
+**Decision: REJECT U.** The pooled CI includes zero, and its point estimate is on the worsening side. The current
+section-10 model (v33) is kept, and `outputs/hybrid_blend_l2_pa_opt_adsb_u.parquet` is not built. A model trained
+on about 2,000 unmatched rows does not beat the pooled model. The pooled model is trained on 286,008 rows, and it
+already handles unmatched rows through the same features and its `base` input.
