@@ -2,6 +2,7 @@
 analysis/local_adsb_apply_months.py on claude/laughing-cray-vvwh0k).
 
     SCRATCH=... POLARS_MAX_THREADS=2 .venv/bin/python docs/appear_tier_2026-10-05/apply_delta.py <in.parquet> <out.parquet>
+    ... apply_delta.py <in> <out> --months   # P/A fit on Jan+Jul+Nov+Dec 2025 (plan.md 6.2), rounds from cv_months_a2.json
 
 The submission holds b + (production's ADS-B corrections); b alone is not stored. So:
 1. final models P (plain) and A (plain + appear columns) are fit on all ADS-B rows of Jan+Jul 2025 on the `--base a2`
@@ -19,6 +20,7 @@ import os
 import sys
 
 ARGS = sys.argv[1:3]
+MONTHS = "--months" in sys.argv
 sys.argv = [sys.argv[0], "--base", "a2"]
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts"))
 
@@ -29,6 +31,9 @@ import polars as pl  # noqa: E402
 import adsb_appear as AP  # noqa: E402
 import adsb_learn_cv as CV  # noqa: E402
 import adsb_learn_features as L  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cv_months as CM  # noqa: E402
 
 
 def fit(D: pl.DataFrame, appear: bool, rounds: int, feats_ref: list[str]):
@@ -42,15 +47,22 @@ def fit(D: pl.DataFrame, appear: bool, rounds: int, feats_ref: list[str]):
 
 
 def main(src: str, dst: str) -> None:
-    cj = {k: json.load(open(os.path.join(L.OUT, f"cv_a2{s}.json"))) for k, s in (("P", ""), ("A", "_appear"))}
-    D = CV.load_labelled()
-    F = pl.read_parquet(os.path.join(L.OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
-    D = D.join(F, on="MVT_ID_mvt", how="inner")
-    D = AP.add(D, "2025")
+    if MONTHS:
+        m = json.load(open(os.path.join(L.OUT, "cv_months_a2.json")))
+        assert m["verdict"] == "ADOPT", "plan.md 6.2: the 4-month re-measure did not pass; no 4-month delta"
+        cj = {k: {"final_rounds": m["final_rounds"][a], "features": m["features"][a]}
+              for k, a in (("P", "plain4"), ("A", "appear4"))}
+        D = CM.load().filter("has")
+    else:
+        cj = {k: json.load(open(os.path.join(L.OUT, f"cv_a2{s}.json"))) for k, s in (("P", ""), ("A", "_appear"))}
+        D = CV.load_labelled()
+        F = pl.read_parquet(os.path.join(L.OUT, "feat_2025.parquet")).drop("ADEP_mvt", "day")
+        D = D.join(F, on="MVT_ID_mvt", how="inner")
+        D = AP.add(D, "2025")
     models, feats = {}, {}
     for k in ("P", "A"):
         models[k], feats[k] = fit(D, k == "A", cj[k]["final_rounds"], cj[k]["features"])
-        models[k].save_model(os.path.join(L.OUT, f"final_model_a2_delta_{k}.txt"))
+        models[k].save_model(os.path.join(L.OUT, f"final_model_a2_delta{'_months' if MONTHS else ''}_{k}.txt"))
         print(f"model {k}: {D.height} ADS-B rows, {cj[k]['final_rounds']} rounds, {len(feats[k])} features", flush=True)
 
     tpl = pl.read_parquet(os.path.join(CV.ROOT, "data/raw/submitting.parquet"))
