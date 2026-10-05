@@ -36,22 +36,22 @@ pl.Config.set_tbl_width_chars(220)
 pl.Config.set_tbl_cols(16)
 
 
-def fw(stem: str) -> tuple[pl.DataFrame, pl.DataFrame]:
-    f = sorted(glob.glob(f"experiments/oof_{stem}_fw-*_folds.parquet"))
+def fw(stem: str, tag: str = "fw", fold: str = "forward") -> tuple[pl.DataFrame, pl.DataFrame]:
+    f = sorted(glob.glob(f"experiments/oof_{stem}_{tag}-*_folds.parquet"))
     assert len(f) == 1, (stem, f)
     oof = f[0].replace("_folds.parquet", ".parquet")
-    return pl.read_parquet(f[0]).filter(pl.col("pooled") & (pl.col("fold") == "forward")), pl.read_parquet(oof)
+    return pl.read_parquet(f[0]).filter(pl.col("pooled") & (pl.col("fold") == fold)), pl.read_parquet(oof)
 
 
-def load_novdec() -> pl.DataFrame:
-    fa, oa = fw("main_flseq_osm_nolirf")
-    _, ob = fw("main_flseq")
+def load_novdec(tag: str = "fw", fold: str = "forward") -> pl.DataFrame:
+    fa, oa = fw("main_flseq_osm_nolirf", tag, fold)
+    _, ob = fw("main_flseq", tag, fold)
     # matched lane: mean of whichever of the three v23 members have a forward-fold OOF (time budget: the anchored
     # LGB alone if plainy / cb were not run). Arms A and B share this base, so the comparison stays like for like.
     mem = [oa.rename({"oof": "m0"})]
     for i, stem in enumerate(("main_flseq_osm_nolirf_plainy", "main_flseq_osm_nolirf_cb"), 1):
-        if glob.glob(f"experiments/oof_{stem}_fw-*_folds.parquet"):
-            mem.append(fw(stem)[1].rename({"oof": f"m{i}"}))
+        if glob.glob(f"experiments/oof_{stem}_{tag}-*_folds.parquet"):
+            mem.append(fw(stem, tag, fold)[1].rename({"oof": f"m{i}"}))
     print("Nov+Dec matched-lane members:", len(mem))
     ft = pl.read_parquet("data/work_flseq/feat_train.parquet",
                          columns=["MVT_ID_mvt", "TAXITIME_SEC_mvt", "mvt_minus_aobt3", "ADEP_mvt", "MVT_TIME_UTC_mvt"])
