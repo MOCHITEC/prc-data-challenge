@@ -1,0 +1,25 @@
+# main_flseq_osm_nolirf_cb_l2 + cb_matched_params = the best trial (7) of scripts/retune_cb.py (model A only;
+# model B keeps cb_params). Nothing else differs (tests/test_cb_matched_params.py).
+# Pre-registration and results: docs/competitor_research_2026-09-21/results/catboost-retune.md.
+name: main_flseq_osm_nolirf_cb_l2_cbopt
+num_rounds: 5000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 1
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap, fl_fmt_code, fl_len, fl_nm_rate_other, dup_n, dup_n_unm_twins, dup_n_m_twins, dup_mvt_span, seq_hw_prev_pairq, seq_hw_excess, seq_lead_wtc, seq_burst_pos, seq_burst_len, seq_burst_elapsed, seq_burst_remaining, seq_burst_pos_frac, seq_hw_mean_prev5, seq_hw_mean_next5, seq_hw_min_prev3, seq_arr_since_prevdep, seq_arr_prev_s, seq_arr_next_s, seq_arr_pm10m, seq_rwy_share_pm30]
+fe_osm_dist: true
+fe_osm_null_airports: [LIRF]
+model: catboost
+folds: [jan, jul, forward]
+fe_fwd_nm: true
+cb_matched_params: {depth: 8, learning_rate: 0.1554, l2_leaf_reg: 18.24, random_strength: 2.015, subsample: 0.8057, border_count: 153, one_hot_max_size: 4, max_ctr_complexity: 2}

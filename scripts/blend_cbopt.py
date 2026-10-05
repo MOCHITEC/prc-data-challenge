@@ -10,7 +10,12 @@ Matched lane (`mvt_minus_aobt3` non-null); unmatched lane main_flseq's model B i
 - base      hybrid_blend_l2_pa_opt_mlp:       (M1 + M2 + M3  + M4) / 4   (outputs/hybrid_blend_l2_pa_opt_mlp.parquet)
 - candidate hybrid_blend_l2_pa_opt_mlp_cbopt: (M1 + M2 + M3' + M4) / 4
 with M1 = 0.5*a2o + 0.5*pao, M2 = p2o, M3 = c2 (main_flseq_osm_nolirf_cb_l2), M3' = c2o (the retuned CatBoost),
-M4 = m4 (the MLP). Only M3 changes."""
+M4 = m4 (the MLP). Only M3 changes.
+
+Secondary, report only (`r6`): R6 (rejected-rereview.md §3, the adopted reweighted base) = leave-one-fold-out
+sum-to-one least-squares weights over (a2o, pao, p2o, M3, m4), fitted on the matched scored rows of the other pooled
+folds and applied to the held-out fold. `r6` rebuilds it with M3 (`rr_R6_pa5_lofo`, checked against the stored
+logs/rereview/oof_rr_R6_pa5_lofo.parquet) and with M3' (`rr_R6_pa5_lofo_cbopt`), the same way."""
 
 from __future__ import annotations
 
@@ -59,7 +64,12 @@ def build_oof(scratch: Path, c2o: str) -> dict:
         n = scored[c].null_count()
         if n:
             raise AssertionError(f"{n} scored rows without {c} ({ids.get(c, c)})")
-    hyb = {BASE: base_value(pl.col), CAND: candidate_value(pl.col), "member_c2": pl.col("c2"), "member_c2o": pl.col("c2o")}
+    hyb = {
+        BASE: base_value(pl.col),
+        CAND: candidate_value(pl.col),
+        "member_c2": pl.col("c2"),
+        "member_c2o": pl.col("c2o"),
+    }
     scratch.mkdir(parents=True, exist_ok=True)
     out = {"n_scored": scored.height, "rmse": {}}
     for name, expr in hyb.items():
@@ -80,6 +90,50 @@ def build_oof(scratch: Path, c2o: str) -> dict:
     }
     out["err_corr_cols"] = list(cols)
     out["err_corr"] = np.corrcoef(e.T).round(4).tolist()
+    return out
+
+
+R6_STORED = Path("logs/rereview/oof_rr_R6_pa5_lofo.parquet")
+
+
+def build_r6(scratch: Path, c2o: str) -> dict:
+    from catboost_blend import sum_to_one_weights
+
+    ids = {"a2o": A2O, "pao": PAO, "p2o": P2O, "c2": C2, "c2o": c2o, "m4": M4, "u": UNMATCHED}
+    d = pl.read_parquet(WORK / "feat_train.parquet", columns=["MVT_ID_mvt", LABEL, PROXY])
+    for col, name in ids.items():
+        d = d.join(_oof(name).rename({"oof": col}), on="MVT_ID_mvt", how="left", maintain_order="left")
+    folds = pl.read_parquet(EXP / f"oof_{A2O}_folds.parquet").filter(pl.col("pooled")).drop("pooled")
+    d = d.join(folds, on="MVT_ID_mvt", how="left", maintain_order="left")
+    matched = pl.col(PROXY).is_not_null()
+    mask = d[LABEL].is_not_null() & d["a2o"].is_not_null()
+    m = d.filter(mask & matched)
+    y = m[LABEL].to_numpy().astype(float)
+    fold = m["fold"].to_numpy()
+    scratch.mkdir(parents=True, exist_ok=True)
+    out = {}
+    for name, m3 in (("rr_R6_pa5_lofo", "c2"), ("rr_R6_pa5_lofo_cbopt", "c2o")):
+        cols = ("a2o", "pao", "p2o", m3, "m4")
+        X = np.column_stack([m[c].to_numpy().astype(float) for c in cols])
+        w_by_fold = {f: sum_to_one_weights(y[fold != f], X[fold != f]).tolist() for f in sorted(set(fold))}
+        w_all = sum_to_one_weights(y, X).tolist()
+
+        def w_col(j, w_by_fold=w_by_fold):
+            return pl.col("fold").replace_strict(
+                {f: w[j] for f, w in w_by_fold.items()}, default=None, return_dtype=pl.Float64
+            )
+
+        expr = sum(w_col(j) * pl.col(c) for j, c in enumerate(cols))
+        h = d.select("MVT_ID_mvt", pl.when(matched).then(expr).otherwise(pl.col("u")).alias("oof"))
+        if h.filter(mask)["oof"].null_count():
+            raise AssertionError(f"{name}: null on scored rows")
+        h.write_parquet(scratch / f"oof_{name}.parquet")
+        e = h.filter(mask)["oof"].to_numpy() - d.filter(mask)[LABEL].to_numpy()
+        out[name] = {"rmse": float(np.sqrt((e**2).mean())), "w_by_fold": w_by_fold, "w_all": w_all, "cols": cols}
+    stored = pl.read_parquet(R6_STORED).rename({"oof": "s"})
+    j = pl.read_parquet(scratch / "oof_rr_R6_pa5_lofo.parquet").join(stored, on="MVT_ID_mvt", how="inner")
+    diff = (j["oof"] - j["s"]).abs().max()
+    out["rebuilt_vs_stored_R6_max_abs_diff"] = float(diff) if diff is not None else 0.0
     return out
 
 
@@ -111,12 +165,16 @@ def build_full(out: Path) -> None:
     back = pq.read_table(out)
     got = pl.from_arrow(back)
     v = got["TAXITIME_SEC_mvt"].to_numpy().astype(float)
-    print(f"wrote {out}: members {', '.join(FULL_FILES[c] for c in ('a2o', 'pao', 'p2o', 'c2o', 'm4'))}; unmatched {FULL_FILES['u']}")
+    print(
+        f"wrote {out}: members {', '.join(FULL_FILES[c] for c in ('a2o', 'pao', 'p2o', 'c2o', 'm4'))}; unmatched {FULL_FILES['u']}"
+    )
     print(
         f"  rows {back.num_rows:,} == template {template.num_rows:,}: {back.num_rows == template.num_rows}"
         f"  (matched {int(m.sum()):,}, unmatched {int((~m).sum()):,})"
     )
-    print(f"  schema == template: {back.schema.equals(template.schema)}  ({back.schema.to_string(show_schema_metadata=False)!r})")
+    print(
+        f"  schema == template: {back.schema.equals(template.schema)}  ({back.schema.to_string(show_schema_metadata=False)!r})"
+    )
     same_ids = back["MVT_ID_mvt"].combine_chunks().equals(template["MVT_ID_mvt"].combine_chunks())
     print(f"  ids and order == template: {same_ids}")
     print(
@@ -131,7 +189,7 @@ def build_full(out: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("what", choices=["oof", "detail", "full"])
+    ap.add_argument("what", choices=["oof", "detail", "full", "r6"])
     ap.add_argument("--a", default=BASE)
     ap.add_argument("--b", default=CAND)
     ap.add_argument("--c2o")
@@ -147,8 +205,8 @@ def main() -> int:
         detail(a.scratch, a.a, a.b)
         return 0
     if not a.c2o:
-        raise SystemExit("--c2o is required for oof")
-    r = build_oof(a.scratch, a.c2o)
+        raise SystemExit("--c2o is required for oof and r6")
+    r = build_r6(a.scratch, a.c2o) if a.what == "r6" else build_oof(a.scratch, a.c2o)
     for k, v in r.items():
         print(f"{k}: {v}")
     return 0

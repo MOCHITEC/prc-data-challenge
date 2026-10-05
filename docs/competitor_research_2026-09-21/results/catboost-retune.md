@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-05): study running (trial 0 done, N = 13).** §0 is written and committed before any tuning trial,
+**Status (2026-10-05): study done (10 trials, 16 h safety stop); best trial 7 −2.25 s on October; confirmation CV running.** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -158,3 +158,40 @@ checked, peak cgroup `total_rss` sampled every 10 s (own and all sessions), kill
 rows, 183,761 October matched rows; ES best 3,993, refit 4,521 rounds; October matched RMSE 206.673; peak
 total_rss 7,912 MB own / 8,132 MB parent). **N = floor(43,200 / 3,230.3) = 13 trials** (0 … 12), fixed here before
 trial 1 started.
+
+**Run:** `scripts/retune_cb.py study --n 13`, 2026-10-05 05:50 (trial 0 alone) / 06:49 → 23:11 UTC. Container restarts
+at ~07:25 and ~08:00 UTC killed trial 1 twice (no record either time; study relaunched at 07:28:03 and 08:02:50, trial 1
+rerun from scratch with the same pre-drawn settings, as §0.3 says). A later restart (~20:50) did not stop the study.
+**The pre-registered 16 h safety stop ended the study after 10 trials (0 … 9):** cumulative trial wall 57,735 s
+exceeded 16 h before trial 10 (`stop: cumulative trial wall 57735 s exceeds 16.0 h before trial 10`). Trials 10–12
+were not run. All 10 finished `ok`; none killed. Peak total_rss over all trials 11,208 MB (trial 6, parent cgroup).
+Trials cost 1,570–13,241 s (trial 0: 3,230 s); low learning rates and depth ≥ 8 with `max_ctr_complexity` 2 are the
+slow ones; four trials reached the 5,000-round cap at refit.
+
+October matched RMSE, all 10 trials, best first (`logs/cbretune/summary.txt`; d = vs trial 0):
+
+```
+idx  rmse_m    d_vs_0  depth  lr      l2      rs      subs   border  ohe  ctr  es_best rounds  wall_s  peak_MB
+  7  204.424   -2.249      8  0.1554  18.24   2.015   0.806     153    4    2     4573    5000   13241  9655
+  0  206.673   +0.000      6  0.2     3       1       0.800     254    2    1     3993    4521    3230  8132
+  4  207.962   +1.289      7  0.1558  5.15    0.2621  0.976      74   16    1     3883    4397    4210  8938
+  9  208.970   +2.297      9  0.1723  0.5117  5.498   0.798      74    4    2     1391    1575    4510  9180
+  1  209.058   +2.385      9  0.1344  29.22   0.2796  0.774      50    4    1     4435    5000    5670  8351
+  8  209.782   +3.109      6  0.1168  6.936   0.1656  0.886      71    2    1     4994    5000    4030  8124
+  5  210.274   +3.601     10  0.08406  0.3438  0.3825  0.869      40    4    1     3525    3991    9061  8105
+  6  210.782   +4.109      6  0.08303  1.313   2.829   0.721      42   16    2     4995    5000    7501  11208
+  2  211.190   +4.517      5  0.3838  3.042   6.575   0.665      78    2    2     2791    3160    4710  9399
+  3  217.161  +10.487      4  0.3815  28.83   0.6212  0.881      40    4    1     2100    2378    1570  8094
+```
+
+**Best: trial 7 — `depth` 8, `learning_rate` 0.1554, `l2_leaf_reg` 18.24, `random_strength` 2.015, `subsample`
+0.8057, `border_count` 153, `one_hot_max_size` 4, `max_ctr_complexity` 2** (ES best 4,573, refit capped at 5,000):
+204.424 vs 206.673, **−2.25 s on the tuning fold** (selection-biased, best of 9 draws). Per airport vs trial 0: LIRF
+−9.75, LTFM −2.97, LSZH −2.92, LEMD −2.36, EDDF −2.08, EHAM −1.20, LEBL −0.74, LFPG −0.55, EDDM +0.46, EGLL +2.10.
+Only one of nine random draws beat the current settings. Trial 7 cost 4.1× trial 0, so §2's CV is expected to take
+roughly 4× M3's 10,819 s.
+
+## 2. Confirmation
+
+`configs/main_flseq_osm_nolirf_cb_l2_cbopt.yaml` = base + `cb_matched_params` of trial 7 → exp id
+**`main_flseq_osm_nolirf_cb_l2_cbopt-9d30cf6882`** (folds jan, jul, forward, as §0.4).
