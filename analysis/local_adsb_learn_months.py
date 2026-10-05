@@ -45,18 +45,22 @@ def fw(stem: str) -> tuple[pl.DataFrame, pl.DataFrame]:
 
 def load_novdec() -> pl.DataFrame:
     fa, oa = fw("main_flseq_osm_nolirf")
-    _, op = fw("main_flseq_osm_nolirf_plainy")
-    _, oc = fw("main_flseq_osm_nolirf_cb")
     _, ob = fw("main_flseq")
+    # matched lane: mean of whichever of the three v23 members have a forward-fold OOF (time budget: the anchored
+    # LGB alone if plainy / cb were not run). Arms A and B share this base, so the comparison stays like for like.
+    mem = [oa.rename({"oof": "m0"})]
+    for i, stem in enumerate(("main_flseq_osm_nolirf_plainy", "main_flseq_osm_nolirf_cb"), 1):
+        if glob.glob(f"experiments/oof_{stem}_fw-*_folds.parquet"):
+            mem.append(fw(stem)[1].rename({"oof": f"m{i}"}))
+    print("Nov+Dec matched-lane members:", len(mem))
     ft = pl.read_parquet("data/work_flseq/feat_train.parquet",
                          columns=["MVT_ID_mvt", "TAXITIME_SEC_mvt", "mvt_minus_aobt3", "ADEP_mvt", "MVT_TIME_UTC_mvt"])
-    D = (fa.select("MVT_ID_mvt").join(ft, on="MVT_ID_mvt", how="left")
-         .join(oa.rename({"oof": "oa"}), on="MVT_ID_mvt", how="left")
-         .join(op.rename({"oof": "op"}), on="MVT_ID_mvt", how="left")
-         .join(oc.rename({"oof": "oc"}), on="MVT_ID_mvt", how="left")
-         .join(ob.rename({"oof": "ob"}), on="MVT_ID_mvt", how="left"))
+    D = fa.select("MVT_ID_mvt").join(ft, on="MVT_ID_mvt", how="left").join(ob.rename({"oof": "ob"}), on="MVT_ID_mvt", how="left")
+    for m_ in mem:
+        D = D.join(m_, on="MVT_ID_mvt", how="left")
+    mcols = [c for c in D.columns if c in ("m0", "m1", "m2")]
     D = D.with_columns(pl.when(pl.col("mvt_minus_aobt3").is_not_null())
-                       .then((pl.col("oa") + pl.col("op") + pl.col("oc")) / 3.0).otherwise(pl.col("ob")).alias("b"),
+                       .then(pl.mean_horizontal(mcols)).otherwise(pl.col("ob")).alias("b"),
                        pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
                        pl.col("MVT_TIME_UTC_mvt").dt.date().cast(pl.String).alias("day"))
     assert D["b"].null_count() == 0 and D["y"].null_count() == 0
