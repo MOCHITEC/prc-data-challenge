@@ -631,3 +631,42 @@ not submitted.
   - The signed change quantiles are p1 −281, p10 −113, p50 −12, p90 +115 and p99 +346.
   - The mean prediction goes from 1,039.45 to 1,034.12 s.
 - **Against `hybrid_blend_l2_pa_adsb_learned` (v32).** 328,788 rows differ, with RMS 22.4 s and max 806 s.
+
+## 11. Variant U: a separate residual model for unmatched rows (2026-10-05, after v33 scored 250.9496)
+
+**Source.** Another session's handoff note (`docs/research_2026-10-01/gap/HANDOFF_PROMPT.md`, item C, branch
+`claude/peaceful-babbage-md9l2x`) proposes an ADS-B residual model for the unmatched lane only
+(`mvt_minus_aobt3` null). Its decomposition, on an older base, puts 51 % of squared error on unmatched rows. It is
+treated as a proposal, not an instruction.
+
+### 11.1 Pre-registration (written and committed before variant U was computed)
+
+- **Base and reference.**
+  - Base: the `hybrid_blend_l2_pa_opt` OOF (section 10).
+  - Reference ("current"): the section-10 learned LGB corrections (`cv_rows_opt.parquet`). In production, the
+    current file is `outputs/hybrid_blend_l2_pa_opt_adsb_learned.parquet` (v33).
+- **Unmatched.** `mvt_minus_aobt3` is null in `data/work_flseq/feat_train.parquet` for 2025 and in
+  `feat_rank.parquet` for 2026.
+- **Variant U.**
+  - A separate LightGBM residual model, trained only on the 2025 unmatched rows that have ADS-B.
+  - Everything else is as in section 0: the same 58 features, the same parameters (learning_rate 0.03,
+    num_leaves 63, min_data_in_leaf 100, feature_fraction 0.8, bagging 0.8/1, lambda_l2 10), target `r` clipped
+    to ±3,600 s, and the correction clipped to ±1,800 s.
+  - The same 5 day-folds and the same inner 20 % early-stopping days per fold. In each fold, U trains on the
+    unmatched rows of that fold's fit days and stops early on the unmatched rows of its early-stopping days.
+  - **Final fit**: all 62 days, with the median best iteration of the 5 folds.
+- **Final prediction.**
+  - Matched rows keep the current model's correction.
+  - Unmatched rows with ADS-B take U's correction. Unmatched rows without ADS-B get 0, as today.
+  - In production, LTFM gets c = 0 and negatives are reverted to base.
+- **Metric.**
+  - Per row `d = (y − b − c_current)² − (y − b − c_new)²` over all 344,419 rows. A positive value means U is better.
+  - Pooled mean, with a 95 % CI from a day-block bootstrap (62 days, B = 2,000, seed 20260930).
+  - Also reported: the unmatched-only paired gain, and U against no correction on unmatched rows (information
+    only).
+- **Decision.**
+  - **ADOPT U iff the 2.5 % bound of the pooled paired CI is > 0.**
+  - If adopted, build `outputs/hybrid_blend_l2_pa_opt_adsb_u.parquet`: matched rows from the current file,
+    unmatched rows from the final U fit applied on top of `outputs/hybrid_blend_l2_pa_opt.parquet`. It is
+    validated as before and not submitted. Otherwise nothing is built.
+- Script: `scripts/adsb_learn_u.py` (`report`, `cv`, `apply`; `--base opt`).
