@@ -181,7 +181,8 @@ def test_every_existing_recipe_keeps_its_id_and_its_lgb_params():
     names = {p.name for p in Path("configs").glob("*.yaml")}
     # *_opt.yaml (optuna-retune.md) are checked against their bases in tests/test_matched_params.py.
     # *_mlp.yaml (mlp-member.md) are checked in tests/test_mlp_member.py.
-    new = {n for n in names - set(BEFORE) if not n.endswith(("_opt.yaml", "_mlp.yaml"))}
+    # *_cbopt.yaml (catboost-retune.md) are checked in tests/test_cb_matched_params.py.
+    new = {n for n in names - set(BEFORE) if not n.endswith(("_opt.yaml", "_mlp.yaml", "_cbopt.yaml"))}
     assert new == {PA}, "a new recipe needs adding to BEFORE (or this list)"
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))

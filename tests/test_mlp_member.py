@@ -194,7 +194,8 @@ def _two_months():
 def test_every_existing_recipe_keeps_its_id_and_both_models_params():
     assert TrainConfig().mlp_matched is False and TrainConfig().mlp_params == {}
     names = {p.name for p in Path("configs").glob("*.yaml")}
-    assert names - set(BEFORE) == {MLP_RECIPE}
+    # *_cbopt.yaml (catboost-retune.md) are checked in tests/test_cb_matched_params.py.
+    assert {n for n in names - set(BEFORE) if not n.endswith("_cbopt.yaml")} == {MLP_RECIPE}
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))
         assert (c.hash(), _digest(c)) == (want_id, want_params), name

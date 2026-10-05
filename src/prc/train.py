@@ -149,7 +149,20 @@ _HASH_OPTIONAL: dict = {
     # mlp-member.md: off, every existing id is unchanged.
     "mlp_matched": False,
     "mlp_params": {},
+    # catboost-retune.md: empty, every existing id is unchanged.
+    "cb_matched_params": {},
 }
+# CatBoost keys `cb_matched_params` may not set (on top of CB_OWNED_KEYS): the loss, threading (a determinism
+# setting on CPU), logging and file output stay the recipe's, so a retuned model A differs from its base in tree
+# shape / regularisation / step size / sampling / quantisation / categorical handling and nothing else.
+CB_MATCHED_PARAMS_REFUSED = (
+    "loss_function",
+    "eval_metric",
+    "thread_count",
+    "verbose",
+    "allow_writing_files",
+    "task_type",
+)
 # LightGBM keys `matched_params` may not set: the run's determinism, threading, objective and seed stay the recipe's,
 # so a retuned model A differs from its base in capacity / regularisation / step size and nothing else.
 MATCHED_PARAMS_REFUSED = (
@@ -392,6 +405,12 @@ class TrainConfig:
     # nothing and both fields are out of the hash.
     mlp_matched: bool = False
     mlp_params: dict = field(default_factory=dict)
+    # CatBoost settings for model A ONLY, merged over the resolved `cb_params` when model A is fitted
+    # (docs/competitor_research_2026-09-21/results/catboost-retune.md) - `matched_params`' CatBoost twin. Under
+    # CatBoost `cb_params` also sizes model B, so a retuned depth or rate set there would refit the unmatched lane
+    # too. Model B always uses `cb_params`. Empty (the default) changes nothing and is out of the hash. CatBoost
+    # only; the keys in CB_OWNED_KEYS and CB_MATCHED_PARAMS_REFUSED are refused.
+    cb_matched_params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.fe_osm_null_airports and not self.fe_osm_dist:
@@ -431,6 +450,12 @@ class TrainConfig:
             bad = sorted(k for k in self.matched_params if k in MATCHED_PARAMS_REFUSED)
             if bad:
                 raise ValueError(f"matched_params may not set {bad} (see MATCHED_PARAMS_REFUSED)")
+        if self.cb_matched_params:
+            if self.model != "catboost":
+                raise ValueError("cb_matched_params are CatBoost parameters; model must be catboost")
+            bad = sorted(k for k in self.cb_matched_params if k in CB_OWNED_KEYS or k in CB_MATCHED_PARAMS_REFUSED)
+            if bad:
+                raise ValueError(f"cb_matched_params may not set {bad} (see CB_OWNED_KEYS / CB_MATCHED_PARAMS_REFUSED)")
         if self.model == "lightgbm":
             if self.cb_params:
                 raise ValueError("cb_params is set but model is lightgbm; it would be silently ignored")
@@ -470,7 +495,10 @@ class TrainConfig:
         return {**CB_DEFAULTS, **self.cb_params}
 
     def for_matched(self) -> TrainConfig:
-        """The config model A is fitted with: `params` with `matched_params` on top. Itself when that is empty."""
+        """The config model A is fitted with: `params` with `matched_params` on top (LightGBM), or `cb_params`
+        with `cb_matched_params` on top (CatBoost). Itself when both are empty."""
+        if self.cb_matched_params:
+            return replace(self, cb_params={**self.cb_params, **self.cb_matched_params}, cb_matched_params={})
         if not self.matched_params:
             return self
         return replace(self, params={**self.params, **self.matched_params}, matched_params={})
@@ -1465,6 +1493,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             cfg_a = cfg.for_matched()
             if cfg.matched_params:
                 info["matched_params"] = dict(cfg.matched_params)
+            if cfg.cb_matched_params:
+                # Only when set (catboost-retune.md), so every existing record is byte-for-byte what it was.
+                info["cb_matched_params"] = dict(cfg.cb_matched_params)
             if cfg.mlp_matched:
                 # Only when on (mlp-member.md); the LightGBM branches below are untouched.
                 from .mlp import fit_mlp

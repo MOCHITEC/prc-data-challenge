@@ -191,7 +191,8 @@ def test_every_existing_recipe_keeps_its_id_and_both_models_params():
     names = {p.name for p in Path("configs").glob("*.yaml")}
     new = names - set(BEFORE)
     # *_mlp.yaml (mlp-member.md) are checked in tests/test_mlp_member.py.
-    assert all(n.endswith(("_opt.yaml", "_mlp.yaml")) for n in new), new
+    # *_cbopt.yaml (catboost-retune.md) are checked in tests/test_cb_matched_params.py.
+    assert all(n.endswith(("_opt.yaml", "_mlp.yaml", "_cbopt.yaml")) for n in new), new
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))
         assert (c.hash(), _digest(c)) == (want_id, want_params), name
