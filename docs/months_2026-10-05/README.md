@@ -68,3 +68,9 @@ rows only) → LOBT clip.
 | C2 `outputs/c2_v35theirs_overlays_months.parquet` | C1 + finding 2 | 258,567 | 1,321 | +1,300–1,500 MSE |
 
 Both pass `validate_submission`. Neither has been submitted.
+
+## C3 (not submitted): v37 + V2 residual settings
+
+`local_adsb_apply_swap.py 4:cur 4:v2` on v37 (= C2), then the LOBT clip. It changes 242,813 ground-fix rows, with
+a squared change of 508 MSE. The settings evidence is `deeper_checks.md` #14: +376 MSE [+193, +582] on the 4-month
+leave-days-out CV. The file is `outputs/c3_v37_v2params.parquet`.
