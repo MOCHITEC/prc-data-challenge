@@ -21,6 +21,7 @@ import numpy as np
 import polars as pl
 
 A = 0.4
+APT = os.environ.get("APT", "LIRF")
 S = os.environ["SCRATCH"]
 DROP = {"TAXITIME_SEC_mvt", "copy", "MVT_ID_mvt", "MVT_TIME_UTC_mvt", "BLOCK_TIME_UTC_mvt", "SCHED_TIME_UTC_mvt", "AOBT_3_flt"}
 P = dict(objective="binary", learning_rate=0.05, num_leaves=63, min_data_in_leaf=100, feature_fraction=0.8,
@@ -29,10 +30,10 @@ P = dict(objective="binary", learning_rate=0.05, num_leaves=63, min_data_in_leaf
 
 def frames():
     T = (pl.scan_parquet("data/work_flseq/feat_train.parquet")
-         .filter((pl.col("ADEP_mvt") == "LIRF") & pl.col("mvt_minus_aobt3").is_not_null()).collect()
+         .filter((pl.col("ADEP_mvt") == APT) & pl.col("mvt_minus_aobt3").is_not_null()).collect()
          .with_columns(((pl.col("TAXITIME_SEC_mvt") - pl.col("mvt_minus_sched")).abs() <= 12).alias("copy")))
     R = pl.read_parquet("data/work_flseq/feat_rank.parquet").filter(
-        (pl.col("ADEP_mvt") == "LIRF") & pl.col("mvt_minus_aobt3").is_not_null())
+        (pl.col("ADEP_mvt") == APT) & pl.col("mvt_minus_aobt3").is_not_null())
     num = [c for c, t in T.schema.items() if c not in DROP and t.is_numeric() and c in R.columns]
     cat = [c for c, t in T.schema.items() if c not in DROP and t == pl.String and c in R.columns]
     # one consistent code per category value across train and rank
@@ -64,12 +65,12 @@ def check():
         g = float(((p - yy) ** 2 - (p + A * qq * (ms - p) - yy) ** 2).sum()) / N
         print(f"{lab:8s} n={X_.height:6d} gain {g:7.1f} MSE (2025 units) -> RMSE {np.sqrt(sse / N):.2f} -> "
               f"{np.sqrt((sse - g * N) / N):.2f}" if lab == "Jan+Jul" else f"{lab:8s} n={X_.height:6d} gain {g:7.1f} MSE")
-    json.dump({"best_iter": int(mdl.best_iteration)}, open(os.path.join(S, "learn", "lirf_copy.json"), "w"))
+    json.dump({"best_iter": int(mdl.best_iteration)}, open(os.path.join(S, "learn", f"copy_{APT}.json"), "w"))
 
 
 def apply(src, dst):
     T, R, fn, cat, X = frames()
-    it = int(json.load(open(os.path.join(S, "learn", "lirf_copy.json")))["best_iter"] * 1.1)
+    it = int(json.load(open(os.path.join(S, "learn", f"copy_{APT}.json")))["best_iter"] * 1.1)
     mdl = lgb.train(P, lgb.Dataset(X(T), T["copy"].to_numpy().astype(int), feature_name=fn, categorical_feature=cat), it)
     q = mdl.predict(X(R))
     sub = pl.read_parquet(src)
