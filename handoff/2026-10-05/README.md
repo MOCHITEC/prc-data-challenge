@@ -72,7 +72,13 @@ POLARS_MAX_THREADS=2 .venv/bin/python scripts/adsb_learn_apply.py --base opt --o
 `claude/model-b-and-arrival-features` の 4338035 に patch を当てた worktree で、本物のラベル・OOF の並び・ランキングと、
 **偽の ADS-B 列**（`$SCRATCH/learn/feat_2025|2026.parquet` を乱数で作ったもの）を使って、`--base h2` の 4 本
 （plain → `--opdi-shuffle` → `--opdi` → apply `--opdi`）を最後まで走らせた。数値は意味を持たない（コードが通ることの確認だけ）。
-SMOKE_RESULT
+- 4 本とも終了コード 0。`--opdi-shuffle` は対照の表（plain との比較）を、`--opdi` は plain と shuffle の両方との比較と
+  `DECISION` の行を出した。apply `--opdi` は `outputs/hybrid_H2_adsb_learned_opdi.parquet` を書き、S2 の 7 項目（行数・型・ID の並び・
+  欠損なし・負なし・ADS-B の無い行は base のまま・LTFM は不変）がすべて PASS、parity の行も出た。
+- 偽の列でも shuffle が plain に対して全行 −0.006 s [−0.010, −0.003] と「有意」になった。列を足すだけで小さな差の CI が
+  ゼロを外れうるので、判定に shuffle との比較を入れてある。
+- 偽の列で走らせるとき、`adsb_learn_features.mem_gate` は cgroup 全体のメモリで待つので、別の重い処理と並べると止まる
+  （この確認では止めて走らせた。本番では止めないこと）。
 
 ## 6. ファイル
 
