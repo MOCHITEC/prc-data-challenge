@@ -23,3 +23,12 @@ L6, `src/prc/levers.py:_retention_frame`, model A only, default off, existing id
   both exclude 0 on the improving side.
 - Report next to it: STRICT VERDICT, the body/tail split (y ≤ 3600), and per-airport results.
 - If adopted, re-run all folds on the production members and re-verify with `make compare`.
+
+## Result (2026-10-05, `l6_verdict.txt`)
+- **ADOPT.** ret_base-338abfb11c → ret_l6-65265584c7.
+  - Full rows −0.76 s [−0.95, −0.56]; K=200 −0.91 s [−1.10, −0.70].
+- **STRICT VERDICT is also ADOPT.** 9 of 10 airports improve after the K-drop; the airport-day CI is −0.91 [−1.18, −0.67].
+- Matched rows 196.6 → 195.8; unmatched rows unchanged (L6 is model A only).
+- This is larger than the residual-harness estimate (−0.8 s before any haircut). After the expected CV→LB haircut,
+  the LB expectation is about −0.3 to −0.6 s.
+- **Next step:** turn on `fe_retention` in the production members and re-verify on all folds.

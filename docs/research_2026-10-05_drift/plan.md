@@ -24,3 +24,15 @@ calendar month in both frames. `seq_hw_prev_pairq` is left as it is for now (its
   - adopt the month scope if `prc.compare ns_base ms_scope` has a K=200 CI upper end ≤ +0.10 s;
   - and the AUC of both columns stays as measured above.
 - Its LB effect cannot be measured offline; that is stated, not hidden.
+
+## Result (2026-10-05, `verdict.txt`)
+ns_base-2c65506a2d → ms_scope-4a3e399ba3.
+- The pre-registered rule passes: the K=200 CI upper end is +0.08 ≤ +0.10 (−0.10 [−0.28, +0.08]).
+- **But the other numbers point the wrong way:**
+  - full rows +0.35 [−0.30, +1.19];
+  - the month-level bootstrap +0.35 [+0.10, +0.60] excludes 0 on the worse side;
+  - unmatched rows 981.7 → 992.1.
+  So the change costs CV accuracy on the tail and on the unmatched lane, and its LB benefit cannot be measured
+  offline.
+- **Recommendation: do not ship it on its own.** Keep the code (off). If it is revisited, apply the month scope to
+  `fl_nm_rate_other` only (the column with the real drift, AUC 0.747), and only for model A.
