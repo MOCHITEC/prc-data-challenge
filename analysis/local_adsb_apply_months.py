@@ -19,6 +19,7 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 
+ARGS = sys.argv[1:3]  # saved: the import below rewrites sys.argv
 sys.path.insert(0, "analysis")
 import local_adsb_learn_months as M  # noqa: E402  (sets up L, CV with --base cb)
 
@@ -83,4 +84,4 @@ def main(src: str, dst: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(*ARGS)

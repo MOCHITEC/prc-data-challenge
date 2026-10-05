@@ -74,7 +74,7 @@ def main() -> None:
                    pl.read_parquet(os.path.join(OUT, "feat_2025novdec.parquet"))], how="diagonal_relaxed").drop("ADEP_mvt", "day")
     D = D.join(F, on="MVT_ID_mvt", how="left").with_columns(pl.col("icao").is_not_null().alias("has"),
                                                            pl.col("day").str.slice(0, 7).alias("ym"))
-    print("rows", D.height, dict(D.group_by("ym").agg(pl.len(), pl.col("has").sum()).sort("ym").iter_rows()))
+    print("rows", D.height, D.group_by("ym").agg(pl.len(), pl.col("has").sum()).sort("ym").rows())
     days = sorted(D["day"].unique().to_list())
     months = sorted({d[:7] for d in days})
     rng = np.random.default_rng(CV.SEED)
