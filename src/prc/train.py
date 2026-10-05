@@ -146,6 +146,9 @@ _HASH_OPTIONAL: dict = {
     "airport_specialist_only": False,
     # optuna-retune.md: empty, every existing id is unchanged.
     "matched_params": {},
+    # mlp-member.md: off, every existing id is unchanged.
+    "mlp_matched": False,
+    "mlp_params": {},
 }
 # LightGBM keys `matched_params` may not set: the run's determinism, threading, objective and seed stay the recipe's,
 # so a retuned model A differs from its base in capacity / regularisation / step size and nothing else.
@@ -383,6 +386,12 @@ class TrainConfig:
     # fraction would also refit the unmatched lane. Model B always uses `params`. Empty (the default) changes
     # nothing and is out of the hash. LightGBM only; the keys in MATCHED_PARAMS_REFUSED are refused.
     matched_params: dict = field(default_factory=dict)
+    # Model A as a scikit-learn MLP (prc.mlp; docs/competitor_research_2026-09-21/results/mlp-member.md). Model B
+    # stays LightGBM with `params`, so its predictions are those of the same recipe without the flag. `mlp_params`
+    # overrides prc.mlp.MLP_DEFAULTS; with the flag on the resolved settings are hashed. Off (the default) changes
+    # nothing and both fields are out of the hash.
+    mlp_matched: bool = False
+    mlp_params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.fe_osm_null_airports and not self.fe_osm_dist:
@@ -397,6 +406,25 @@ class TrainConfig:
             raise ValueError(f"matched_target must be one of {MATCHED_TARGETS}, got {self.matched_target!r}")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
+        if self.mlp_params and not self.mlp_matched:
+            raise ValueError("mlp_params is set but mlp_matched is off; it would be silently ignored")
+        if self.mlp_matched:
+            from .mlp import resolve
+
+            resolve(self.mlp_params)  # refuses unknown keys
+            clash = [
+                k
+                for k, on in (
+                    ("model (must be lightgbm, for model B)", self.model != "lightgbm"),
+                    ("matched_params", bool(self.matched_params)),
+                    ("airport_models", self.airport_models),
+                    ("use_linear_tree", self.use_linear_tree),
+                    ("es_holdout_encodings", self.es_holdout_encodings),
+                )
+                if on
+            ]
+            if clash:
+                raise ValueError(f"mlp_matched cannot be combined with {clash}: model A would ignore them")
         if self.matched_params:
             if self.model != "lightgbm":
                 raise ValueError("matched_params are LightGBM parameters; they have no meaning under CatBoost")
@@ -431,6 +459,10 @@ class TrainConfig:
         if self.model == "catboost":
             # The RESOLVED settings, so an edit to CB_DEFAULTS is a new experiment id rather than a silent one.
             d["cb_params"] = self.catboost_params()
+        if self.mlp_matched:
+            from .mlp import resolve
+
+            d["mlp_params"] = resolve(self.mlp_params)
         return hashlib.sha1(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:10]
 
     def catboost_params(self) -> dict:
@@ -1433,7 +1465,13 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             cfg_a = cfg.for_matched()
             if cfg.matched_params:
                 info["matched_params"] = dict(cfg.matched_params)
-            if cfg.airport_models:
+            if cfg.mlp_matched:
+                # Only when on (mlp-member.md); the LightGBM branches below are untouched.
+                from .mlp import fit_mlp
+
+                (g,), rounds = fit_mlp(m_tr, _target_a, cfg_a, cols_a, cat_cols, [m_tg], info)
+                info["rounds_matched"] = rounds
+            elif cfg.airport_models:
                 g = _fit_grouped(m_tr, m_tg, _target_a, cfg_a, cols_a, cat_cols, info, es_rows=es_a)
             else:
                 (g,), rounds = _fit(m_tr, _target_a, cfg_a, cols_a, cat_cols, [m_tg], es_rows=es_a)
