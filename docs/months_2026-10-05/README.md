@@ -99,3 +99,22 @@ LIRF is unstable: Nov+Dec −3,081 [−5,773, −647] and Jul +2,603 [−4,931, 
 the swap. Its Jan 2026 ground coverage matches Nov–Dec, and in Jul 2026 it has no ground rows.
 
 The full output is in `learn_months7_output.txt`. A V2-settings rerun (`PARAMS=v2`) is under way.
+
+### V2 settings rerun (`PARAMS=v2`): B = 4 months + V2 (the v38 recipe), C = 7 months + V2
+
+| evaluated on | C − B (MSE) | CI95 |
+|---|---|---|
+| Jan | +254 | [+78, +453] |
+| Jul | **+627** | [+372, +935] |
+| Jan+Jul | **+461** | [+295, +648] |
+| Nov+Dec | +102 | [−47, +256] |
+| all | +609 | [+476, +759] |
+
+LIRF is unstable again: Nov+Dec −2,334 [−4,083, −735], Jul +4,300. It stays excluded. Final rounds: 505 for C and
+521 for B (from the tune run). The full output is in `learn_months7_v2_output.txt`.
+
+## C4 (not submitted): v38 + swap 4:v2 → 7:v2 on ground-fix rows, LIRF excluded
+
+Built with `EXCLUDE=LIRF local_adsb_apply_swap.py 4:v2 7:v2` on v38, then the LOBT clip. It changes 230,380 rows
+(0 at LIRF), with a squared change of 390 MSE. The file is `outputs/c4_v38_7months_v2.parquet`. Expected gain
+≈ +300–450 MSE.
