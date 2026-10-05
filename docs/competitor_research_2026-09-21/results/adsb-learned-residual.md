@@ -670,3 +670,62 @@ treated as a proposal, not an instruction.
     unmatched rows from the final U fit applied on top of `outputs/hybrid_blend_l2_pa_opt.parquet`. It is
     validated as before and not submitted. Otherwise nothing is built.
 - Script: `scripts/adsb_learn_u.py` (`report`, `cv`, `apply`; `--base opt`).
+
+### 11.0 How the current model (section 10 CV) does on unmatched rows
+
+`scripts/adsb_learn_u.py report --base opt`, log `$SCRATCH/adsb/learn_u_report.log`. The run waited 42 min at the
+memory gate (`total_rss` > 9,500 MB while the MLP job ran).
+- **Rows.** 5,373 of the 344,419 labelled rows are unmatched (1.56 %). 2,994 of them have ADS-B.
+- **Share of squared error.** Unmatched rows carry 51.9 % of the base squared error, which matches the 51 % in the
+  proposal. After the learned model they carry 55.5 %.
+
+| lane | n | RMSE before → after | gain (mean over that lane's rows, s²) | CI95 |
+|---|---:|---|---:|---|
+| matched | 339,046 | 218.62 → 201.29 | 7,276.5 | [6,738.5, 7,852.9] |
+| unmatched | 5,373 | 1,804.95 → 1,786.30 | 66,993.7 | [23,975.7, 109,975.2] |
+| all | 344,419 | 312.85 → 299.44 | 8,208.1 | [7,195.4, 9,320.0] |
+
+The unmatched rows contribute 1,045.1 s² [351.0, 1,779.4] of the pooled 8,208 s² gain, i.e. 13 %, from 1.6 % of
+the rows.
+
+**Unmatched rows by airport.** CI95 is the day-block bootstrap.
+
+| ADEP | n | ADS-B | RMSE before → after | gain (s²) | CI95 |
+|---|---:|---:|---|---:|---|
+| EDDF | 599 | 38 | 370.7 → 369.9 | 606 | [−492, 1,692] |
+| EDDM | 237 | 233 | 600.3 → 543.9 | 64,473 | [23,792, 114,516] |
+| EGLL | 466 | 465 | 1,131.2 → 1,088.2 | 95,399 | [27,543, 163,332] |
+| EHAM | 808 | 25 | 531.9 → 531.4 | 479 | [−31, 1,121] |
+| LEBL | 496 | 487 | 358.3 → 295.2 | 41,236 | [24,136, 60,233] |
+| LEMD | 309 | 294 | 252.4 → 218.9 | 15,784 | [7,046, 23,380] |
+| LFPG | 880 | 863 | 3,441.3 → 3,440.1 | 8,385 | [−8,065, 25,185] |
+| LIRF | 397 | 329 | 3,739.9 → 3,653.9 | 635,659 | [80,301, 1,155,400] |
+| LSZH | 524 | 258 | 656.2 → 634.9 | 27,563 | [4,084, 53,923] |
+| LTFM | 657 | 2 | 589.8 → 589.9 | −56 | [−180, 0] |
+
+**Reading.**
+- The pooled model already corrects unmatched rows wherever ADS-B covers them: EDDM, EGLL, LEBL, LEMD, LIRF and
+  LSZH.
+- EDDF and EHAM unmatched rows have almost no ADS-B: 38 and 25 rows.
+- At LFPG and LIRF the unmatched RMSE stays above 3,400 s. The ADS-B signal does not reach that error. These are
+  presumably the hours-long tail rows that ADS-B cannot explain.
+
+### 11.2 Variant U result (after the pre-registration commit f071610)
+
+`scripts/adsb_learn_u.py cv --base opt`, log `$SCRATCH/adsb/learn_u_cv.log`. The gate was clear when it ran
+(`total_rss` about 7.0 GB).
+- **Training.** U trained on 1,633–2,145 unmatched rows per fold. The best iterations were 201, 100, 88, 250 and 24.
+- **Pooled, all 344,419 rows, paired vs current:** **−43.55 s² CI95 [−251.02, +176.23]**. RMSE 299.439 → 299.512
+  (+0.073 s).
+- **Unmatched only, 5,373 rows, paired vs current:** −2,791.8 s² [−16,527.5, +11,224.0]. Unmatched RMSE is
+  1,786.30 for the current model and 1,787.08 for U (base 1,804.95).
+- **U vs no correction, unmatched rows:** 64,201.9 s² [22,441.9, 108,424.5]. U does help, but slightly less than
+  the pooled model already does (66,993.7).
+- **Per airport (information only), paired gain vs current in s²:**
+  - U is worse at EDDM −23,796, EGLL −62,888, LEBL −16,822, LEMD −6,030, LFPG −4,928 and LSZH −8,566.
+  - U is better at LIRF +99,921.
+
+**Decision: REJECT U.** The pooled CI includes zero, and its point estimate is on the worsening side. The current
+section-10 model (v33) is kept, and `outputs/hybrid_blend_l2_pa_opt_adsb_u.parquet` is not built. A model trained
+on about 2,000 unmatched rows does not beat the pooled model. The pooled model is trained on 286,008 rows, and it
+already handles unmatched rows through the same features and its `base` input.
