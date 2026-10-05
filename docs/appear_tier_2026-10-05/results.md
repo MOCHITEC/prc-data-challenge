@@ -14,6 +14,8 @@ OSM の parking_position。CV は `scripts/adsb_learn_cv.py --base a2`（日単�
 
 残差全体: base 316.75 → plain の残差 302.77（−13.98 s）→ appear の残差 **300.91（−15.84 s）**。5 fold すべてで appear の
 test-fold の利得が plain より大きい（10,740 / 9,649 / 9,106 / 8,778 / 10,509 対 9,550 / 8,633 / 8,467 / 7,705 / 8,832 s²）。
+月別の残差の利得（全行の平均、s²）: 2025-01 は plain 8,208 → appear 9,184（shuffle 8,165）、2025-07 は 9,027 → 10,265（shuffle 8,960）。
+両月とも同じ向き。
 
 ## 2. どこで効いたか（appear 対 plain、説明用）
 
