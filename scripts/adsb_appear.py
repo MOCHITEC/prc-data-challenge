@@ -82,7 +82,8 @@ def day_appear(day: str, ST: pl.DataFrame) -> pl.DataFrame:
     fx = pl.read_parquet(os.path.join(s1.SCRATCH, f"{tag}.parquet"), columns=["icao", "apt", "t", "lat", "lon", "ground"])
     F = (fx.filter("ground").join(J.select("MVT_ID_mvt", "icao", pl.col("ADEP_mvt").alias("apt"), "t_first", "t_end",
                                            "slat", "slon"), on=["icao", "apt"], how="inner")
-         .filter((pl.col("t") >= pl.col("t_first")) & (pl.col("t") <= pl.col("t_end"))).sort("MVT_ID_mvt", "t"))
+         .filter((pl.col("t") >= pl.col("t_first")) & (pl.col("t") <= pl.col("t_end"))).sort("MVT_ID_mvt", "t")
+         .unique(["MVT_ID_mvt", "t"], keep="first", maintain_order=True))  # a few fixes repeat a timestamp
     del fx
     F = F.with_columns(pl.Series("d_own", _dist(F["lat"].to_numpy(), F["lon"].to_numpy(),
                                                 F["slat"].to_numpy(), F["slon"].to_numpy())).fill_nan(None))
