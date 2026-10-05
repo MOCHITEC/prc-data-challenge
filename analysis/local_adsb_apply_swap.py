@@ -1,7 +1,7 @@
 """Swap one learned ADS-B residual for another on top of a submission file, as a delta on ground-fix rows (local).
 
 OLD and NEW are each "<months>:<params>":
-  months  4 = Jan+Jul+Nov+Dec 2025, 7 = those plus Aug+Sep+Oct
+  months  4 = Jan+Jul+Nov+Dec 2025, 7 = those plus Aug+Sep+Oct, 12 = all of 2025
   params  cur = adsb_learn_cv.PARAMS, v2 = 255 leaves / min 300 / ff 0.7 (local_adsb_tune_months.py V2)
 Rounds = median CV best iteration from the matching json (cv_months.json for 4:cur, cv_months7.json for 7:cur,
 cv_<tag>.json if present), else 600. b is recovered from the file by b = file - c_OLD(b) (fixed point), the new value
@@ -28,7 +28,7 @@ V2 = dict(num_leaves=255, min_data_in_leaf=300, feature_fraction=0.7)
 
 
 ROUNDS_SRC = {"4:cur": ("cv_months.json", "B"), "7:cur": ("cv_months7.json", "C"),
-              "4:v2": ("cv_months_v2.json", "V2"), "7:v2": ("cv_months7_v2.json", "C")}
+              "4:v2": ("cv_months_v2.json", "V2"), "7:v2": ("cv_months7_v2.json", "C"), "12:v2": ("cv_months12_v2.json", "C")}
 
 
 def rounds(tag):
@@ -41,9 +41,10 @@ def data():
     keep = ["MVT_ID_mvt", "ADEP_mvt", "MVT_TIME_UTC_mvt", "mvt_minus_aobt3", "b", "y", "day"]
     parts = [CV.load_labelled().select(keep), M.load_novdec().select(keep)]
     feats = ["feat_2025.parquet", "feat_2025novdec.parquet"]
-    if os.path.exists(os.path.join(OUT, "feat_2025aso.parquet")):
-        parts.append(M.load_novdec("aso", "aso").select(keep))
-        feats.append("feat_2025aso.parquet")
+    for tag, f in (("aso", "feat_2025aso.parquet"), ("fmj", "feat_2025fmj.parquet")):
+        if os.path.exists(os.path.join(OUT, f)):
+            parts.append(M.load_novdec(tag, tag).select(keep))
+            feats.append(f)
     D = pl.concat(parts)
     F = pl.concat([pl.read_parquet(os.path.join(OUT, f)) for f in feats], how="diagonal_relaxed").drop("ADEP_mvt", "day")
     return D.join(F, on="MVT_ID_mvt", how="inner")
@@ -58,7 +59,8 @@ def main(old, new, src, dst):
     models = {}
     for tag in (old, new):
         mo, pa = tag.split(":")
-        sel = np.isin(ym, ["2025-01", "2025-07", "2025-11", "2025-12"] + (["2025-08", "2025-09", "2025-10"] if mo == "7" else []))
+        sel = np.isin(ym, ["2025-01", "2025-07", "2025-11", "2025-12"] + (["2025-08", "2025-09", "2025-10"] if mo in ("7", "12") else [])
+                      + (["2025-02", "2025-03", "2025-04", "2025-05", "2025-06"] if mo == "12" else []))
         P = {**CV.PARAMS, **(V2 if pa == "v2" else {})}
         n = rounds(tag)
         models[tag] = lgb.train(P, lgb.Dataset(Xn[sel], r[sel], feature_name=feats, categorical_feature=cats), num_boost_round=n)
