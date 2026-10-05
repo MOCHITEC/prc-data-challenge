@@ -16,9 +16,10 @@
 空港別（appear 対 plain）: EGLL −5.5、EDDF −5.5、LSZH −5.1、EHAM −4.4、EDDM −3.2、LIRF −2.2、LEBL −2.1、LEMD −0.8、LFPG −0.3 s。
 残差全体は base 316.75 → 302.77（今の残差）→ 300.91（appear 入り）。
 
-- いちばん効くのは「stage 1 の stand run が本当に自分のスタンドか」（`d_stand_own`）と、位置で見た自スタンドからの離脱
-  （`t_leave_own_lo`）。stand run が自スタンドから 50 m 以上離れているとき、それはたいていプッシュバック後のエンジン始動の停止で、
-  `t_move` は本当の off-block より 3〜15 分遅い（plan.md §1）。今の残差にはそれを見分ける列が無かった。
+- 重要度（gain）が高い新しい列は、位置で見た自スタンドからの離脱（`res_t_leave_own_lo` 0.057、`res_t_leave_own` 0.033）と、
+  最初の fix をスタンドまで戻した時刻（`res_t_appear_adj` 0.057）、それに `d_dep1_own`・`d_dep1_near`。`d_stand_own` は上位 20 に入らない。
+  仕組み: stage 1 の stand run が自スタンドから 50 m 以上離れているとき、それはたいていプッシュバック後のエンジン始動の停止で、
+  `t_move` は本当の off-block より 3〜15 分遅い（plan.md §1）。位置による離脱の時刻があれば、残差は `t_move` との差でそれを見分けられる。
 - `--base a2` はこの環境で作れる base（マッチ行 = v28 の anchored L2 メンバー、未マッチ行 = main_flseq）。本番の `--base opt` でも同じ
   3 本を走らせて同じ判定をすること（下の手順）。
 
