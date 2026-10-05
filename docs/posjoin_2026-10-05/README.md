@@ -1,6 +1,6 @@
 # Positional ADS-B join for unmatched departures (2026-10-05)
 
-Candidate overlay on v33 (LB 250.9496). **Not submitted.**
+Candidate overlay on v33 (LB 250.9496). **Not submitted.** The row list is in `replacements_v33.csv` (MVT_ID_mvt, v33, new, airport, day, rule).
 
 The overlay replaces 430 of 344,841 rows. The squared change it makes is 1,623 MSE in board units. The
 expected board gain is about 1,200 to 1,950 MSE, which takes v33 to roughly **247 to 248.5**. The gain is
