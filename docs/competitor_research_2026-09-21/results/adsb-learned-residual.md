@@ -729,3 +729,58 @@ the rows.
 section-10 model (v33) is kept, and `outputs/hybrid_blend_l2_pa_opt_adsb_u.parquet` is not built. A model trained
 on about 2,000 unmatched rows does not beat the pooled model. The pooled model is trained on 286,008 rows, and it
 already handles unmatched rows through the same features and its `base` input.
+
+## 12. Re-run on the `hybrid_blend_l2_pa_opt_mlp` base (2026-10-05, after v33 scored 250.9496)
+
+**Setup.** The section-10 design is unchanged: section 0/0a. Variants V1/V2 (section 9) and U (section 11) were
+not adopted. Only the base is swapped.
+- `b` follows `mlp-member.md`, with the same expression as `scripts/blend_mlp.py`:
+  - matched lane: `((0.5·a2o + 0.5·pao) + p2o + c2 + m4) / 4`, where m4 = `oof_main_flseq_osm_nolirf_l2_mlp-2b9a3b9348`
+    and the other members are as in section 10;
+  - unmatched lane: `oof_main_flseq-8615e6a194`.
+- It equals `logs/mlp/scratch/oof_hybrid_blend_l2_pa_opt_mlp.parquet` on all 344,419 rows (max |diff| 0.0).
+- Commands: `adsb_learn_cv.py --base mlp` and `adsb_learn_apply.py --base mlp`. Logs:
+  `$SCRATCH/adsb/learn_cv_mlp.log` and `learn_apply_mlp.log`.
+- **Restart checks.**
+  - The memory cgroup path was re-read from `/proc/self/cgroup`. The root `total_rss` was about 260–280 MB, so the
+    gate was clear.
+  - `feat_2025.parquet`, `feat_2026.parquet` and `cv_rows_opt.parquet` were present.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the mlp base | **8,018.2** | [7,032.5, 9,066.4] | 312.057 → **298.934** (−13.123) |
+| rule on the mlp base | 1,679.9 | [1,527.5, 1,852.7] | 312.057 → 309.354 (−2.703) |
+| paired: learned − rule | 6,338.3 | [5,415.1, 7,360.1] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 497, 249, 323, 312 and 155, so the final fit uses **312 rounds**.
+- Every airport's learned CI lower bound is > 0 except LTFM (0.0).
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| opt | 312.845 |
+| mlp | 312.057 |
+| opt + learned (section 10, v33) | 299.439 |
+| **mlp + learned** | **298.934** |
+
+**(mlp + learned) − (opt + learned) = −0.506 s, CI95 [−0.924, −0.173].** As MSE: 302.6 s² [108.3, 520.5].
+The mlp base's advantage on these rows is −0.79 s, and about 0.51 s of it survives the residual model.
+
+**Production file** `outputs/hybrid_blend_l2_pa_opt_mlp_adsb_learned.parquet`. It is the final fit (286,008 rows,
+62 days, 312 rounds) applied to `outputs/hybrid_blend_l2_pa_opt_mlp.parquet`, with c = 0 at LTFM. It is
+git-ignored and not submitted.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. **2 negatives were reverted to base.**
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 282,828 rows (82.02 %) are changed.
+  - Over the changed rows, the RMS change is 112.3 s, with median |Δ| 44 s, p90 165, p99 403 and max 1,506.
+  - The signed change quantiles are p1 −279, p10 −112, p50 −12, p90 +114 and p99 +343.
+  - The mean prediction goes from 1,039.24 to 1,033.76 s.
+- **Against v33 (`hybrid_blend_l2_pa_opt_adsb_learned`).** 328,657 rows differ, with RMS 24.5 s and max 1,524 s.
