@@ -45,3 +45,13 @@ For the copy blend, the classifier is refit on all 12 months for 2026 (rounds = 
 On 2026 LIRF its mean q is 0.167, against a 2025 copy rate of 0.178.
 
 Compared with v34, the candidate changes 27,179 rows, and its squared change is 524 MSE.
+
+## Data checks, round 3 (2026-10-05)
+
+| # | question | result |
+|---|---|---|
+| 10 | Rows where p (b + learned) and ADS-B disagree by more than 10 min, 2025 (171 rows) | The model is right and ADS-B is wrong: RMSE 723 for p against 7,269 for ADS-B. Below 2 min (41k rows) both are about 90 s. The learned residual already weighs ADS-B well, so there is nothing left on push rows. |
+| 11 | Cross-month group bias on the 4-month OOF (b + c_B), matched rows with y < 90 min | Leave-one-month-out shrunk corrections (k = 200): stand +27.5 MSE; operator −29, runway −94, aircraft type −44, ADES −52, local hour −82. Not transferable. |
+| 12 | July 2026 runway mix against July 2025 | LFPG 27R falls from 16 % to 0.1 % (closed). LFPG median MVT−AOBT_3 rises by 60–120 s per runway. EGLL 09R +27 points (wind). The anchored model absorbs this through MVT−AOBT_3; the unmatched LFPG July exposure is ≈ 7 MSE. |
+| 13 | Time-stamp resolution | 5 s at EDDM, EGLL, LFPG, LIRF and LTFM, and for BLOCK at LEBL and LEMD (P(sec = 0) = 1/12); 1 s elsewhere. No lever. |
+| 14 | Learned-residual settings on the 4-month data (`local_adsb_tune_months.py`), paired against the current settings | V1 (127 leaves, min 200): +279 MSE [+156, +421]. **V2 (255 leaves, min 300, ff 0.7): +376 [+193, +582]**, with Nov+Dec +302 [+209, +395] and Jan+Jul +447 [+99, +842]. V3 (l2 = 50): +39 [−6, +88]. V2 is carried into the next candidate. |
