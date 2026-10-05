@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-05): study done (10 trials, 16 h safety stop); best trial 7 −2.25 s on October; confirmation CV running.** §0 is written and committed before any tuning trial,
+**Status (2026-10-05): study done (10 trials, 16 h safety stop); best trial 7 −2.25 s on October. Confirmation CV killed by the 13,000 MB memory guard (13,460 MB at 111 s); on hold, no verdict, no blend, no output.** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -195,3 +195,13 @@ roughly 4× M3's 10,819 s.
 
 `configs/main_flseq_osm_nolirf_cb_l2_cbopt.yaml` = base + `cb_matched_params` of trial 7 → exp id
 **`main_flseq_osm_nolirf_cb_l2_cbopt-9d30cf6882`** (folds jan, jul, forward, as §0.4).
+
+**Attempt 1 (2026-10-05 23:14:06 UTC): killed by the memory guard after 111 s.**
+`logs/cbretune/run.sh cbopt_cv --config configs/main_flseq_osm_nolirf_cb_l2_cbopt.yaml --work-dir data/work_flseq
+--skip-predict --fold-cache logs/cbretune/fold_cache`: rc 137, total_rss 13,460 MB own / 13,693 MB all sessions at
+23:15:57 (limit 13,681 MB; guard 13,000 MB). Trace (own cgroup, MB): 8,149 (11 s) → 10,098 → 12,134 (41 s) →
+12,3xx–12,7xx → 13,460 (111 s), in the first fold, before any fold was cached. For comparison, the base M3 CV
+(`blend-l2.md`, same recipe without `cb_matched_params`) reached 11,559 MB at 30 s and peaked at 11,977 MB; in the
+tuning study, trial 7 peaked 1.5 GB above trial 0 (9,655 vs 8,132 MB). So the trial-7 settings
+(`max_ctr_complexity` 2, depth 8) need about 1.5 GB more than the CV process's 12 GB, which does not fit.
+Per the run rules, nothing was retried; no confirmation verdict exists. §0.4/§0.5 are on hold.
