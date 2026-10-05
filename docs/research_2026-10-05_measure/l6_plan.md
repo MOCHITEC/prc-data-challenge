@@ -37,3 +37,11 @@ L6, `src/prc/levers.py:_retention_frame`, model A only, default off, existing id
 - **Pair**: `main_flseq_osm_nolirf_l2_opt` (a2o, the anchored LGB member of the v35 blend) vs `main_flseq_osm_nolirf_l2_opt_l6` (+ `fe_retention: true`). All folds.
 - **Verdict**: `prc.compare` ADOPT (full and K=200 CIs exclude 0 on the improving side). STRICT VERDICT reported next to it.
 - **If ADOPT**: the same flag goes into the other LGB members (pao, p2o), so the blend is not diluted the way L5 was (1/8 weight). Each member is re-run and checked with `prc.compare`. The blend delta is then built and checked the same way.
+
+## Production step result (a2o, all folds; `l6_prod_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_l6-177174f530.
+  - Full rows −0.73 s [−0.91, −0.58]; K=200 −0.92 s [−1.09, −0.79].
+- **STRICT ADOPT.** Every fold improves (forward −0.55, jan −0.26, jul −1.44; after the K-drop −0.60 / −0.48 / −1.69).
+  8 of 10 airports improve. The airport-day CI is −0.73 [−0.96, −0.54].
+- **Next**: the same flag for pao (main_flseq_osm_nolirf_l2_pa_opt) and p2o (main_flseq_osm_nolirf_plainy_l2_opt).
+  Each is run against its own base, all folds, under the same rule.

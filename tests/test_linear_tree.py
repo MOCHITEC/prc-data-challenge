@@ -22,6 +22,8 @@ from prc.train import PROXY, TrainConfig, predict_fold
 # (experiment id, digest of [model A lgb_params, model B lgb_params]) of every recipe in configs/, computed by the
 # code at 23018be, before linear_tree_matched_only existed.
 BEFORE = {
+    "main_flseq_osm_nolirf_plainy_l2_opt_l6.yaml": ("1f94f51232", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_pa_opt_l6.yaml": ("523fcc4e8c", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_gm.yaml": ("67f49a5d62", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_cmix.yaml": ("d9b7e7a288", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_l6.yaml": ("177174f530", "9f53bbe724"),
