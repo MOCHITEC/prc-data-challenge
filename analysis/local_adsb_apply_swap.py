@@ -5,7 +5,8 @@ OLD and NEW are each "<months>:<params>":
   params  cur = adsb_learn_cv.PARAMS, v2 = 255 leaves / min 300 / ff 0.7 (local_adsb_tune_months.py V2)
 Rounds = median CV best iteration from the matching json (cv_months.json for 4:cur, cv_months7.json for 7:cur,
 cv_<tag>.json if present), else 600. b is recovered from the file by b = file - c_OLD(b) (fixed point), the new value
-is file + c_NEW(b) - c_OLD(b) on rows with a ground fix and not at LTFM; other rows are untouched.
+is file + c_NEW(b) - c_OLD(b) on rows with a ground fix, not at LTFM nor at the airports in $EXCLUDE (comma list);
+other rows are untouched.
 
     .venv/bin/python analysis/local_adsb_apply_swap.py <old> <new> <in.parquet> <out.parquet>
 """
@@ -66,7 +67,8 @@ def main(old, new, src, dst):
     rk = pl.scan_parquet("data/raw/ranking.parquet").select("MVT_ID_mvt", "ADEP_mvt", "MVT_TIME_UTC_mvt").collect()
     F26 = pl.read_parquet(os.path.join(OUT, "feat_2026.parquet"))
     G = (F26.drop("ADEP_mvt").join(sub.rename({"TAXITIME_SEC_mvt": "file"}).join(rk, on="MVT_ID_mvt"), on="MVT_ID_mvt")
-         .filter((pl.col("ADEP_mvt") != "LTFM") & pl.col("ground_fix").fill_null(False)).with_columns(pl.col("file").cast(pl.Float64)))
+         .filter(~pl.col("ADEP_mvt").is_in(["LTFM"] + [a for a in os.environ.get("EXCLUDE", "").split(",") if a])
+                 & pl.col("ground_fix").fill_null(False)).with_columns(pl.col("file").cast(pl.Float64)))
 
     def corr(tag, b):
         Xg, f2, _ = L.design(G.with_columns(pl.Series("b", b)), "b")

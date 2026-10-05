@@ -74,3 +74,28 @@ Both pass `validate_submission`. Neither has been submitted.
 `local_adsb_apply_swap.py 4:cur 4:v2` on v37 (= C2), then the LOBT clip. It changes 242,813 ground-fix rows, with
 a squared change of 508 MSE. The settings evidence is `deeper_checks.md` #14: +376 MSE [+193, +582] on the 4-month
 leave-days-out CV. The file is `outputs/c3_v37_v2params.parquet`.
+
+## Finding 2b: add Aug–Oct 2025 (`local_adsb_learn_months7.py`), current settings
+
+Inputs:
+
+* ADS-B: 92 of 92 days ingested.
+* Base for Aug–Oct: a local `aso` fold that holds out Aug+Sep+Oct and trains on the other nine months
+  (`local_patches/cv_aso_fold.diff`), 1 seed. Fold RMSE is 241.48 for `main_flseq_osm_nolirf_aso` and 239.94 for
+  `main_flseq_aso`.
+
+Design: leave-days-out with K = 5 per month. Arm B is fit on Jan/Jul/Nov/Dec; arm C on all seven months.
+
+| evaluated on | C − B (MSE) | CI95 |
+|---|---|---|
+| Jan | **+305** | [+109, +515] |
+| Jul | +410 | [−193, +1,027] |
+| Jan+Jul | **+363** | [+32, +715] |
+| Nov+Dec | +36 | [−177, +237] |
+| Aug–Oct | +1,037 | [+692, +1,394] |
+| all | **+583** | [+394, +785] |
+
+LIRF is unstable: Nov+Dec −3,081 [−5,773, −647] and Jul +2,603 [−4,931, +10,165]. LIRF is therefore excluded from
+the swap. Its Jan 2026 ground coverage matches Nov–Dec, and in Jul 2026 it has no ground rows.
+
+The full output is in `learn_months7_output.txt`. A V2-settings rerun (`PARAMS=v2`) is under way.

@@ -22,6 +22,9 @@ import local_adsb_learn_months as M  # noqa: E402
 
 L, CV = M.L, M.CV
 OUT = L.OUT
+V2 = os.environ.get("PARAMS") == "v2"
+PRM = {**CV.PARAMS, **(dict(num_leaves=255, min_data_in_leaf=300, feature_fraction=0.7) if V2 else {})}
+SFX = "_v2" if V2 else ""
 
 
 def main() -> None:
@@ -70,12 +73,12 @@ def main() -> None:
             is_fit = is_tr & ~is_val
             dtr = lgb.Dataset(Xn[is_fit], r[is_fit], feature_name=feats, categorical_feature=cats, free_raw_data=True)
             dva = lgb.Dataset(Xn[is_val], r[is_val], reference=dtr)
-            m = lgb.train(CV.PARAMS, dtr, num_boost_round=5000, valid_sets=[dva], callbacks=[lgb.early_stopping(200, verbose=False)])
+            m = lgb.train(PRM, dtr, num_boost_round=5000, valid_sets=[dva], callbacks=[lgb.early_stopping(200, verbose=False)])
             best[arm].append(int(m.best_iteration))
             c[arm][is_te] = np.clip(m.predict(Xn[is_te], num_iteration=m.best_iteration), -CV.CLIP_C, CV.CLIP_C)
             print(f"fold {k} arm {arm}: fit {is_fit.sum()} test {is_te.sum()} best_iter {m.best_iteration}", flush=True)
     json.dump({"best_iters": best, "final_rounds": {a: int(np.median(v)) for a, v in best.items()}, "features": feats},
-              open(os.path.join(OUT, "cv_months7.json"), "w"), indent=1)
+              open(os.path.join(OUT, f"cv_months7{SFX}.json"), "w"), indent=1)
     for a in c:
         c[a][apt == "LTFM"] = 0.0
     e0 = yv - bv
@@ -96,7 +99,7 @@ def main() -> None:
     pl.Config.set_tbl_rows(40)
     print(pl.DataFrame(rows))
     pl.DataFrame({"MVT_ID_mvt": D["MVT_ID_mvt"], "ym": D["ym"], "ADEP_mvt": D["ADEP_mvt"], "y": yv, "b": bv, "has": has,
-                  "c_B": c["B"], "c_C": c["C"]}).write_parquet(os.path.join(OUT, "cv_rows_months7.parquet"))
+                  "c_B": c["B"], "c_C": c["C"]}).write_parquet(os.path.join(OUT, f"cv_rows_months7{SFX}.parquet"))
 
 
 if __name__ == "__main__":
