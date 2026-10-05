@@ -5,7 +5,16 @@
 
 ## 1. 何が効くか（この環境の CV、`--base a2`）
 
-RESULT_TABLE
+事前登録の判定は **採用**（`docs/appear_tier_2026-10-05/results.md`）。2025 年 1 月・7 月の 62 日、全行 344,419 行、日単位の bootstrap:
+
+| 比較 | RMSE の差 | 95 % CI |
+|---|---|---|
+| appear 対 plain（同じ base の今の残差） | **−1.858 s** | [−2.542, −1.346] |
+| appear 対 shuffle（同じ列を並べ替えた対照） | **−1.950 s** | [−2.674, −1.405] |
+| shuffle 対 plain（参考） | +0.092 s | [−0.093, +0.275] |
+
+空港別（appear 対 plain）: EGLL −5.5、EDDF −5.5、LSZH −5.1、EHAM −4.4、EDDM −3.2、LIRF −2.2、LEBL −2.1、LEMD −0.8、LFPG −0.3 s。
+残差全体は base 316.75 → 302.77（今の残差）→ 300.91（appear 入り）。
 
 - いちばん効くのは「stage 1 の stand run が本当に自分のスタンドか」（`d_stand_own`）と、位置で見た自スタンドからの離脱
   （`t_leave_own_lo`）。stand run が自スタンドから 50 m 以上離れているとき、それはたいていプッシュバック後のエンジン始動の停止で、

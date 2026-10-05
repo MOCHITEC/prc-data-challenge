@@ -522,3 +522,18 @@ C3 の `drct` 欠損は行ベースで 8.5%、最悪 LSZH 2026-01 で 40.7% だ�
 本番の学習 ADS-B 残差はすでに adsb.lol のスタンド離脱を使っている（LSZH で −40 s）。−0.91 s は ADS-B 無しの base に対する上限で、
 v33 に対する上乗せは小さい見込み（目安 −0.05〜−0.2 s）。ライセンスは EUROCONTROL の免責事項（非商用・無断改変禁止）で、賞の条件に
 関わるのでユーザーの判断が必要。
+
+# 追記（2026-10-05）: ADS-B の appear tier（自スタンドとの位置関係）を学習 ADS-B 残差に追加 → **採用（CV −1.86 s）、本番の base での確認と提出は未実施**
+
+詳細は `docs/appear_tier_2026-10-05/results.md`、事前登録は `plan.md`、本番への引き継ぎは `handoff/2026-10-05/APPEAR.md`。
+`scripts/adsb_appear.py` の 8 列（`d_stand_own`・`d_dep1_own`・`d_dep1_near`・`t_leave_own(_lo)`・`t_appear_adj` など、OSM の
+parking_position と照合）を残差の設計に足す。adsb.lol の 2025 年 1 月・7 月の 62 日を取り込み直して測定（`--base a2`）。
+
+| 比較 | 結果 |
+|---|---|
+| appear 対 plain（全行、日単位 bootstrap） | **−1.858 [−2.542, −1.346]** |
+| appear 対 shuffle（列を並べ替えた対照） | **−1.950 [−2.674, −1.405]** |
+| 空港別 | EGLL −5.5、EDDF −5.5、LSZH −5.1、EHAM −4.4、EDDM −3.2、LEBL −2.1、LEMD −0.8、LFPG −0.3 |
+
+効いた理由: stage 1 の stand run が自スタンドから離れていると（多くはエンジン始動の停止）`t_move` が 3〜15 分遅いが、
+今の残差はそれを見分けられなかった。データは adsb.lol（ODbL）と OSM（ODbL）だけで、賞の条件の問題は無い。
