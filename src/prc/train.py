@@ -148,7 +148,43 @@ _HASH_OPTIONAL: dict = {
     "fe_push_queue": False,
     # L5 (prc.levers; docs/research_2026-10-01/README.md). Off, every existing id is unchanged.
     "fe_tx_nm": False,
+    # linear-tree.md: off, every existing id is unchanged.
+    "linear_tree_matched_only": False,
+    # per-airport-member.md: off, every existing id is unchanged.
+    "airport_specialist_only": False,
+    # optuna-retune.md: empty, every existing id is unchanged.
+    "matched_params": {},
+    # mlp-member.md: off, every existing id is unchanged.
+    "mlp_matched": False,
+    "mlp_params": {},
+    # catboost-retune.md: empty, every existing id is unchanged.
+    "cb_matched_params": {},
 }
+# CatBoost keys `cb_matched_params` may not set (on top of CB_OWNED_KEYS): the loss, threading (a determinism
+# setting on CPU), logging and file output stay the recipe's, so a retuned model A differs from its base in tree
+# shape / regularisation / step size / sampling / quantisation / categorical handling and nothing else.
+CB_MATCHED_PARAMS_REFUSED = (
+    "loss_function",
+    "eval_metric",
+    "thread_count",
+    "verbose",
+    "allow_writing_files",
+    "task_type",
+)
+# LightGBM keys `matched_params` may not set: the run's determinism, threading, objective and seed stay the recipe's,
+# so a retuned model A differs from its base in capacity / regularisation / step size and nothing else.
+MATCHED_PARAMS_REFUSED = (
+    "objective",
+    "metric",
+    "seed",
+    "deterministic",
+    "force_row_wise",
+    "force_col_wise",
+    "num_threads",
+    "verbose",
+    "linear_tree",
+    "linear_lambda",
+)
 
 
 @dataclass
@@ -183,6 +219,12 @@ class TrainConfig:
     use_categoricals: bool = True
     use_linear_tree: bool = False  # docs/README: reported worth about -10 s CLEAN RMSE; compare explicitly
     linear_lambda: float = 1.0
+    # use_linear_tree is one field that both models inherit (for_unmatched copies it), so a recipe could not give
+    # linear leaves to model A alone (docs/investigation_2026-09-16/results/linear-tree-model-b.md §2). On, model B
+    # is fitted without linear_tree and linear_lambda, exactly as with use_linear_tree off, so its predictions
+    # stay byte-identical to the recipe without linear trees. Requires use_linear_tree. Off (the default) changes
+    # nothing. docs/competitor_research_2026-09-21/results/linear-tree.md.
+    linear_tree_matched_only: bool = False
     # The nine label-derived columns (stand x runway P10/P20/median, airport x runway x hour median, airport
     # median, and the coalesced fallback). Present since the first commit and never ablated; the flag exists to
     # settle whether they earn the 40 lines of fold-wise fitting they cost.
@@ -288,6 +330,13 @@ class TrainConfig:
     # five or more, so it is a floor, not a selector - it decides nothing about which airports are used.
     airport_min_group_rows: int = 20_000
     airport_group_seed: int = 20_260_924  # only read by the `shuffled` control
+    # The per-airport MEMBER (docs/competitor_research_2026-09-21/results/per-airport-member.md). On, the grouped
+    # branch fits the groups only: no global fit, every matched target row must fall in a fitted group, and the
+    # group key's own column (ADEP_mvt for "adep") is dropped from a group's fit when it is constant on that
+    # group's training rows. The blend with the pooled model is done downstream on the two runs' outputs.
+    # Requires airport_models and airport_blend_weight 1.0. Off (the default) changes nothing and is out of the
+    # hash.
+    airport_specialist_only: bool = False
     # ---- fold-time candidate families from two general feature-engineering articles, pre-registered in
     # docs/article_fe_2026-09-24/plan.md. All off by default: with every flag off `predict_fold` runs exactly the
     # code it ran before these fields existed. They are built inside the fold, after the encodings, so the
@@ -376,16 +425,69 @@ class TrainConfig:
     # over the LightGBM defaults and CatBoost rejects those keys outright (`feature_fraction`, `force_row_wise`,
     # `num_leaves` without Lossguide: P10 §1.2).
     cb_params: dict = field(default_factory=dict)
+    # LightGBM parameters for model A ONLY, merged over `params` when model A is fitted
+    # (docs/competitor_research_2026-09-21/results/optuna-retune.md). `params` alone would move model B too:
+    # `for_unmatched` copies every key but the two capacity overrides, so a retuned learning rate or bagging
+    # fraction would also refit the unmatched lane. Model B always uses `params`. Empty (the default) changes
+    # nothing and is out of the hash. LightGBM only; the keys in MATCHED_PARAMS_REFUSED are refused.
+    matched_params: dict = field(default_factory=dict)
+    # Model A as a scikit-learn MLP (prc.mlp; docs/competitor_research_2026-09-21/results/mlp-member.md). Model B
+    # stays LightGBM with `params`, so its predictions are those of the same recipe without the flag. `mlp_params`
+    # overrides prc.mlp.MLP_DEFAULTS; with the flag on the resolved settings are hashed. Off (the default) changes
+    # nothing and both fields are out of the hash.
+    mlp_matched: bool = False
+    mlp_params: dict = field(default_factory=dict)
+    # CatBoost settings for model A ONLY, merged over the resolved `cb_params` when model A is fitted
+    # (docs/competitor_research_2026-09-21/results/catboost-retune.md) - `matched_params`' CatBoost twin. Under
+    # CatBoost `cb_params` also sizes model B, so a retuned depth or rate set there would refit the unmatched lane
+    # too. Model B always uses `cb_params`. Empty (the default) changes nothing and is out of the hash. CatBoost
+    # only; the keys in CB_OWNED_KEYS and CB_MATCHED_PARAMS_REFUSED are refused.
+    cb_matched_params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.fe_osm_null_airports and not self.fe_osm_dist:
             raise ValueError("fe_osm_null_airports is set but fe_osm_dist is off; it would be silently ignored")
         if self.fe_arr_fill_permute and not self.fe_arr_fill:
             raise ValueError("fe_arr_fill_permute is set but fe_arr_fill is off; it would be silently ignored")
+        if self.linear_tree_matched_only and not self.use_linear_tree:
+            raise ValueError("linear_tree_matched_only is set but use_linear_tree is off; it would be silently ignored")
+        if self.airport_specialist_only and not (self.airport_models and self.airport_blend_weight == 1.0):
+            raise ValueError("airport_specialist_only needs airport_models on and airport_blend_weight 1.0")
         if self.matched_target not in MATCHED_TARGETS:
             raise ValueError(f"matched_target must be one of {MATCHED_TARGETS}, got {self.matched_target!r}")
         if self.model not in MODEL_FAMILIES:
             raise ValueError(f"model must be one of {MODEL_FAMILIES}, got {self.model!r}")
+        if self.mlp_params and not self.mlp_matched:
+            raise ValueError("mlp_params is set but mlp_matched is off; it would be silently ignored")
+        if self.mlp_matched:
+            from .mlp import resolve
+
+            resolve(self.mlp_params)  # refuses unknown keys
+            clash = [
+                k
+                for k, on in (
+                    ("model (must be lightgbm, for model B)", self.model != "lightgbm"),
+                    ("matched_params", bool(self.matched_params)),
+                    ("airport_models", self.airport_models),
+                    ("use_linear_tree", self.use_linear_tree),
+                    ("es_holdout_encodings", self.es_holdout_encodings),
+                )
+                if on
+            ]
+            if clash:
+                raise ValueError(f"mlp_matched cannot be combined with {clash}: model A would ignore them")
+        if self.matched_params:
+            if self.model != "lightgbm":
+                raise ValueError("matched_params are LightGBM parameters; they have no meaning under CatBoost")
+            bad = sorted(k for k in self.matched_params if k in MATCHED_PARAMS_REFUSED)
+            if bad:
+                raise ValueError(f"matched_params may not set {bad} (see MATCHED_PARAMS_REFUSED)")
+        if self.cb_matched_params:
+            if self.model != "catboost":
+                raise ValueError("cb_matched_params are CatBoost parameters; model must be catboost")
+            bad = sorted(k for k in self.cb_matched_params if k in CB_OWNED_KEYS or k in CB_MATCHED_PARAMS_REFUSED)
+            if bad:
+                raise ValueError(f"cb_matched_params may not set {bad} (see CB_OWNED_KEYS / CB_MATCHED_PARAMS_REFUSED)")
         if self.model == "lightgbm":
             if self.cb_params:
                 raise ValueError("cb_params is set but model is lightgbm; it would be silently ignored")
@@ -414,11 +516,24 @@ class TrainConfig:
         if self.model == "catboost":
             # The RESOLVED settings, so an edit to CB_DEFAULTS is a new experiment id rather than a silent one.
             d["cb_params"] = self.catboost_params()
+        if self.mlp_matched:
+            from .mlp import resolve
+
+            d["mlp_params"] = resolve(self.mlp_params)
         return hashlib.sha1(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:10]
 
     def catboost_params(self) -> dict:
         """CB_DEFAULTS with the recipe's cb_params on top. The fitter adds iterations, stopping and the seed."""
         return {**CB_DEFAULTS, **self.cb_params}
+
+    def for_matched(self) -> TrainConfig:
+        """The config model A is fitted with: `params` with `matched_params` on top (LightGBM), or `cb_params`
+        with `cb_matched_params` on top (CatBoost). Itself when both are empty."""
+        if self.cb_matched_params:
+            return replace(self, cb_params={**self.cb_params, **self.cb_matched_params}, cb_matched_params={})
+        if not self.matched_params:
+            return self
+        return replace(self, params={**self.params, **self.matched_params}, matched_params={})
 
     def for_unmatched(self) -> TrainConfig:
         """A copy sized for model B's much smaller training set."""
@@ -426,6 +541,7 @@ class TrainConfig:
             # `__post_init__` has already required model B's LightGBM capacity to equal model A's, so the only
             # override left to carry is the round cap - applied exactly as it is for LightGBM.
             return replace(self, num_rounds=self.unmatched_num_rounds)
+        extra = {"use_linear_tree": False, "linear_tree_matched_only": False} if self.linear_tree_matched_only else {}
         return replace(
             self,
             params={
@@ -434,6 +550,7 @@ class TrainConfig:
                 "min_data_in_leaf": self.unmatched_min_data_in_leaf,
             },
             num_rounds=self.unmatched_num_rounds,
+            **extra,
         )
 
     def lgb_params(self) -> dict:
@@ -1433,12 +1550,18 @@ def _fit_grouped(
     w = float(cfg.airport_blend_weight)
     if not 0.0 <= w <= 1.0:
         raise ValueError(f"airport_blend_weight must be in [0, 1], got {w}")
-    (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target], es_rows=es_rows)
-    info["rounds_matched"] = rounds
+    only = bool(cfg.airport_specialist_only)
+    if only:
+        # The per-airport member: no global fit. Every slot starts as NaN and must be filled by a group below.
+        out = np.full(target.height, np.nan)
+    else:
+        (g_glob,), rounds = _fit(train, target_expr, cfg, feature_cols, cat_cols, [target], es_rows=es_rows)
+        info["rounds_matched"] = rounds
+        out = np.array(g_glob, dtype=float, copy=True)
     tr_lab, tg_lab, groups = _group_labels(train, target, cfg)
     if len(groups) < 2:
         raise ValueError(f"airport_models needs at least two training groups, got {groups}")
-    out = np.array(g_glob, dtype=float, copy=True)
+    key_col = "ADEP_mvt" if cfg.airport_group_key == "adep" else None
     per: dict[str, dict] = {}
     blended = 0
     for name in groups:
@@ -1448,12 +1571,23 @@ def _fit_grouped(
         if w > 0.0 and n_tg > 0 and n_tr >= cfg.airport_min_group_rows:
             sub_tr = train.filter(pl.Series("_g", tr_m))
             sub_tg = target.filter(pl.Series("_g", tg_m))
-            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, feature_cols, cat_cols, [sub_tg], es_rows=es_rows)
-            out[tg_m] = (1.0 - w) * out[tg_m] + w * g_loc
+            f_cols, c_cols = feature_cols, cat_cols
+            if only and key_col is not None and sub_tr[key_col].n_unique() == 1:
+                f_cols = [c for c in feature_cols if c != key_col]
+                c_cols = [c for c in cat_cols if c != key_col]
+                rec["dropped"] = [c for c in (*feature_cols, *cat_cols) if c == key_col]
+            (g_loc,), r_g = _fit(sub_tr, target_expr, cfg, f_cols, c_cols, [sub_tg], es_rows=es_rows)
+            out[tg_m] = g_loc if only else (1.0 - w) * out[tg_m] + w * g_loc
             rec.update(fitted=True, rounds=r_g)
             blended += n_tg
             del sub_tr, sub_tg, g_loc
         per[name] = rec
+    if only:
+        missing = int(np.isnan(out).sum())
+        if missing:
+            raise ValueError(f"airport_specialist_only: {missing} matched target rows fall in no fitted group")
+        info["airport_specialist_only"] = True
+        info["rounds_matched"] = {k: r["rounds"] for k, r in per.items()}
     # Everything a silent no-op would hide. This repo has twice shipped a change that turned out to be one,
     # and both times the only symptom was several recipes returning the same number to six figures.
     info["airport_group_key"] = cfg.airport_group_key
@@ -1559,11 +1693,24 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
                 return g_
 
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
-            # is the only thing the flag adds, and it sets rounds_matched itself.
-            if cfg.airport_models:
-                g = _fit_grouped(m_tr, m_tg, _target_a, cfg, cols_a, cat_cols, info, es_rows=es_a)
+            # is the only thing the flag adds, and it sets rounds_matched itself. `cfg_a` is `cfg` itself unless
+            # matched_params is set (optuna-retune.md), and only then is it recorded.
+            cfg_a = cfg.for_matched()
+            if cfg.matched_params:
+                info["matched_params"] = dict(cfg.matched_params)
+            if cfg.cb_matched_params:
+                # Only when set (catboost-retune.md), so every existing record is byte-for-byte what it was.
+                info["cb_matched_params"] = dict(cfg.cb_matched_params)
+            if cfg.mlp_matched:
+                # Only when on (mlp-member.md); the LightGBM branches below are untouched.
+                from .mlp import fit_mlp
+
+                (g,), rounds = fit_mlp(m_tr, _target_a, cfg_a, cols_a, cat_cols, [m_tg], info)
+                info["rounds_matched"] = rounds
+            elif cfg.airport_models:
+                g = _fit_grouped(m_tr, m_tg, _target_a, cfg_a, cols_a, cat_cols, info, es_rows=es_a)
             else:
-                (g,), rounds = _fit(m_tr, _target_a, cfg, cols_a, cat_cols, [m_tg], es_rows=es_a)
+                (g,), rounds = _fit(m_tr, _target_a, cfg_a, cols_a, cat_cols, [m_tg], es_rows=es_a)
                 info["rounds_matched"] = rounds
             if cfg.model == "catboost":
                 info["cb_matched"] = dict(_CB_LAST)
@@ -1713,11 +1860,35 @@ def _lane_metrics(joined: pl.DataFrame, y: np.ndarray, pv: np.ndarray) -> dict:
     return out
 
 
+def _cached_fold(cache_dir: Path | None, fold: str, exp_id: str, fit) -> tuple[pl.DataFrame, dict]:
+    """`fit()` with an optional on-disk checkpoint; see `run_cv(fold_cache=...)`. The JSON is written last and
+    renamed into place, so a fold whose JSON exists has a complete parquet next to it."""
+    if cache_dir is None:
+        return fit()
+    pq_path, js_path = cache_dir / f"{fold}.parquet", cache_dir / f"{fold}.json"
+    if pq_path.exists() and js_path.exists():
+        saved = json.loads(js_path.read_text())
+        if saved.get("exp_id") != exp_id or saved.get("fold") != fold:
+            raise ValueError(f"{js_path} belongs to {saved.get('exp_id')}/{saved.get('fold')}, not {exp_id}/{fold}")
+        print(f"fold {fold}: loaded from {pq_path}", flush=True)
+        return pl.read_parquet(pq_path), saved["info"]
+    p, info = fit()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tmp = pq_path.with_suffix(".parquet.tmp")
+    p.write_parquet(tmp)
+    tmp.replace(pq_path)
+    tmp = js_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"exp_id": exp_id, "fold": fold, "info": info}, default=str))
+    tmp.replace(js_path)
+    return p, info
+
+
 def run_cv(
     feats: pl.DataFrame,
     cfg: TrainConfig,
     out_dir: Path = Path("experiments"),
     log_name: str = "experiments.jsonl",
+    fold_cache: Path | None = None,
 ) -> dict:
     """Month-blocked CV on a labelled departure feature frame. Writes OOF predictions and a JSONL record.
 
@@ -1727,8 +1898,16 @@ def run_cv(
     `overall` pools one prediction per row, so a fold whose rows an earlier fold already predicted contributes
     nothing to it. That is unchanged here; what is new is that the record says so: `overall.folds_pooled`,
     `overall.folds_shadowed` and each fold's `n_into_overall`. Read `overall` as the pooled OOF of
-    `folds_pooled` alone - with the production fold list that is {jan, jul, forward} and not `jul_fwd`."""
+    `folds_pooled` alone - with the production fold list that is {jan, jul, forward} and not `jul_fwd`.
+
+    `fold_cache` (default None: nothing is read or written) makes a long run resumable. Each fold's predictions
+    and `info` are written to `<fold_cache>/<exp_id>/<fold>.parquet|.json` as soon as the fold finishes, and a
+    re-run of the same experiment id loads a fold found there instead of fitting it again. Everything after
+    `predict_fold` is unchanged, so the OOF file and the record are what an uninterrupted run writes (the
+    record's `train_seconds` aside, and `info` as it reads back from JSON, which is how the record stores it)."""
     t0 = time.time()
+    exp_id = f"{cfg.name}-{cfg.hash()}"
+    cache_dir = None if fold_cache is None else Path(fold_cache) / exp_id
     months = year_month_key(feats)
     folds: list[Fold] = month_block_folds(months.unique().to_list())
     if cfg.folds:
@@ -1750,7 +1929,7 @@ def run_cv(
     for f in folds:
         tr_f = feats.filter(months.is_in(list(f.train_months)))
         va_f = feats.filter(months.is_in(list(f.valid_months)))
-        p, info = predict_fold(tr_f, va_f, cfg)
+        p, info = _cached_fold(cache_dir, f.name, exp_id, lambda tr=tr_f, va=va_f: predict_fold(tr, va, cfg))
         joined = va_f.select(["MVT_ID_mvt", LABEL, "ADEP_mvt", PROXY]).join(p, on="MVT_ID_mvt", how="inner")
         y, pv = joined[LABEL].to_numpy().astype(float), joined["pred"].to_numpy().astype(float)
         fold_metrics[f.name] = {
@@ -1805,7 +1984,7 @@ def run_cv(
         "folds_shadowed": shadowed,
     }
     rec = {
-        "exp_id": f"{cfg.name}-{cfg.hash()}",
+        "exp_id": exp_id,
         "config": {**cfg.__dict__},
         "git_sha": _git_sha(),
         "folds": fold_metrics,
