@@ -48,6 +48,7 @@ PA_MEMBER = "oof_main_flseq_osm_nolirf_l2_pa-85f815edf4"  # per-airport anchored
 OPT_MEMBERS = ["oof_main_flseq_osm_nolirf_l2_opt-7244b3004f", "oof_main_flseq_osm_nolirf_plainy_l2_opt-dd8b8e2c7c",
                "oof_main_flseq_osm_nolirf_cb_l2-4aa341b206", "oof_main_flseq_osm_nolirf_l2_pa_opt-8d54effc06"]
 MLP_MEMBER = "oof_main_flseq_osm_nolirf_l2_mlp-2b9a3b9348"  # M4 of hybrid_blend_l2_pa_opt_mlp (mlp-member.md)
+R6_OOF = "logs/rereview/oof_rr_R6_pa5_lofo.parquet"  # R6 (rejected-rereview.md): 5-member LOFO-weighted blend, read whole
 # base choice: `--base h2` (default, the pre-registered run) or `--base plainy` (hybrid_H2_plainy: matched lane
 # = 0.5 x anchored + 0.5 x plain OOF, unmatched = main_flseq; plainy-blend.md) or `--base cb` (hybrid_plainy_cb:
 # matched = (anchored + plain + CatBoost) / 3, unmatched = main_flseq; catboost-blend.md). Only the base and file
@@ -56,15 +57,18 @@ MLP_MEMBER = "oof_main_flseq_osm_nolirf_l2_mlp-2b9a3b9348"  # M4 of hybrid_blend
 # main_flseq; per-airport-member.md). S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy,
 # l2 vs cb, pa vs l2. `--base opt` (hybrid_blend_l2_pa_opt, same formula as pa with the retuned members) vs pa.
 # `--base mlp` (hybrid_blend_l2_pa_opt_mlp: matched = ((0.5 a2o + 0.5 pao) + p2o + c2 + m4) / 4) vs opt.
+# `--base r6` (R6: the stored hybrid OOF file is the base on both lanes; its unmatched lane is checked against
+# main_flseq) vs mlp.
 BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
-assert BASE_NAME in ("h2", "plainy", "cb", "l2", "pa", "opt", "mlp"), BASE_NAME
+assert BASE_NAME in ("h2", "plainy", "cb", "l2", "pa", "opt", "mlp", "r6"), BASE_NAME
 SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
-PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"), "pa": ("l2", "_l2"), "opt": ("pa", "_pa"), "mlp": ("opt", "_opt")}.get(BASE_NAME)  # (name, file suffix) for S4
+PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"), "pa": ("l2", "_l2"), "opt": ("pa", "_pa"), "mlp": ("opt", "_opt"), "r6": ("mlp", "_mlp")}.get(BASE_NAME)  # (name, file suffix) for S4
 REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
            "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet",
            "pa": ROOT + "logs/per_airport/scratch/oof_hybrid_blend_l2_pa.parquet",
            "opt": ROOT + "logs/retune/scratch/oof_hybrid_blend_l2_pa_opt.parquet",
-           "mlp": ROOT + "logs/mlp/scratch/oof_hybrid_blend_l2_pa_opt_mlp.parquet"}[BASE_NAME]
+           "mlp": ROOT + "logs/mlp/scratch/oof_hybrid_blend_l2_pa_opt_mlp.parquet",
+           "r6": ROOT + R6_OOF}[BASE_NAME]
 
 pl.Config.set_tbl_rows(60)
 pl.Config.set_tbl_width_chars(250)
@@ -123,6 +127,13 @@ def load_labelled() -> pl.DataFrame:
             D = D.with_columns(((0.5 * pl.col("m0") + 0.5 * pl.col("m3") + pl.col("m1") + pl.col("m2")) / 3.0)
                                .alias("oa"))
         assert D.filter(pl.col("mvt_minus_aobt3").is_not_null())["oa"].null_count() == 0
+    if BASE_NAME == "r6":
+        r6 = pl.read_parquet(ROOT + R6_OOF).rename({"oof": "r6"})
+        D = D.join(r6, on="MVT_ID_mvt", how="left").with_columns(pl.col("r6").alias("oa"))
+        u = D.filter(pl.col("mvt_minus_aobt3").is_null())
+        print(f"R6: null on jan/jul rows {D['r6'].null_count()}; unmatched lane max |R6 - main_flseq| "
+              f"{(u['r6'] - u['ob']).abs().max()}")
+        assert D["r6"].null_count() == 0
     D = D.with_columns(pl.when(pl.col("mvt_minus_aobt3").is_not_null()).then("oa").otherwise("ob").alias("b"),
                        pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("y"),
                        pl.col("MVT_TIME_UTC_mvt").dt.date().cast(pl.String).alias("day"))

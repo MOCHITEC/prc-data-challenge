@@ -784,3 +784,76 @@ git-ignored and not submitted.
   - The signed change quantiles are p1 −279, p10 −112, p50 −12, p90 +114 and p99 +343.
   - The mean prediction goes from 1,039.24 to 1,033.76 s.
 - **Against v33 (`hybrid_blend_l2_pa_opt_adsb_learned`).** 328,657 rows differ, with RMS 24.5 s and max 1,524 s.
+
+## 13. Re-run on the R6 base (`hybrid_blend_reweight`), plus the positional overlay (2026-10-05)
+
+**Context.** v35 scored 245.935. It is `hybrid_blend_l2_pa_opt_mlp` + the section 12 model + the 430-row positional
+overlay (`posjoin-on-mlp.md`). The new adopted base is R6 (`rejected-rereview.md`): a 5-member matched-lane blend
+with leave-one-fold-out weights.
+
+**Setup.** The section 12 design is unchanged; only the base is swapped.
+- `b` = `logs/rereview/oof_rr_R6_pa5_lofo.parquet` (`oof`), read whole.
+  - It has no null on the 344,419 jan/jul rows.
+  - Its unmatched lane equals `oof_main_flseq-8615e6a194` exactly (max |diff| 0.0).
+- Commands: `adsb_learn_cv.py --base r6` and `adsb_learn_apply.py --base r6`. Logs:
+  `$SCRATCH/adsb/learn_cv_r6.log` and `learn_apply_r6.log`.
+- **Memory.**
+  - A CatBoost tuning job was running, and the root `total_rss` was about 8.4 GB.
+  - The gate threshold was raised to 10,000 MB for this run, as instructed, via the new `ADSB_MEM_GATE_MB` env
+    variable in `adsb_learn_features.mem_gate`. The default stays 9,500.
+  - The gate never waited.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the R6 base | **7,928.5** | [6,927.8, 8,980.8] | 311.762 → **298.776** (−12.986) |
+| rule on the R6 base | 1,649.3 | [1,498.5, 1,815.6] | 311.762 → 309.105 (−2.656) |
+| paired: learned − rule | 6,279.2 | [5,352.1, 7,276.8] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 475, 290, 325, 337 and 135, so the final fit uses **325 rounds**.
+- Every airport's learned CI lower bound is > 0 except LTFM (0.0).
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| mlp | 312.057 |
+| R6 | 311.762 |
+| mlp + learned (section 12) | 298.934 |
+| R6 + learned | 298.776 |
+
+**(R6 + learned) − (mlp + learned) = −0.158 s, CI95 [−0.343, +0.017].** As MSE: 94.5 s² [−9.9, 191.5].
+- The CI **includes zero**, though only just.
+- About half of R6's −0.30 s base advantage on these rows survives the residual model.
+
+**File 1: `outputs/hybrid_blend_reweight_adsb_learned.parquet`.** It is the final fit (286,008 rows, 62 days,
+325 rounds) applied to `outputs/hybrid_blend_reweight.parquet`, with c = 0 at LTFM.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. 2 negatives were reverted to base.
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 281,912 rows (81.75 %) are changed.
+  - Over the changed rows, the RMS change is 112.6 s, with median |Δ| 44 s and max 1,669.
+  - The mean prediction goes from 1,039.02 to 1,034.25 s.
+- **Against the section 12 file.** 326,768 rows differ, with RMS 19.0 s and max 880 s.
+
+**File 2: `outputs/v36_candidate_reweight_adsb_posjoin.parquet`.** The positional overlay is applied
+**unchanged**: `analysis/local_posjoin_overlay.py`, as committed in bdf0b91, with `SCRATCH=$SCRATCH/adsb` and the
+same `pos/` inputs. The input is file 1. Log: `$SCRATCH/adsb/posjoin_v36.log`.
+- **Overlay result.** 430 target rows: 332 at w = 1 and 98 long-stop at w = 0.75. **All 430 changed.** The squared
+  change is 1,623 MSE, the same as for v34 and v35.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. `prc.validate_submission` prints OK.
+- **Same rows as v35.**
+  - **The 430 changed ids are identical to v35's.** These are the rows where
+    `v35_candidate_mlp_adsb_posjoin` differs from `hybrid_blend_l2_pa_opt_mlp_adsb_learned`.
+  - On those 430 rows, file 1 equals the section 12 file, and the overlaid values equal v35 exactly.
+- **Against v35.** 326,768 rows differ, the same set as file 1 vs the section 12 file, with RMS 19.0 s and max
+  880 s.
+
+Neither file is submitted.

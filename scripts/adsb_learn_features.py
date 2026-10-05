@@ -65,7 +65,7 @@ def mem_mb() -> float:
     return max(vals) if vals else 0.0
 
 
-def mem_gate(limit_mb: float = 9500.0) -> None:
+def mem_gate(limit_mb: float = float(os.environ.get("ADSB_MEM_GATE_MB", 9500))) -> None:
     while (m := mem_mb()) > limit_mb:
         print(f"  memory gate: total_rss {m:.0f} MB > {limit_mb:.0f}; waiting", flush=True)
         time.sleep(60)
