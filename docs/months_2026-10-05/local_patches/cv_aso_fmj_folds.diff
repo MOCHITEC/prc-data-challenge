@@ -1,0 +1,20 @@
+diff --git a/src/prc/cv.py b/src/prc/cv.py
+index 81333a1..b16c172 100644
+--- a/src/prc/cv.py
++++ b/src/prc/cv.py
+@@ -43,6 +43,15 @@ def month_block_folds(months_present: list[int]) -> list[Fold]:
+             before = tuple(x for x in ms if x < min(sel))
+             if before:
+                 folds.append(Fold(f"{name}_fwd", sel, before))
++    # local (finding 2 extension): Aug-Oct held out together, trained on the other nine months; only run when a
++    # config names it in `folds`, so production fold lists are unchanged.
++    aso = tuple(x for x in ms if x % 100 in (8, 9, 10))
++    if aso and len(aso) < len(ms):
++        folds.append(Fold("aso", aso, tuple(x for x in ms if x not in aso)))
++    # local (finding 2c): Feb-Jun held out together, trained on the other seven months; only run when named.
++    fmj = tuple(x for x in ms if x % 100 in (2, 3, 4, 5, 6))
++    if fmj and len(fmj) < len(ms):
++        folds.append(Fold("fmj", fmj, tuple(x for x in ms if x not in fmj)))
+     fwd = tuple(x for x in ms if x % 100 >= 11)
+     if fwd and len(fwd) < len(ms):
+         folds.append(Fold("forward", fwd, tuple(x for x in ms if x not in fwd)))

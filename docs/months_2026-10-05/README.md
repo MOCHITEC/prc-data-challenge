@@ -118,3 +118,30 @@ LIRF is unstable again: Nov+Dec −2,334 [−4,083, −735], Jul +4,300. It stay
 Built with `EXCLUDE=LIRF local_adsb_apply_swap.py 4:v2 7:v2` on v38, then the LOBT clip. It changes 230,380 rows
 (0 at LIRF), with a squared change of 390 MSE. The file is `outputs/c4_v38_7months_v2.parquet`. Expected gain
 ≈ +300–450 MSE.
+
+## C5 (not submitted): C4 + 7-month V2 residual on the positional-join rows
+
+`local_posjoin_model_compare.py`, 2025 positional-join rows (never in any residual's training set):
+
+| rows | n | RMSE base | old residual (Jan+Jul, current settings) | 7-month V2 residual |
+|---|---|---|---|---|
+| unmatched | 949 | 526 | 447 (+211.6 MSE) | **435 (+242.1)** |
+| matched | 100 | 416 | 386 (+6.9) | **351 (+14.3)** |
+
+`local_posjoin_model_swap.py` applied on C4 changes 884 rows, with a squared change of 41.5 MSE. The file is
+`outputs/c5_c4_posjoin7v2.parquet`.
+
+## Why LIRF is unstable across residual versions
+
+Per month, the LIRF rows of `cv_rows_months7_v2` split into copy rows (|y − MVT−SCHED| ≤ 12 s) and the rest:
+
+* Non-copy rows gain from C over B in every month.
+* Copy rows lose under every residual: unmatched copy rows lose −74 to −441 per month, and C usually loses more.
+
+The residual pulls toward the ADS-B taxi, but a copy label is MVT − SCHED. The Jan-2026-like exposure is
+< 100 MSE, so LIRF simply stays out of the swap.
+
+## Finding 2c (under way): Feb–Jun 2025
+
+Local `fmj` fold (`local_patches/cv_aso_fmj_folds.diff`): Feb–Jun held out, 1 seed. Ingest covers
+2025-02-01..06-30.
