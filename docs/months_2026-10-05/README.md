@@ -145,3 +145,38 @@ The residual pulls toward the ADS-B taxi, but a copy label is MVT − SCHED. The
 
 Local `fmj` fold (`local_patches/cv_aso_fmj_folds.diff`): Feb–Jun held out, 1 seed. Ingest covers
 2025-02-01..06-30.
+
+## Finding 2c: all 12 months (`local_adsb_learn_months12.py`, V2 settings), C = 12 months vs B = 7 months
+
+Inputs:
+
+* ADS-B for Feb–Jun: 136 of 150 days. The 14 missing days fall around 2025-05-28 .. 06-10.
+* Base for Feb–Jun: the local `fmj` fold. Fold RMSE is 261.30 for `main_flseq_osm_nolirf_fmj` and 261.53 for
+  `main_flseq_fmj`.
+
+All airports pooled:
+
+| evaluated on | C − B (MSE) | CI95 |
+|---|---|---|
+| Jan+Jul | −17 | [−338, +270] |
+| Nov+Dec | +209 | [+101, +334] |
+| Feb–Jun | +970 | [+780, +1,168] |
+| all | +429 | [+312, +541] |
+
+LIRF and LFPG are noisy losers: LFPG Jan −1,243 [−4,708, +1,054]; LIRF Jan −3,277, Jul −1,845. Most other airports
+gain.
+
+Months gain with those airports left unchanged (excluded rows count as zero change):
+
+| excluded | Jan+Jul | Jul | Nov+Dec |
+|---|---|---|---|
+| LIRF (pre-set) | +172 [−28, +331] | +194 [+60, +369] | +207 [+126, +308] |
+| LIRF + LFPG (**post hoc**) | **+245 [+158, +349]** | +210 [+74, +390] | +197 [+140, +274] |
+
+## C6 (not submitted): C5 + swap 7:v2 → 12:v2 on ground-fix rows, LIRF and LFPG excluded
+
+LFPG stays on the 7-month residual. That is the conservative choice, and it is **post hoc**: LFPG has had the
+sparsest ADS-B coverage and the most unstable transfer throughout.
+
+C6 changes 206,925 rows (0 at LIRF or LFPG), with a squared change of 248 MSE. The file is
+`outputs/c6_c5_12months.parquet`. Expected gain ≈ +150–250 MSE.
