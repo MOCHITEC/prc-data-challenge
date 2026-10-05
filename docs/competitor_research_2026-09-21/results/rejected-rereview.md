@@ -250,3 +250,26 @@ Retrain-needed (ranked as in §0.3; the costs are the notes' measured wall times
 
 Peak `total_rss` of every retraining run in the notes was 9.0–12.5 GB. None of them can run next to the CatBoost
 tuning job (8.1 GB) under the 13,681 MB limit.
+
+## 3. R6 pre-registration (written and committed before R6 was computed)
+
+The coordinator asked for this follow-up after §2. It is chosen after seeing R1 and R2, so it is not blind.
+
+- **R6.** Matched lane = leave-one-fold-out sum-to-one least-squares weights over the five members
+  (a2o, pao, p2o, c2, m4).
+  - It uses the method of `scripts/blend_mlp.py`: `catboost_blend.sum_to_one_weights`, fitted on the matched scored
+    rows of the other pooled folds (a2o's `_folds` sidecar), and applied to the held-out fold.
+  - Unmatched lane = u.
+- **Comparison.** A = `hybrid_blend_l2_pa_opt_mlp`. Same `prc.compare` and the same decision rule as §1.2. Report the
+  full, drop-200 and month figures, plus per-airport detail.
+- **Choice rule (fixed now).** Among R1, R2 and R6, keep those whose verdict is ADOPT. Pick the one with the best
+  (most negative) full-data point estimate.
+- **Output.** `outputs/hybrid_blend_reweight.parquet`, built from the existing full-fit member files of
+  `scripts/blend_mlp.py`'s `FULL_FILES`, with no training.
+  - Matched rows = `rint` of the winner's formula. Where the winner uses weights, they are the weights fitted on all
+    OOF folds (stated in §4).
+  - Unmatched rows = `outputs/main_flseq.parquet`.
+- **Validation.** The row count equals the template. The schema equals the template. Ids and their order equal
+  `data/raw/submitting.parquet`. There are 0 nulls and 0 negatives. `prc.validate_submission` passes.
+- **OOF for the ADS-B refit.** The winner's OOF is copied to
+  `logs/rereview/scratch/oof_hybrid_blend_reweight.parquet`.
