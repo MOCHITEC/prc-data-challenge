@@ -56,3 +56,15 @@ overlays.
 
 Caveat: the production residual is the other session's model fitted on its v33 base. The A model here is a local
 reproduction on the cb base, so the swap is applied as a delta (B − A), not by replacing their correction.
+
+## Rebuilt on the other session's v35 (LB 245.935: MLP 4-member blend + its refit learned residual + the v34 overlay)
+
+The same steps were applied in order: positional-join learned residual → LIRF copy blend → months swap (ground
+rows only) → LOBT clip.
+
+| candidate | contents | rows changed vs v35 | squared change (MSE) | expected gain |
+|---|---|---|---|---|
+| C1 `outputs/c1_v35theirs_overlays.parquet` | posjoin learned + LIRF copy + LOBT clip | ≈ 27,200 | ≈ 567 | +450–650 MSE |
+| C2 `outputs/c2_v35theirs_overlays_months.parquet` | C1 + finding 2 | 258,567 | 1,321 | +1,300–1,500 MSE |
+
+Both pass `validate_submission`. Neither has been submitted.
