@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-05): pre-registered, nothing run.** §0 is written and committed before any tuning trial,
+**Status (2026-10-05): study running (trial 0 done, N = 13).** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -151,3 +151,10 @@ checked: unmatched-lane predictions byte-identical to `4aa341b206` (model B unto
 All runs alone (one training at a time), gated as in §0.3, logged to `logs/cbretune/` (git-ignored) with exit codes
 checked, peak cgroup `total_rss` sampled every 10 s (own and all sessions), killed above 13,000 MB (memory limit
 13,681 MB). Reference: M3's CV + full fit 16,638 s (CV 10,819 s), peak 11,977 MB (`blend-l2.md`).
+
+## 1. Tuning study
+
+**Budget (§0.3 rule):** trial 0 (current settings) took t0 = **3,230 s** wall (3,202 s fitting; 1,571,364 training
+rows, 183,761 October matched rows; ES best 3,993, refit 4,521 rounds; October matched RMSE 206.673; peak
+total_rss 7,912 MB own / 8,132 MB parent). **N = floor(43,200 / 3,230.3) = 13 trials** (0 … 12), fixed here before
+trial 1 started.
