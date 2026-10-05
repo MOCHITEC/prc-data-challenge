@@ -22,3 +22,15 @@
 - **Main rule**: `prc.compare base cmix` returns ADOPT (full and K=200 CIs exclude 0 on the improving side).
 - The effect lives at one airport, so the per-airport tail report is read too, along with the STRICT VERDICT line. Under the strict rule "most airports improve" cannot hold by design. The strict line is reported for information and is not part of this verdict.
 - **Extra condition**: LIRF must improve in **both** the jan and jul folds. If it does not, REJECT even if the main rule ADOPTs.
+
+## Result (2026-10-05, `cmix_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_cmix-d9b7e7a288.
+- **Main rule:** full rows −0.49 s [−0.83, −0.15]; K=200 −0.70 s [−1.03, −0.36]. Both CIs exclude 0 on the improving side.
+- **Extra condition, met:** LIRF matched rows improve in both test-season folds.
+  - jan 280.0 → 275.1 (−4.93)
+  - jul 434.4 → 430.4 (−4.07)
+  - forward −7.10
+  - pooled −5.39 s [−8.99, −1.76], with the airport-day bootstrap
+- Every fold improves overall: forward −0.69, jan −0.29, jul −0.47.
+- STRICT reports 1/10 airports. That is expected for a change at one airport; the plan says it is informational only.
+- This is smaller than the simple-base measurement (−2.2 s), as expected: the production model is stronger at LIRF.
