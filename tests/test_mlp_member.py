@@ -27,6 +27,14 @@ MLP_BASE = "main_flseq_osm_nolirf_l2.yaml"
 
 # (experiment id, digest of [model A params, model B params]) of every recipe in configs/ at f6b09ef.
 BEFORE = {
+    # new-stand / month-scope / L6 recipes on claude/peaceful-babbage-md9l2x (2026-10-05)
+    "ms_scope.yaml": ("4a3e399ba3", "9f53bbe724"),
+    "ns_base.yaml": ("2c65506a2d", "9f53bbe724"),
+    "ns_base_u.yaml": ("2d1a8167a5", "9f53bbe724"),
+    "ns_drop.yaml": ("693275dd32", "9f53bbe724"),
+    "ns_drop_u.yaml": ("f58349b6af", "9f53bbe724"),
+    "ret_base.yaml": ("338abfb11c", "9f53bbe724"),
+    "ret_l6.yaml": ("65265584c7", "9f53bbe724"),
     # recipes that exist only on claude/peaceful-babbage-md9l2x (ids checked: L5 = e1ee6f181e as logged)
     "clip1800.yaml": ("935169f2ee", "9f53bbe724"),
     "clip1800_fl.yaml": ("f55e2764d5", "9f53bbe724"),

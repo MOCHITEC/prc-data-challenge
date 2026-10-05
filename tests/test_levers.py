@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from prc.features import build_departure_features
-from prc.levers import L1_COLS, L2_COLS, L3_COLS, LEVER_COLS, _in_system, attach_levers
+from prc.levers import L1_COLS, L2_COLS, L3_COLS, L6_COLS, LEVER_COLS, _in_system, attach_levers
 from prc.pipeline import train_config_from_spec
 from prc.synth import generate_month
 from prc.train import PROXY, TrainConfig, predict_fold, unmatched_columns, visible_numeric_columns
@@ -299,7 +299,7 @@ def _cfg(**kw):
 
 def test_the_synthetic_frame_has_lever_values(frames):
     _, with_l, _ = frames
-    for c in LEVER_COLS:
+    for c in [c for c in LEVER_COLS if c not in L6_COLS]:  # the fixture does not ask for L6
         assert with_l[c].is_not_null().sum() > 0, c
 
 
