@@ -1,0 +1,13 @@
+matched rows with an exit: 114123
+
+LSZH: n=91,269  spearman(g, exit-AOBT3) all -0.578  stand-match -0.639 (n=63,341)
+   g (label - proxy, clipped) out-of-time: constant 240.0 -> exit columns 165.6  (-74.3 s on these rows, n_test=47,564)
+
+EDDF: n=10,643  spearman(g, exit-AOBT3) all -0.330  stand-match -0.740 (n=4,428)
+   g (label - proxy, clipped) out-of-time: constant 254.4 -> exit columns 241.6  (-12.9 s on these rows, n_test=10,284)
+
+LEBL: n=6,362  spearman(g, exit-AOBT3) all -0.567  stand-match -0.604 (n=4,564)
+   g (label - proxy, clipped) out-of-time: constant 322.0 -> exit columns 271.5  (-50.5 s on these rows, n_test=1,042)
+
+LEMD: n=3,683  spearman(g, exit-AOBT3) all -0.304  stand-match -0.590 (n=1,231)
+   g (label - proxy, clipped) out-of-time: constant 245.6 -> exit columns 215.1  (-30.5 s on these rows, n_test=1,841)

@@ -23,7 +23,8 @@ WIN_S, MIN_S = 7200, 30
 
 def events() -> pl.DataFrame:
     files = sorted(glob.glob("data/external/opdi_events/ground_*.parquet"))
-    ev = pl.concat([pl.read_parquet(f) for f in files])
+    # flight_id is Int64 in some files and UInt64 in others; the link does not use it
+    ev = pl.concat([pl.read_parquet(f).drop("flight_id") for f in files])
     return (
         ev.filter((pl.col("type") == "exit-parking_position") & pl.col("callsign").is_not_null())
         .select(
