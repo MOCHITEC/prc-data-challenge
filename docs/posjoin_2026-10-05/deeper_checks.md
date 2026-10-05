@@ -13,3 +13,22 @@ All checks are label-free on 2026 or validated against 2025 labels. Nothing was 
 | 7 | Learned residual on LIRF unmatched rows with MVT−SCHED > 4 h (81 % schedule fills) | Hurts in 2025 (−330 MSE, 27 rows), but the sign flips at 3 h, so it is threshold-sensitive. In 2026, 21 rows carry a correction (median −862 s). Zeroing it is worth ≈ 30 MSE at best. Noted for the extreme-row work. | ≈ 0.06 s |
 | 8 | Airport-hour error sharing: do ADS-B rows' residuals transfer to non-ADS-B rows? | corr 0.11 in a 1 h window, 0.02 per day. Best shrink ≈ 60 MSE in 2025. | ≈ 0.1 s |
 | 9 | Arrival-side information (stand arrival taxi, etc.) | Already in the feature set (`ta_taxi`, `arr_taxi_in_mean_*`, `occ_*`). | — |
+
+## Follow-up: the learned residual on positional-join rows (candidate, not submitted)
+
+v34 used raw ADS-B only on rows with a pushback and no long stop. The remaining positional-join rows can get the
+learned residual itself: `local_posjoin_learnfeat.py` builds its features, and `local_posjoin_learned_eval.py`
+checks them against the 2025 labels. None of these rows was ever in the residual's training set.
+
+| 2025 rows | n | RMSE base → learned | gain (MSE) |
+|---|---|---|---|
+| unmatched, non-overlay, non-LIRF | 724 | 569 → 501 | +151.5 |
+| matched, non-LIRF | 100 | 416 → 386 | +6.9 |
+| LIRF | 19 | 6,720 → 7,061 | −259.8 (excluded) |
+
+Long-stop rows stay on the v34 distance rule. On 2025's long stops (mostly tows) the learned residual is better:
+RMSE 369, against 539 for the base and 787 for the rule. But the 2026 snow-day stops are de-icing, and the board
+gain of v34 (2,090 MSE) exceeded the estimate, which says the rule worked there.
+
+The candidate is v34 plus the residual on 890 rows (`local_posjoin_learned_apply.py`). Its squared change is
+307 MSE, and the expected gain is about 150–250 MSE. It is held back so it can be combined with finding 2.
