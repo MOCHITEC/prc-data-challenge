@@ -591,7 +591,11 @@ def report(J, y):
         f = L.filter(pl.col(EST[name]).is_not_null())
         print(f"late NM [{name}]", {"adsb": acc(f, "e_" + name), "aobt3": acc(f, "e_aobt3")})
     # ------------------------------------------------------------- what it would do for the target
-    oof = pl.read_parquet(REPO_DIR + "experiments/oof_main_gap-62dd7c6e88.parquet")
+    oof_path = REPO_DIR + "experiments/oof_main_gap-62dd7c6e88.parquet"
+    if not os.path.exists(oof_path):  # informational only; the joined file is already written
+        print(f"\n[target] skipped: {oof_path} not on this machine")
+        return
+    oof = pl.read_parquet(oof_path)
     for name in ["move", "push"]:
         Y = J.filter(pl.col(EST[name]).is_not_null() & pl.col("t_aobt3").is_not_null()).join(
             oof, on="MVT_ID_mvt", how="inner").with_columns(

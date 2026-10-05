@@ -24,6 +24,7 @@ import polars as pl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adsb_learn_features as L
 import adsb_opdi as O
+import adsb_appear as A
 
 ROOT = L.s1.REPO_DIR
 OUT = L.OUT
@@ -56,17 +57,24 @@ OPT_MEMBERS = ["oof_main_flseq_osm_nolirf_l2_opt-7244b3004f", "oof_main_flseq_os
 # main_flseq; per-airport-member.md). S4 compares with the previous base's learned run: plainy vs h2, cb vs plainy,
 # l2 vs cb, pa vs l2. `--base opt` (hybrid_blend_l2_pa_opt, same formula as pa with the retuned members) vs pa.
 BASE_NAME = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "h2"
-assert BASE_NAME in ("h2", "plainy", "cb", "l2", "pa", "opt"), BASE_NAME
+# `--base a2` (docs/appear_tier_2026-10-05/plan.md): matched lane = the v28 anchored L2 member alone, unmatched =
+# main_flseq; a base buildable without the opt members, for measuring added ADS-B columns on the same base.
+assert BASE_NAME in ("h2", "plainy", "cb", "l2", "pa", "opt", "a2"), BASE_NAME
+if BASE_NAME == "a2":
+    H2_A = "oof_main_flseq_osm_nolirf_l2-ef204b44ff"
 # `--opdi` / `--opdi-shuffle` (scripts/adsb_opdi.py, handoff/2026-10-05/README.md): OPDI stand-exit columns added to
 # the design; S4 then compares with the same base's run without them.
-SFX = ("" if BASE_NAME == "h2" else "_" + BASE_NAME) + O.SFX
+BASE_SFX = "" if BASE_NAME == "h2" else "_" + BASE_NAME
+# `--appear` / `--appear-shuffle` (scripts/adsb_appear.py): appear-tier columns, same comparison scheme as OPDI.
+SFX = BASE_SFX + O.SFX + A.SFX
 PREV = {"plainy": ("h2", ""), "cb": ("plainy", "_plainy"), "l2": ("cb", "_cb"), "pa": ("l2", "_l2"), "opt": ("pa", "_pa")}.get(BASE_NAME)  # (name, file suffix) for S4
-if O.MODE:
-    PREV = (f"{BASE_NAME} without OPDI", SFX[: -len(O.SFX)])
+if O.MODE or A.MODE:
+    PREV = (f"{BASE_NAME} without the added columns", BASE_SFX)
 REF_OOF = {"h2": "exp/oof_hybrid_H2.parquet", "plainy": "exp/oof_hybrid_H2_plainy.parquet",
            "cb": "cbx/oof_hybrid_plainy_cb.parquet", "l2": "l2exp/oof_hybrid_blend_l2_P.parquet",
            "pa": ROOT + "logs/per_airport/scratch/oof_hybrid_blend_l2_pa.parquet",
-           "opt": ROOT + "logs/retune/scratch/oof_hybrid_blend_l2_pa_opt.parquet"}[BASE_NAME]
+           "opt": ROOT + "logs/retune/scratch/oof_hybrid_blend_l2_pa_opt.parquet",
+           "a2": "none/oof_hybrid_a2.parquet"}[BASE_NAME]
 
 pl.Config.set_tbl_rows(60)
 pl.Config.set_tbl_width_chars(250)
@@ -190,6 +198,8 @@ def main() -> None:
     D = D.join(F, on="MVT_ID_mvt", how="left").with_columns(pl.col("icao").is_not_null().alias("has"))
     if O.MODE:
         D = O.add(D, ROOT)
+    if A.MODE:
+        D = A.add(D, "2025")
     chk = D.filter(pl.col("has")).select(
         (pl.col("t_mvt") - pl.col("MVT_TIME_UTC_mvt").dt.epoch("ms") / 1000).abs().max().alias("max|t_mvt-MVT|"))
     print("ADS-B rows", int(D["has"].sum()), "of", D.height, "|", chk.row(0, named=True))
@@ -202,6 +212,8 @@ def main() -> None:
     X, feats, cats = L.design(D, "b")
     if O.MODE:
         X, feats = O.design(X, feats, "b")
+    if A.MODE:
+        X, feats = A.design(X, feats, "b")
     print(f"{len(feats)} features:", feats)
 
     head("S1  leave-days-out folds")
@@ -321,6 +333,8 @@ def main() -> None:
 
     if O.MODE:
         res["opdi"] = O.report(D, bv + c_learn, OUT, PREV[1])
+    if A.MODE:
+        res["appear"] = A.report(D, bv + c_learn, OUT, PREV[1])
 
     D.select("MVT_ID_mvt", "day", "cvfold", "ADEP_mvt", "y", "b", "has").with_columns(
         pl.Series("c_learned", c_learn), pl.Series("c_rule", c_rule)).write_parquet(os.path.join(OUT, f"cv_rows{SFX}.parquet"))

@@ -22,19 +22,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adsb_learn_cv as CV
 import adsb_learn_features as L
 import adsb_opdi as O
+import adsb_appear as A
 
 ROOT = L.s1.REPO_DIR
 # `--base plainy` (see adsb_learn_cv.py): base outputs/hybrid_H2_plainy.parquet, CV json cv_plainy.json
-BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb", "l2": "blend_l2", "pa": "blend_l2_pa", "opt": "blend_l2_pa_opt"}[CV.BASE_NAME]
+BASE_TAG = {"h2": "H2", "plainy": "H2_plainy", "cb": "plainy_cb", "l2": "blend_l2", "pa": "blend_l2_pa", "opt": "blend_l2_pa_opt", "a2": "a2"}[CV.BASE_NAME]
 PREV_OUT = {"plainy": "outputs/hybrid_H2_adsb_learned.parquet",
             "cb": "outputs/hybrid_H2_plainy_adsb_learned.parquet",
             "l2": "outputs/hybrid_plainy_cb_adsb_learned.parquet",
             "pa": "outputs/hybrid_blend_l2_adsb_learned.parquet",
             "opt": "outputs/hybrid_blend_l2_pa_adsb_learned.parquet"}.get(CV.BASE_NAME)
-assert O.MODE != "opdishuf", "--opdi-shuffle is a CV control only"
-if O.MODE:  # compare with the same base's residual without the OPDI columns
+assert O.MODE != "opdishuf" and A.MODE != "appearshuf", "the shuffle arms are CV controls only"
+if O.MODE or A.MODE:  # compare with the same base's residual without the added columns
     PREV_OUT = f"outputs/hybrid_{BASE_TAG}_adsb_learned.parquet"
-OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned{O.SFX}.parquet"
+OUT_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}_adsb_learned{O.SFX}{A.SFX}.parquet"
 BASE_FILE = ROOT + f"outputs/hybrid_{BASE_TAG}.parquet"
 V20_FILE = ROOT + "outputs/v20_hybridH2_adsb.parquet"
 NO_CORR = ["LTFM"]  # section 0a
@@ -55,9 +56,13 @@ def main() -> None:
     D = D.join(F, on="MVT_ID_mvt", how="inner")
     if O.MODE:
         D = O.add(D, ROOT)
+    if A.MODE:
+        D = A.add(D, "2025")
     X, feats, cats = L.design(D, "b")
     if O.MODE:
         X, feats = O.design(X, feats, "b")
+    if A.MODE:
+        X, feats = A.design(X, feats, "b")
     assert feats == cvj["features"]
     r = np.clip(D["y"].to_numpy() - D["b"].to_numpy(), -CV.CLIP_Y, CV.CLIP_Y)
     dtr = lgb.Dataset(X.select(feats).to_numpy().astype(np.float64), r, feature_name=feats, categorical_feature=cats)
@@ -84,9 +89,14 @@ def main() -> None:
     if O.MODE:
         G = O.add(G, ROOT)
         O.parity(D, G)
+    if A.MODE:
+        G = A.add(G, "2026")
+        A.parity(D, G)
     X26, feats26, _ = L.design(G, "b")
     if O.MODE:
         X26, feats26 = O.design(X26, feats26, "b")
+    if A.MODE:
+        X26, feats26 = A.design(X26, feats26, "b")
     assert feats26 == feats
     c26 = np.clip(model.predict(X26.select(feats).to_numpy().astype(np.float64)), -CV.CLIP_C, CV.CLIP_C)
     G = G.with_columns(pl.Series("c", c26)).with_columns(
