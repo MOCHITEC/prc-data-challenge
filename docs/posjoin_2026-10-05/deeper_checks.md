@@ -55,3 +55,32 @@ Compared with v34, the candidate changes 27,179 rows, and its squared change is 
 | 12 | July 2026 runway mix against July 2025 | LFPG 27R falls from 16 % to 0.1 % (closed). LFPG median MVT−AOBT_3 rises by 60–120 s per runway. EGLL 09R +27 points (wind). The anchored model absorbs this through MVT−AOBT_3; the unmatched LFPG July exposure is ≈ 7 MSE. |
 | 13 | Time-stamp resolution | 5 s at EDDM, EGLL, LFPG, LIRF and LTFM, and for BLOCK at LEBL and LEMD (P(sec = 0) = 1/12); 1 s elsewhere. No lever. |
 | 14 | Learned-residual settings on the 4-month data (`local_adsb_tune_months.py`), paired against the current settings | V1 (127 leaves, min 200): +279 MSE [+156, +421]. **V2 (255 leaves, min 300, ff 0.7): +376 [+193, +582]**, with Nov+Dec +302 [+209, +395] and Jan+Jul +447 [+99, +842]. V3 (l2 = 50): +39 [−6, +88]. V2 is carried into the next candidate. |
+
+## New angle: unmatched non-LIRF rows with normal labels (2025, 4-month OOF b + c_B)
+
+Error budget of the unmatched lane, which carries 46 % of all SSE:
+
+| rows | n | RMSE | MSE contribution (4-month units) |
+|---|---|---|---|
+| non-LIRF, y < 1 h | 7,752 | 369 | 1,574 |
+| **non-LIRF, 1 h ≤ y < 4 h** | **87** | **3,947** | **2,016** (median error −2,902 s) |
+| non-LIRF, y ≥ 4 h | 2 | 71,424 | 15,173 (corrupt labels) |
+| LIRF | 537 | — | 10,957 |
+
+The 87 rows are flights that pushed on time (BLOCK − SCHED within ±10 min) and then waited 1–3 h. They cluster
+on disruption days (EGLL 07-06 and 07-30, LFPG 11-22) when matched neighbours also taxied long (nbr mean
+MVT−AOBT_3 > 2,500 s).
+
+`local_unm_longwait.py` builds a classifier for P(y ≥ 1 h), fit on the 8 other months: **AUC 0.879**, driven by
+`nbr_mvt_minus_aobt_mean_60m`. Blends `p + A·q·(target − p)` over A ∈ {0.25 … 1}, with q gates 0 / 0.3 / 0.5,
+against four targets:
+
+| target | best total gain (MSE) |
+|---|---|
+| MVT−SCHED | −34 |
+| neighbour mean | +0.3 |
+| their mid-point | −14 |
+| constant (training median of positives, 5,108 s) | −3 |
+
+**Not adopted.** Among positives, y correlates −0.21 with MVT−SCHED and −0.24 with the neighbour mean: the
+long-wait rows can be flagged, but their length cannot be predicted.
