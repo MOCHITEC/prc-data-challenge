@@ -32,3 +32,8 @@ L6, `src/prc/levers.py:_retention_frame`, model A only, default off, existing id
 - This is larger than the residual-harness estimate (−0.8 s before any haircut). After the expected CV→LB haircut,
   the LB expectation is about −0.3 to −0.6 s.
 - **Next step:** turn on `fe_retention` in the production members and re-verify on all folds.
+
+## Production step — pre-registered before the runs (2026-10-05)
+- **Pair**: `main_flseq_osm_nolirf_l2_opt` (a2o, the anchored LGB member of the v35 blend) vs `main_flseq_osm_nolirf_l2_opt_l6` (+ `fe_retention: true`). All folds.
+- **Verdict**: `prc.compare` ADOPT (full and K=200 CIs exclude 0 on the improving side). STRICT VERDICT reported next to it.
+- **If ADOPT**: the same flag goes into the other LGB members (pao, p2o), so the blend is not diluted the way L5 was (1/8 weight). Each member is re-run and checked with `prc.compare`. The blend delta is then built and checked the same way.
