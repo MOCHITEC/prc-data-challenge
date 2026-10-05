@@ -156,6 +156,9 @@ _HASH_OPTIONAL: dict = {
     "fe_retention": False,
     # copy-mixture (docs/research_2026-10-05_measure/copy_plan.md): empty, every existing id is unchanged.
     "copy_mix_airports": [],
+    # G-model blend (docs/research_2026-10-05_measure/gmodel_plan.md): empty, every existing id is unchanged.
+    "gmodel_airports": [],
+    "gmodel_lambda": 0.25,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -438,6 +441,11 @@ class TrainConfig:
     # non-copy rows, and the prediction is p*(MVT - SCHED) + (1-p)*that refit. p is 0 where SCHED lies outside the
     # LOBT window. Empty (the default): model A is exactly what it was.
     copy_mix_airports: list = field(default_factory=list)
+    # G-model blend into model B at these airports (docs/research_2026-10-05_measure/gmodel_plan.md): G = BLOCK -
+    # SCHED = (MVT - SCHED) - y is fitted on ALL of the airport's training departures (matched rows included) with
+    # model B's columns, and on that airport's unmatched target rows pred = (1 - lambda)*B + lambda*(ms - G_hat).
+    gmodel_airports: list = field(default_factory=list)
+    gmodel_lambda: float = 0.25
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -1833,6 +1841,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))
             g = u_tg["ref_p10_fb"].fill_null(fallback).to_numpy().astype(float)
             info["rounds_unmatched"] = 0
+        if cfg.gmodel_airports and u_tr.height >= 200:
+            g = _gmodel_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
     # Everything a silent no-op would hide. An empty record with the flag on means the holdout was never
@@ -1841,6 +1851,43 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["es_encoder_matched"] = es_stats_a
         info["es_encoder_unmatched"] = es_stats_b
     return _assemble(parts, tr, tg, target_f, info, cfg)
+
+
+def _gmodel_blend(
+    tr: pl.DataFrame,
+    u_tg: pl.DataFrame,
+    pred_b: np.ndarray,
+    cfg: TrainConfig,
+    cols_b: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_b` blended with ms - G_hat on the unmatched target rows at cfg.gmodel_airports. G_hat is fitted on the
+    training side of the fold only, on every labelled departure of the airport, with model B's columns."""
+    lam = float(cfg.gmodel_lambda)
+    if not (0.0 <= lam <= 1.0):
+        raise ValueError(f"gmodel_lambda must be in [0, 1], got {lam!r}")
+    out = pred_b.copy()
+    tg_apt = u_tg["ADEP_mvt"].to_numpy()
+    cfg_b = cfg.for_unmatched()
+    stats = {}
+    for ap in cfg.gmodel_airports:
+        tr_a = tr.filter((pl.col("ADEP_mvt") == ap) & pl.col(SCHED_OFFSET).is_not_null() & pl.col(LABEL).is_not_null())
+        sel = np.flatnonzero((tg_apt == ap) & u_tg[SCHED_OFFSET].is_not_null().to_numpy())
+        if tr_a.height < 1000 or sel.size == 0:
+            stats[ap] = {"skipped": True, "train_rows": tr_a.height}
+            continue
+        tg_a = u_tg[sel]
+
+        def _g(f: pl.DataFrame) -> np.ndarray:
+            return f[SCHED_OFFSET].to_numpy().astype(float) - f[LABEL].to_numpy().astype(float)
+
+        (g_hat,), rounds = _fit(tr_a, _g, cfg_b, cols_b, cat_cols, [tg_a])
+        t = tg_a[SCHED_OFFSET].to_numpy().astype(float) - g_hat
+        out[sel] = (1.0 - lam) * pred_b[sel] + lam * t
+        stats[ap] = {"train_rows": tr_a.height, "target_rows": int(sel.size), "rounds": rounds, "lambda": lam}
+    info["gmodel"] = stats
+    return out
 
 
 COPY_TOL_S = 60.0
