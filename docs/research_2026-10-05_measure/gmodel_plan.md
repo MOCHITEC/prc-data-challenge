@@ -26,3 +26,16 @@ The change touches only LIRF unmatched rows (about 0.11% of the ranking set), so
   2. Both the jan and the jul fold improve on those rows.
   3. Matched rows are bit-identical between the arms.
 - `prc.compare` is reported for completeness, and so is its "unmatched @ LIRF" line.
+
+## Result (2026-10-05, `gm_verdict.txt`)
+**REJECT.** main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_gm-67f49a5d62.
+- Condition 3 met: matched rows are bit-identical.
+- Condition 1 failed: on LIRF unmatched rows the pooled change is −10.3 s, CI [−57.8, +31.9] (includes 0).
+- Condition 2 was not met cleanly:
+  - jan improves by −115.9 s (n = 60);
+  - jul is −1.0 s, essentially flat (n = 337);
+  - forward is worse by +18.3 s (n = 140).
+- Whole frame: −0.12 s.
+- Reading: the stand-alone measurement (−138 s over 12 months, λ = 0.5) did not carry over to production model B.
+  Production model B already applies the LIRF schedule reparameterisation, which captures most of what Ĝ adds.
+  Not adopted; the code stays off.
