@@ -45,3 +45,8 @@ L6, `src/prc/levers.py:_retention_frame`, model A only, default off, existing id
   8 of 10 airports improve. The airport-day CI is −0.73 [−0.96, −0.54].
 - **Next**: the same flag for pao (main_flseq_osm_nolirf_l2_pa_opt) and p2o (main_flseq_osm_nolirf_plainy_l2_opt).
   Each is run against its own base, all folds, under the same rule.
+
+## pao result (all folds; `l6_pao_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_pa_opt-8d54effc06 → main_flseq_osm_nolirf_l2_pa_opt_l6-523fcc4e8c.
+  - Full rows −0.76 s [−0.94, −0.60]; K=200 −0.97 s [−1.11, −0.82].
+- **STRICT ADOPT.** Every fold improves (forward −0.55, jan −0.23, jul −1.57). 8 of 10 airports improve.
