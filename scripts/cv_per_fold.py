@@ -131,7 +131,7 @@ def run_all(config: Path, fold_cache: Path, log_dir: Path) -> int:
         snap = fold_cache / "snapshots" / name
         env = {**os.environ, "PRC_CB_SNAPSHOT_DIR": str(snap), "PYTHONUNBUFFERED": "1"}
         log(
-            f"fold {name}: start (snapshots {snap}, resuming {len(list(snap.glob('*.cbsnap'))) if snap.exists() else 0})"
+            f"fold {name}: start (snapshots {snap}, resuming {len(list(snap.rglob('*.cbsnap'))) if snap.exists() else 0})"
         )
         start, peak, killed = time.time(), [0, 0], False
         with open(log_dir / f"fold_{name}.log", "a") as fl:

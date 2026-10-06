@@ -242,3 +242,12 @@ Checks before launch:
   session's cgroup (`01a10b15-…`, only 2.0 GB page cache, no processes). So attempt 1's 13,693 MB "all sessions" was
   the pipeline's 13,460 MB plus ~230 MB of these tools.
 Rule unchanged: if a fold goes over 13,000 MB again, M3 tuning is closed as "not runnable within memory".
+
+Attempt 2 launched 2026-10-05 23:29:08 UTC (`scripts/cv_per_fold.py run`, `logs/cbretune/per_fold.log`). Note: CatBoost
+resolves a relative `snapshot_file` under `train_dir`, so the snapshots sit at
+`fold_cache/snapshots/<fold>/<digest>_info/logs/cbretune/fold_cache/snapshots/<fold>/<digest>.cbsnap`; the path is
+deterministic, so a restarted fold finds them (≈ 73 MB each).
+
+| fold | start (UTC) | wall s | peak total_rss MB (own / all sessions) | ES best → refit rounds (model A) | matched RMSE: base M3 → cbopt |
+|---|---|---:|---:|---|---|
+| jan | 10-05 23:29:08 | 8,141 | 12,145 / 12,401 | 2,361 → 2,583 | 202.50 → 201.07 |
