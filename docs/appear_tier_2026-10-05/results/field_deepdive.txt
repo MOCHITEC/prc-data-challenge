@@ -1,0 +1,5 @@
+far-first-fix rows with field B: 91,007
+  field B taxi time (constant bias removed)    clipped RMSE  733.0  median |e|  147.1
+  current residual cur (CV prediction)         clipped RMSE  174.5  median |e|   70.2
+  base (no ADS-B)                              clipped RMSE  208.1  median |e|   97.7
+  field-B elapsed time explained by a 100 m cell of the anchor position (x_a, y_a): R^2 = 0.46
