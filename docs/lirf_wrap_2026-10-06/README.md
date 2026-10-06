@@ -33,3 +33,25 @@ expectation q · (86 400 k + T) + (1 − q) · (MVT − SCHED), q = (wraps + 1) 
 
 2025 leave-one-out check of the blend (20 rows, p and T from the other rows): positive, 6.8e7 s² per row.
 Output: `outputs/c7_v40_lirfwrap.parquet` (v40 + this blend only).
+
+## Follow-up (same day): mechanism refined, two more LIRF label classes
+
+- **The off-block is put on SCHED's UTC date** (1 486 of 1 488 unmatched LIRF departures in 2025), not the nearest
+  date. A one-day label therefore needs the off-block to cross UTC midnight relative to SCHED, and the re-dated
+  block must land between about SCHED − 10.4 h and SCHED + 1.8 h (where it gets "accepted"). Per 2026 row:
+  TAY9LA does not cross midnight, so q 0.29 → 0.05. NOSOS431 lands at SCHED + 6.7 h, so q 0.65 → 0.15. The other
+  three stay at about 0.65. Expected about +600 MSE over C7. (`analysis/local_lirf_wrap_stress.py`)
+- **Time-zone class:** BLOCK = true off-block − Rome UTC offset, so y = 3 600 (winter) or 7 200 (summer) + taxi.
+  It flips exactly on the DST dates and is 37 rows a year, carried by a few operators (BEL 13/14, AEZ 4/6, AEA 3/3,
+  LZB 2/2 among unmatched rows with ms < 1 h). Blend q = tz / (n + 1) per prefix. Leave-one-month-out on the OOF:
+  +117 MSE, 6/6 months positive. 6 rows in 2026.
+- **Copy band:** unmatched LIRF rows with a delay of 7–13.5 h are all schedule copies in 2025 (34/34). Predict
+  MVT − SCHED. Leave-one-month-out: +72 MSE, no month negative. 17 rows in 2026.
+- **LTFM "copies"** are real on-time pushbacks (no spike at BLOCK = SCHED compared with ±60 s). LEBL shows a 2×
+  spike, but a recalibration is not robust (2–3 of 7 months negative).
+- **LFPG/EGLL unmatched:** 14.6 of LFPG's 15.6 % OOF SSE share is two easyJet rows with a one-day-early BLOCK.
+  These are unpredictable. No other label artefact. An LFPG-only small residual is worth +7 to +19 MSE only and is
+  parked. (`analysis/local_lfpg_unm.py`)
+
+Candidate **C8** = v40 + revised C7 + time-zone class + copy band: 29 rows changed,
+`outputs/c8_v40_lirf_wrap_tz_copy.parquet` (`analysis/local_lirf_artefacts_apply.py`).
