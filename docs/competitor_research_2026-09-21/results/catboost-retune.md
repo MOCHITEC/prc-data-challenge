@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit running.** §0 is written and committed before any tuning trial,
+**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit killed by the memory guard (own 12,817 MB, all sessions 13,102 MB); no output file.** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -310,3 +310,22 @@ rebuilds R6 (`rejected-rereview.md` §3) from the OOFs exactly (max |diff| vs `l
   [−0.16, +0.00]. The rule's two CIs exclude zero (verdict() prints ADOPT); this is a secondary and is not the decision.
 
 The primary blend is ADOPT, so §0.5's full fit and output follow.
+
+## 4. Full fit — killed by the memory guard; no output
+
+`PRC_CB_SNAPSHOT_DIR=…/logs/cbretune/snapshots_full logs/cbretune/run.sh cbopt_full --config
+configs/main_flseq_osm_nolirf_cb_l2_cbopt.yaml --work-dir data/work_flseq --skip-cv`, started 2026-10-06 07:11:26 UTC.
+**Killed at 07:42:50 (1,885 s, rc 137):** the guard in `run.sh` fires when either the own cgroup or the sum over all
+session cgroups exceeds 13,000 MB. At the kill: own cgroup (`…/claude-code-bash`) 12,817 MB, all sessions 13,102 MB.
+The trace sat at 11.9–12.7 GB own (12.1–13.0 GB all) for the whole early-stopping fit (`logs/cbretune/cbopt_full.mem`).
+For reference, base M3's full fit peaked at 11,096 MB; the CV folds of attempt 2 at 12,145 MB own.
+
+Facts for the decision (not acted on):
+- `memory.limit_in_bytes` is 13,680 MB on `…/claude-code-bash` (the cgroup the training runs in) and unlimited on the
+  session cgroup above it; the ~290 MB in the session cgroup outside `claude-code-bash` is the `claude` CLI and
+  `environment-manager`. The own-cgroup peak (12,817 MB) stayed under 13,000 MB; the all-sessions sum did not.
+- A change of the guard to the own cgroup only was refused by the session's permission classifier and was not pursued.
+- One ES snapshot (81 MB) is in `logs/cbretune/snapshots_full/`; a relaunch with the same settings would resume from it.
+
+**Per the stop rule, the full fit and `outputs/hybrid_blend_l2_pa_opt_mlp_cbopt.parquet` are not produced.** The
+member and blend verdicts (§2, §3) stand; the full-fit step is "not runnable within memory" under the current guard.
