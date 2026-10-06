@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-05): study done (10 trials, 16 h safety stop); best trial 7 −2.25 s on October. Confirmation CV killed by the 13,000 MB memory guard (13,460 MB at 111 s); on hold, no verdict, no blend, no output.** §0 is written and committed before any tuning trial,
+**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit running.** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -252,3 +252,61 @@ deterministic, so a restarted fold finds them (≈ 73 MB each).
 |---|---|---:|---:|---|---|
 | jan | 10-05 23:29:08 | 8,141 | 12,145 / 12,401 | 2,361 → 2,583 | 202.50 → 201.07 |
 | jul | 10-06 01:44:49 | 8,751 | 11,769 / 12,044 | 2,621 → 2,872 | 244.16 → 240.45 |
+| forward | 10-06 04:10:41 | 10,552 | 11,064 / 11,330 | (see record) | 196.73 → 194.69 |
+
+All three folds exited 0, none killed, no restart during attempt 2; peak 12,145 MB own / 12,401 MB all sessions (jan).
+CV wall 27,444 s (23:29:08 → 07:06:33). The record and OOF were then written by the unchanged pipeline reading the
+cache (`run.sh cbopt_cv_assemble … --skip-predict --fold-cache logs/cbretune/fold_cache`: exit 0, 20 s, 5,978 MB;
+all three folds "loaded from" the cache). CV `main_flseq_osm_nolirf_cb_l2_cbopt-9d30cf6882`: full 272.53 (base
+274.39); jan 338.32, jul 301.68, forward 213.81.
+
+`python -m prc.compare main_flseq_osm_nolirf_cb_l2-4aa341b206 main_flseq_osm_nolirf_cb_l2_cbopt-9d30cf6882 --work-dir
+data/work_flseq` (`logs/cbretune/compare_member.txt`), 672,428 pooled OOF rows:
+
+| K | A | B | diff [CI95] |
+|---|---|---|---|
+| 0 | 274.39 | 272.53 | **−1.86 [−2.36, −1.46]** |
+| 20 | 233.52 | 231.33 | −2.18 [−2.67, −1.70] |
+| 200 | 218.52 | 216.34 | **−2.18 [−2.65, −1.76]** |
+| 2000 | 194.07 | 192.07 | −2.00 [−2.25, −1.76] |
+
+Month bootstrap −1.86 [−2.68, −1.16]. Matched lane 212.40 → 209.96; unmatched 1,570.7 → 1,570.7, and all 8,378 pooled
+unmatched predictions are exactly equal (model B untouched, as required). Matched RMSE per airport (cbopt − base):
+LIRF −9.82, LFPG −3.22, LSZH −2.06, EDDF −1.82, LEMD −1.80, EHAM −1.68, EDDM −1.10, LEBL −0.63, LTFM −0.62,
+EGLL −0.34 — lower at all ten. **Verdict: ADOPT** (`ADOPT - adopt (-1.86 s, still -2.18 s at 200 rows dropped)`).
+
+## 3. Blend decision (§0.5)
+
+`scripts/blend_cbopt.py oof --scratch logs/cbretune/scratch --c2o main_flseq_osm_nolirf_cb_l2_cbopt-9d30cf6882`
+(`logs/cbretune/oof.txt`) reproduces the base `hybrid_blend_l2_pa_opt_mlp` at **267.57**; candidate 267.39. Member
+matched RMSE: M1 205.94, M2 208.82, M3 212.40 → M3' 209.96, M4 213.27. Matched-lane error correlations of M3' with
+M1 / M2 / M4: 0.9513 / 0.9426 / 0.9146 (M3: 0.9414 / 0.9355 / 0.9054) — M3' is better alone but more correlated.
+
+`python -m prc.compare hybrid_blend_l2_pa_opt_mlp hybrid_blend_l2_pa_opt_mlp_cbopt --work-dir data/work_flseq
+--exp-dir logs/cbretune/scratch` (`logs/cbretune/compare_blend.txt`):
+
+| K | A | B | diff [CI95] |
+|---|---|---|---|
+| 0 | 267.57 | 267.39 | **−0.18 [−0.28, −0.09]** |
+| 20 | 222.70 | 222.48 | −0.22 [−0.32, −0.11] |
+| 200 | 209.11 | 208.90 | **−0.21 [−0.34, −0.11]** |
+| 2000 | 186.49 | 186.25 | −0.24 [−0.31, −0.17] |
+
+Month bootstrap −0.18 [−0.33, −0.06]. **Verdict: ADOPT** (`ADOPT - adopt (-0.18 s, still -0.21 s at 200 rows dropped)`).
+Detail (`logs/cbretune/detail.txt`): matched −0.24 [−0.36, −0.13]; unmatched +0.00; all except LIRF −0.08 [−0.17,
++0.01]. Months (all rows): 2025-01 −0.00 [−0.13, +0.12], 2025-07 −0.36 [−0.58, −0.14], 2025-11 −0.19 [−0.39, +0.02],
+2025-12 −0.16 [−0.34, −0.01]. Airports: LIRF −0.83 [−1.24, −0.42], LFPG −0.25, LEMD −0.21, EDDF −0.19, EHAM −0.10,
+LSZH −0.06, LEBL −0.02, EGLL +0.05, LTFM +0.10, EDDM +0.12; only LIRF, LFPG and LEMD have CIs below zero. Most of the
+gain is at LIRF.
+
+**Secondary, report only (requested by the coordinator after §0): R6 with M3' substituted.** `blend_cbopt.py r6`
+rebuilds R6 (`rejected-rereview.md` §3) from the OOFs exactly (max |diff| vs `logs/rereview/oof_rr_R6_pa5_lofo.parquet`
+0.0; 267.25) and refits the LOFO sum-to-one weights the same way with M3' in place of M3 (`logs/cbretune/r6.txt`):
+- weights (a2o, pao, p2o, M3', m4), held-out forward 0.118 / 0.327 / 0.138 / 0.181 / 0.236; jan 0.048 / 0.339 /
+  0.174 / 0.216 / 0.224; jul 0.001 / 0.411 / 0.196 / 0.190 / 0.202; all folds 0.0523 / 0.3578 / 0.1721 / 0.1973 /
+  0.2205 (M3's all-fold weight in R6 was 0.1470).
+- `prc.compare rr_R6_pa5_lofo rr_R6_pa5_lofo_cbopt` (`logs/cbretune/compare_r6.txt`): K=0 **−0.07 [−0.14, −0.01]**,
+  K=20 −0.09 [−0.16, −0.02], K=200 **−0.09 [−0.16, −0.01]**, K=2000 −0.11 [−0.16, −0.06]; month bootstrap −0.07
+  [−0.16, +0.00]. The rule's two CIs exclude zero (verdict() prints ADOPT); this is a secondary and is not the decision.
+
+The primary blend is ADOPT, so §0.5's full fit and output follow.
