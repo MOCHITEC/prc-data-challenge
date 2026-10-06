@@ -1,6 +1,6 @@
 #!/bin/bash
 # usage: scripts/run_guarded.sh <tag> <pipeline args...>   (logs/cbretune/ is git-ignored). Gated: waits (60 s polls) until no
-# adsb_learn_ process runs and total_rss (own and parent cgroup) < 2,500 MB; kills when the OWN cgroup total_rss (the one carrying the 13,680 MB limit) exceeds 13,000 MB; the all-sessions sum is logged, not acted on.
+# adsb_learn_ process runs and total_rss (own and parent cgroup) < 2,500 MB; kills when the OWN cgroup total_rss (the one carrying the 13,680 MB limit) exceeds 13,500 MB; the all-sessions sum is logged, not acted on.
 cd /home/user/prc-data-challenge
 TAG=$1; shift
 L=${RUN_LOG_DIR:-logs/cbretune}
@@ -26,7 +26,7 @@ while kill -0 $PID 2>/dev/null; do
   [ "$r" -gt "$peak" ] && peak=$r
   [ "$rp" -gt "$peakp" ] && peakp=$rp
   echo "$(date -u +%T) $r $rp" >> $L/$TAG.mem
-  if [ "$r" -gt 13000 ]; then  # own cgroup only (the one with the 13,680 MB limit); user-approved 2026-10-06
+  if [ "$r" -gt 13500 ]; then  # own cgroup only (the one with the 13,680 MB limit); 13,500 MB user-approved 2026-10-06
     kill -9 -- -$PID 2>/dev/null; killed=1; echo "KILLED at total_rss $r MB (parent $rp MB)" >> $L/$TAG.status; break
   fi
   sleep 10
