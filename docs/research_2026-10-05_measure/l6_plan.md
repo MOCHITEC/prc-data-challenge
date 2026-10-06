@@ -69,3 +69,10 @@ This is the LGB part of the v35 matched blend, ((0.5·a2o + 0.5·pao) + p2o) / 2
 - **Arms (all folds):** `main_flseq_osm_nolirf_l2_mlp` (m4) vs `main_flseq_osm_nolirf_l2_mlp_l6`.
 - **Verdict:** the same as for the LGB members. `prc.compare` must ADOPT; STRICT is reported alongside.
 - **CatBoost** is deferred: its retune was stopped by the memory guard on another branch.
+
+## MLP result (all folds; `l6_mlp_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_mlp-2b9a3b9348 → main_flseq_osm_nolirf_l2_mlp_l6-a10f4edb0d.
+  - Full rows −0.65 s [−0.94, −0.37]; K=200 −0.78 s [−1.11, −0.45].
+- **STRICT ADOPT.** Every fold improves (forward −0.16, jan −0.16, jul −1.76) and 10 of 10 airports improve.
+- The month-level bootstrap (4 months) spans 0 ([−1.44, +0.17]); it is reported for information only. The airport-day CI is −0.65 [−1.10, −0.13].
+- **Blend:** m4 has weight 1/4 in the v35–v40 matched blend, so this adds roughly another −0.15 to −0.2 s on top of the LGB part.
