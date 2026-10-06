@@ -19,6 +19,9 @@ import adsb_stage1_feasibility as s1
 
 # "2025nd": Nov+Dec 2025, for the 4-month re-measure (plan.md section 6.2); its files are feat_2025nd / appear_2025nd.
 DAYS = {**L.DAYS, "2025nd": [f"2025-{m:02d}-{d:02d}" for m in (11, 12) for d in range(1, 32) if not (m == 11 and d == 31)]}
+# "2025m8": the other eight months of 2025 (Feb-Jun, Aug-Oct), for the 12-month re-measure (plan_months12.md).
+_ML = {2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 8: 31, 9: 30, 10: 31}
+DAYS["2025m8"] = [f"2025-{m:02d}-{d:02d}" for m, n in _ML.items() for d in range(1, n + 1)]
 
 
 def main(years: list[str]) -> None:

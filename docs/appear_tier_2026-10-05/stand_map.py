@@ -77,10 +77,10 @@ def stand_table(variant: str) -> pl.DataFrame:
     return pl.concat([m, osm.join(m, on=["ADEP_mvt", "sn"], how="anti")])
 
 
-def build() -> None:
-    for v in VARIANTS:
+def build(keys: tuple[str, ...] = ("2025", "2025nd", "2026"), variants: tuple[str, ...] = VARIANTS) -> None:
+    for v in variants:
         ST = stand_table(v)
-        for key in ("2025", "2025nd", "2026"):
+        for key in keys:
             have = [d for d in DAYS[key] if os.path.exists(os.path.join(s1.SCRATCH, f"{L.tag_of(d)}_joined.parquet"))]
             fr = []
             for d in have:
@@ -96,4 +96,7 @@ def build() -> None:
 
 
 if __name__ == "__main__":
-    {"map": build_map, "build": build}[sys.argv[1]]()
+    if sys.argv[1] == "build" and len(sys.argv) > 2:  # e.g. build 2025m8 fill  (plan_months12.md)
+        build(tuple(sys.argv[2].split(",")), tuple(sys.argv[3].split(",")) if len(sys.argv) > 3 else VARIANTS)
+    else:
+        {"map": build_map, "build": build}[sys.argv[1]]()
