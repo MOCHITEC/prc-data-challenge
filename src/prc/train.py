@@ -163,6 +163,8 @@ _HASH_OPTIONAL: dict = {
     "fe_carrier_echo": False,
     # NM-blind blend (docs/research_2026-10-06_nmblind/plan.md): 0, every existing id is unchanged.
     "nmblind_weight": 0.0,
+    # stamp hierarchy (docs/research_2026-10-06_stamp/plan.md): off, every existing id is unchanged.
+    "fe_stamp_hier": False,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -458,6 +460,10 @@ class TrainConfig:
     # departures with 0 < y <= 7200 s and model B's columns (no NM clock), blended at this weight into model B on the
     # unmatched target rows outside the reparameterised airports (LIRF). 0 (the default): model B is what it was.
     nmblind_weight: float = 0.0
+    # Hierarchical schedule-stamp rates for model B (docs/research_2026-10-06_stamp/plan.md): the share of
+    # departures with |y - (MVT - SCHED)| <= 60 s per airport x carrier, x carrier x destination and x flight number,
+    # each shrunk toward its parent level, nested leave-month-out on the training side. Model A never sees them.
+    fe_stamp_hier: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -696,7 +702,7 @@ LANE_A_ONLY_PREFIXES = ("agg_proxy_", "meta_prior_minus_proxy")
 _NM_CLOCK_PREFIXES = ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
 # The meta prior must not read a label-derived column: those tables are fitted on every training row, including
 # the rows the prior is predicting out of fold, and would carry their labels back in.
-_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_", "car_")
+_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_", "car_", "stamp_")
 META_ROUNDS = 300
 META_NOISE_SEED = 20_260_924
 
@@ -1237,6 +1243,93 @@ def carrier_echo_features(
     return tr, tg
 
 
+STAMP_COLS = ("stamp_car", "stamp_car_ades", "stamp_flt", "stamp_flt_n")
+STAMP_PRIOR_N = 20.0
+
+
+def _stamp_tables(lab: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Shrunk stamp rates: airport x carrier toward the airport, x destination toward the carrier, x flight number
+    toward carrier x destination. `lab` holds _echo, ADEP_mvt, ADES_mvt, FLIGHT_mvt, _car."""
+    k = STAMP_PRIOR_N
+    apt = lab.group_by("ADEP_mvt").agg(pl.col("_echo").mean().alias("_pa"))
+    car = (
+        lab.group_by(["ADEP_mvt", "_car"])
+        .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+        .join(apt, on="ADEP_mvt", how="left")
+        .select("ADEP_mvt", "_car", ((pl.col("_k") + k * pl.col("_pa")) / (pl.col("_n") + k)).alias("stamp_car"))
+    )
+    cad = (
+        lab.group_by(["ADEP_mvt", "_car", "ADES_mvt"])
+        .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+        .join(car, on=["ADEP_mvt", "_car"], how="left")
+        .select(
+            "ADEP_mvt",
+            "_car",
+            "ADES_mvt",
+            ((pl.col("_k") + k * pl.col("stamp_car")) / (pl.col("_n") + k)).alias("stamp_car_ades"),
+        )
+    )
+    flt = (
+        lab.group_by(["ADEP_mvt", "_car", "ADES_mvt", "FLIGHT_mvt"])
+        .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+        .join(cad, on=["ADEP_mvt", "_car", "ADES_mvt"], how="left")
+        .select(
+            "ADEP_mvt",
+            "_car",
+            "ADES_mvt",
+            "FLIGHT_mvt",
+            ((pl.col("_k") + k * pl.col("stamp_car_ades")) / (pl.col("_n") + k)).alias("stamp_flt"),
+            pl.col("_n").cast(pl.Float64).alias("stamp_flt_n"),
+        )
+    )
+    return car, cad, flt
+
+
+def _stamp_attach(rows: pl.DataFrame, lab: pl.DataFrame) -> pl.DataFrame:
+    car, cad, flt = _stamp_tables(lab)
+    out = (
+        rows.join(car, on=["ADEP_mvt", "_car"], how="left")
+        .join(cad, on=["ADEP_mvt", "_car", "ADES_mvt"], how="left")
+        .join(flt, on=["ADEP_mvt", "_car", "ADES_mvt", "FLIGHT_mvt"], how="left")
+    )
+    # an unseen lower level falls back to its parent, so every row with a known carrier has all three rates
+    return out.with_columns(
+        pl.coalesce(["stamp_car_ades", "stamp_car"]).alias("stamp_car_ades"),
+    ).with_columns(
+        pl.coalesce(["stamp_flt", "stamp_car_ades"]).alias("stamp_flt"),
+        pl.col("stamp_flt_n").fill_null(0.0),
+    )
+
+
+def stamp_hier_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """STAMP_COLS on both frames, slim copies only. Target rows use all training rows; each training row uses the
+    training rows of the other months. Row order is unchanged."""
+    keys = ["ADEP_mvt", "ADES_mvt", "FLIGHT_mvt"]
+    s_tr = tr.select(keys + [LABEL, SCHED_OFFSET, pl.col("MVT_TIME_UTC_mvt").dt.month().alias("_mo")]).with_columns(
+        _carrier_expr(), pl.int_range(pl.len()).alias("_row")
+    )
+    s_tg = tg.select(keys).with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    lab = s_tr.filter(pl.col(LABEL).is_not_null() & pl.col(SCHED_OFFSET).is_not_null()).with_columns(
+        ((pl.col(LABEL) - pl.col(SCHED_OFFSET)).abs() <= CAR_ECHO_TOL_S).cast(pl.Float64).alias("_echo")
+    )
+    base = ["ADEP_mvt", "ADES_mvt", "FLIGHT_mvt", "_car", "_row"]
+    out_tg = _stamp_attach(s_tg.select(base), lab).sort("_row")
+    parts = [
+        _stamp_attach(s_tr.filter(pl.col("_mo") == m).select(base), lab.filter(pl.col("_mo") != m))
+        for m in s_tr["_mo"].unique().to_list()
+    ]
+    out_tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
+    if out_tr.height != tr.height or out_tg.height != tg.height:
+        raise AssertionError("stamp_hier_features changed a row count")
+    tr = tr.hstack([out_tr[c].cast(pl.Float64) for c in STAMP_COLS])
+    tg = tg.hstack([out_tg[c].cast(pl.Float64) for c in STAMP_COLS])
+    if info is not None:
+        info["stamp_target_flt_seen"] = float((tg["stamp_flt_n"] > 0).mean())
+    return tr, tg
+
+
 def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     """The numeric columns the model is actually given, by the one rule everything must agree on.
 
@@ -1260,6 +1353,8 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
         hidden |= set(L6_COLS)
     if not cfg.fe_carrier_echo:
         hidden |= set(CAR_COLS)
+    if not cfg.fe_stamp_hier:
+        hidden |= set(STAMP_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:
@@ -1809,6 +1904,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         raise AssertionError("attach_encodings changed row count or order")
     if cfg.fe_carrier_echo:
         tr, tg = carrier_echo_features(tr, tg, info)
+    if cfg.fe_stamp_hier:
+        tr, tg = stamp_hier_features(tr, tg, info)
     if (
         cfg.fe_freq
         or cfg.fe_aggdiff
@@ -1861,7 +1958,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         add_back = m_tg[PROXY].to_numpy().astype(float)
         if m_tr.height >= 200:
             # L2 is visible when either lane asks for it; model A takes it only when fe_fwd_nm is on.
-            a_hidden = (set() if cfg.fe_fwd_nm else set(L2_COLS)) | set(CAR_COLS)
+            a_hidden = (set() if cfg.fe_fwd_nm else set(L2_COLS)) | set(CAR_COLS) | set(STAMP_COLS)
             cols_a = [c for c in num_cols if c != PROXY and c not in a_hidden] + [PROXY]
 
             def _target_a(f: pl.DataFrame) -> np.ndarray:
