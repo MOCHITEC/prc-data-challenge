@@ -23,3 +23,17 @@
 2. On non-LIRF unmatched rows, the airport-day block-bootstrap CI excludes 0 on the improving side.
 3. jul and forward improve on those rows.
 4. jan is not worse by more than 2 s on those rows.
+
+## Result (2026-10-06, `verdict.txt`)
+**ADOPT.** main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_nmb-97a0e31e57.
+
+| condition | result |
+|---|---|
+| 1. matched and LIRF unmatched rows bit-identical | met |
+| 2. non-LIRF unmatched rows improve, CI excludes 0 | 1273.8 → 1266.1, −7.73 s [−20.41, −4.10] |
+| 3. jul and forward improve | jul −12.26, forward −31.29 |
+| 4. jan not worse by more than 2 s | jan −1.56 (it improves) |
+
+- All 9 airports improve: EDDF −8.8, EDDM −27.5, EGLL −19.4, EHAM −14.1, LEBL −32.1, LEMD −18.3, LFPG −3.6, LSZH −23.5, LTFM −18.4.
+- Whole frame: **−0.42 s** (270.77 vs 271.20).
+- Model B is shared by every member, so this applies to the blend's unmatched lane once. The blend-level effect is about the same, roughly −0.4 s.
