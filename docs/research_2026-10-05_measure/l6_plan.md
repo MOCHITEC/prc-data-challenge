@@ -50,3 +50,15 @@ L6, `src/prc/levers.py:_retention_frame`, model A only, default off, existing id
 - **ADOPT.** main_flseq_osm_nolirf_l2_pa_opt-8d54effc06 → main_flseq_osm_nolirf_l2_pa_opt_l6-523fcc4e8c.
   - Full rows −0.76 s [−0.94, −0.60]; K=200 −0.97 s [−1.11, −0.82].
 - **STRICT ADOPT.** Every fold improves (forward −0.55, jan −0.23, jul −1.57). 8 of 10 airports improve.
+
+## p2o result (all folds; `l6_p2o_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_plainy_l2_opt-dd8b8e2c7c → main_flseq_osm_nolirf_plainy_l2_opt_l6-1f94f51232.
+  - Full rows −0.83 s [−1.03, −0.66]; K=200 −1.06 s [−1.21, −0.91].
+- **STRICT ADOPT.** Every fold improves (forward −0.56, jan −0.58, jul −1.46). 8 of 10 airports improve.
+
+## Blend-level check (`l6_blend_check.txt`)
+This is the LGB part of the v35 matched blend, ((0.5·a2o + 0.5·pao) + p2o) / 2.
+- **+L6:** −0.82 [−1.06, −0.62]; jan −0.42 / jul −1.53 / forward −0.60.
+- **+L6 + cmix:** −1.18 [−1.44, −0.93]. This uses an approximate additive cmix delta on a2o.
+- CatBoost and MLP are unchanged. The LGB part is half of the full blend, so the blend-level effect is roughly half
+  of this, about −0.4 to −0.6 s, unless L6 is also added to CB/MLP.
