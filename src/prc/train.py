@@ -159,6 +159,8 @@ _HASH_OPTIONAL: dict = {
     # G-model blend (docs/research_2026-10-05_measure/gmodel_plan.md): empty, every existing id is unchanged.
     "gmodel_airports": [],
     "gmodel_lambda": 0.25,
+    # carrier echo (docs/research_2026-10-05_measure/carrier_plan.md): off, every existing id is unchanged.
+    "fe_carrier_echo": False,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -446,6 +448,10 @@ class TrainConfig:
     # model B's columns, and on that airport's unmatched target rows pred = (1 - lambda)*B + lambda*(ms - G_hat).
     gmodel_airports: list = field(default_factory=list)
     gmodel_lambda: float = 0.25
+    # Carrier x airport schedule-echo rate for model B (docs/research_2026-10-05_measure/carrier_plan.md): the
+    # smoothed share of departures with |y - (MVT - SCHED)| <= 60 s per (airport, carrier from the flight number),
+    # fitted on the training side with nested leave-month-out for training rows. Model A never sees it.
+    fe_carrier_echo: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -684,7 +690,7 @@ LANE_A_ONLY_PREFIXES = ("agg_proxy_", "meta_prior_minus_proxy")
 _NM_CLOCK_PREFIXES = ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
 # The meta prior must not read a label-derived column: those tables are fitted on every training row, including
 # the rows the prior is predicting out of fold, and would carry their labels back in.
-_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_")
+_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_", "car_")
 META_ROUNDS = 300
 META_NOISE_SEED = 20_260_924
 
@@ -1150,6 +1156,72 @@ def add_fold_features(
     return tr, tg
 
 
+# ---------- carrier x airport schedule-echo rate (model B only) ----------
+
+CAR_COLS = ("car_echo_unm", "car_n_unm", "car_echo_all", "car_n_all")
+CAR_PRIOR_N = 20.0
+CAR_ECHO_TOL_S = 60.0
+
+
+def _carrier_expr() -> pl.Expr:
+    """ICAO prefix of FLIGHT_mvt when it is three letters then a digit, else its first two characters."""
+    f = pl.col("FLIGHT_mvt").cast(pl.Utf8)
+    three = f.str.extract(r"^([A-Z]{3})[0-9]", 1)
+    return pl.coalesce([three, f.str.slice(0, 2)]).fill_null("__NA__").alias("_car")
+
+
+def _carrier_tables(lab: pl.DataFrame) -> pl.DataFrame:
+    """Smoothed echo rates per (airport, carrier), from unmatched rows and from all rows, plus their counts."""
+    lab = lab.with_columns(
+        ((pl.col(LABEL) - pl.col(SCHED_OFFSET)).abs() <= CAR_ECHO_TOL_S).cast(pl.Float64).alias("_echo"),
+        pl.col(PROXY).is_null().alias("_unm"),
+    )
+    out = None
+    for tag, sub in (("all", lab), ("unm", lab.filter(pl.col("_unm")))):
+        prior = sub.group_by("ADEP_mvt").agg(pl.col("_echo").mean().alias("_p"))
+        t = (
+            sub.group_by(["ADEP_mvt", "_car"])
+            .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+            .join(prior, on="ADEP_mvt", how="left")
+            .select(
+                "ADEP_mvt",
+                "_car",
+                ((pl.col("_k") + CAR_PRIOR_N * pl.col("_p")) / (pl.col("_n") + CAR_PRIOR_N)).alias(f"car_echo_{tag}"),
+                pl.col("_n").cast(pl.Float64).alias(f"car_n_{tag}"),
+            )
+        )
+        out = t if out is None else out.join(t, on=["ADEP_mvt", "_car"], how="full", coalesce=True)
+    return out
+
+
+def carrier_echo_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """CAR_COLS on both frames. Target rows use a table fitted on all training rows; each training row uses a table
+    fitted on the training rows of the OTHER months, so no row sees its own label. Row order is unchanged."""
+    need = (pl.col(LABEL).is_not_null()) & pl.col(SCHED_OFFSET).is_not_null()
+    tr = tr.with_columns(
+        _carrier_expr(), pl.col("MVT_TIME_UTC_mvt").dt.month().alias("_mo"), pl.int_range(pl.len()).alias("_row")
+    )
+    tg = tg.with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    lab = tr.filter(need)
+    tg = tg.join(_carrier_tables(lab), on=["ADEP_mvt", "_car"], how="left").sort("_row")
+    parts = []
+    for m in tr["_mo"].unique().to_list():
+        parts.append(
+            tr.filter(pl.col("_mo") == m).join(
+                _carrier_tables(lab.filter(pl.col("_mo") != m)), on=["ADEP_mvt", "_car"], how="left"
+            )
+        )
+    tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
+    fill = [pl.col(c).fill_null(0.0) for c in ("car_n_unm", "car_n_all")]
+    tr = tr.with_columns(fill).drop("_car", "_mo", "_row")
+    tg = tg.with_columns(fill).drop("_car", "_row")
+    if info is not None:
+        info["carrier_echo_target_missing"] = int(tg["car_echo_all"].null_count())
+    return tr, tg
+
+
 def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     """The numeric columns the model is actually given, by the one rule everything must agree on.
 
@@ -1171,6 +1243,8 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
         hidden |= set(L5_COLS)
     if not cfg.fe_retention:
         hidden |= set(L6_COLS)
+    if not cfg.fe_carrier_echo:
+        hidden |= set(CAR_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:
@@ -1718,6 +1792,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
+    if cfg.fe_carrier_echo:
+        tr, tg = carrier_echo_features(tr, tg, info)
     if (
         cfg.fe_freq
         or cfg.fe_aggdiff
@@ -1770,7 +1846,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         add_back = m_tg[PROXY].to_numpy().astype(float)
         if m_tr.height >= 200:
             # L2 is visible when either lane asks for it; model A takes it only when fe_fwd_nm is on.
-            a_hidden = set() if cfg.fe_fwd_nm else set(L2_COLS)
+            a_hidden = (set() if cfg.fe_fwd_nm else set(L2_COLS)) | set(CAR_COLS)
             cols_a = [c for c in num_cols if c != PROXY and c not in a_hidden] + [PROXY]
 
             def _target_a(f: pl.DataFrame) -> np.ndarray:
