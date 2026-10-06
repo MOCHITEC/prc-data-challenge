@@ -27,6 +27,7 @@ MLP_BASE = "main_flseq_osm_nolirf_l2.yaml"
 
 # (experiment id, digest of [model A params, model B params]) of every recipe in configs/ at f6b09ef.
 BEFORE = {
+    "main_flseq_osm_nolirf_l2_opt_l6_cmix.yaml": ("1e01a07623", "9f53bbe724"),
     "main_flseq_osm_nolirf_plainy_l2_opt_l6.yaml": ("1f94f51232", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_pa_opt_l6.yaml": ("523fcc4e8c", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_gm.yaml": ("67f49a5d62", "9f53bbe724"),
