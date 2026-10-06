@@ -55,3 +55,15 @@ Output: `outputs/c7_v40_lirfwrap.parquet` (v40 + this blend only).
 
 Candidate **C8** = v40 + revised C7 + time-zone class + copy band: 29 rows changed,
 `outputs/c8_v40_lirf_wrap_tz_copy.parquet` (`analysis/local_lirf_artefacts_apply.py`).
+
+## Result and closure (v41)
+
+v41 = C8 scored 239.5174 (v40 238.7712). Back-solving the score: about 1 of the 3 high-q one-day rows was a wrap
+(the 2025 rates expected 2; P(≤ 1 of 3) ≈ 0.35). The one-day blend is dropped. The time-zone class and copy band stay
+as validated small items for a later batch.
+
+Follow-up search for a per-row separator (`analysis/local_lirf_wrap2.py`): an "entered vs copy" classifier trained on
+the 1 312 ordinary 1–6 h rows (month-CV AUC 0.92) does not transfer to the long-delay rows (AUC 0.49–0.69, best
+permutation p 0.08). The copy share climbs with delay and then entries return as wraps at ≥ 14 h, so the two events
+differ. Same-day arrival copy share, night shift, inbound-rotation entry, ADS-B presence and operator entry rate all
+fail on the 2025 long rows (two point the wrong way). No 2025 evidence moves q for any 2026 row. Closed.
