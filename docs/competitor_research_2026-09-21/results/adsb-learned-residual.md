@@ -857,3 +857,74 @@ same `pos/` inputs. The input is file 1. Log: `$SCRATCH/adsb/posjoin_v36.log`.
   880 s.
 
 Neither file is submitted.
+
+## 14. Re-run on the R6-cbopt base (`hybrid_blend_reweight_cbopt`), plus the positional overlay (2026-10-06)
+
+**Context.** The new adopted base is R6 with the retuned CatBoost member M3' (`catboost-retune.md`). Its OOF uses
+LOFO weights.
+
+**Setup.** The section 13 design is unchanged; only the base is swapped.
+- `b` = `logs/cbretune/scratch/oof_rr_R6_pa5_lofo_cbopt.parquet` (`oof`), read whole.
+  - It has no null on the jan/jul rows.
+  - Its unmatched lane equals `oof_main_flseq-8615e6a194` exactly.
+- Commands: `adsb_learn_cv.py --base r6cb` and `adsb_learn_apply.py --base r6cb`. Logs:
+  `$SCRATCH/adsb/learn_cv_r6cb.log` and `learn_apply_r6cb.log`.
+- **Checks.**
+  - The memory path was re-read. The root `total_rss` was about 260 MB, with nothing else training.
+  - The inputs were present. `pos/` holds the same 62 `_pos` files and `dwell_2026.parquet` (Oct 5 04:54), plus an
+    unrelated `tmp_scr/` directory that the overlay's glob does not match.
+
+**CV (344,419 rows, day-block bootstrap B = 2,000).**
+
+| | gain (s²) | CI95 | RMSE (s) |
+|---|---:|---|---|
+| learned on the R6-cbopt base | **8,000.6** | [7,007.3, 9,060.8] | 311.705 → **298.596** (−13.109) |
+| rule on the R6-cbopt base | 1,648.3 | [1,493.4, 1,818.1] | 311.705 → 309.050 (−2.655) |
+| paired: learned − rule | 6,352.2 | [5,411.4, 7,363.2] | |
+
+- The pre-registered rule gives **ADOPT**.
+- Best iterations were 469, 219, 593, 337 and 168, so the final fit uses **337 rounds**.
+- Every airport's learned CI lower bound is > 0 except LTFM (0.0).
+
+**Comparability on the same 2025 rows (paired, day-block bootstrap).**
+
+| | pooled RMSE (s) |
+|---|---:|
+| R6 | 311.762 |
+| R6-cbopt | 311.705 |
+| R6 + learned (section 13) | 298.776 |
+| **R6-cbopt + learned** | **298.596** |
+
+**(R6-cbopt + learned) − (R6 + learned) = −0.180 s, CI95 [−0.337, −0.031].** As MSE: 107.5 s² [17.9, 199.9].
+- The base itself differs by only −0.057 s on these rows. The post-residual difference is larger because the
+  residual model is refitted on each base, and its fold best iterations change: here 469–593, against 290–475 for
+  R6.
+- So part of the −0.18 s is fit variation of the residual model, not the base.
+
+**File 1: `outputs/hybrid_blend_reweight_cbopt_adsb_learned.parquet`.** It is the final fit (286,008 rows, 62 days,
+337 rounds) applied to `outputs/hybrid_blend_reweight_cbopt.parquet`, with c = 0 at LTFM.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. 2 negatives were reverted to base.
+  - Rows without ADS-B equal the base. LTFM is unchanged.
+  - `prc.validate_submission` prints OK, with only the usual > 10,800 s warning.
+- **Changes against its base.**
+  - 282,027 rows (81.78 %) are changed, with RMS 113.6 s and max 1,546.
+  - The mean prediction goes from 1,038.99 to 1,034.15 s.
+- **Against the section 13 file.** 323,955 rows differ, with RMS 16.6 s and max 597 s.
+
+**File 2: `outputs/v_candidate_r6cbopt_adsb_posjoin.parquet`.** It is file 1 plus the **unchanged** overlay
+`analysis/local_posjoin_overlay.py` (bdf0b91, `SCRATCH=$SCRATCH/adsb`). Log: `$SCRATCH/adsb/posjoin_r6cb.log`.
+- **Overlay result.** 430 target rows, 98 of them long-stop at w = 0.75. **All 430 changed.** The squared change is
+  1,623 MSE.
+- **Validation.**
+  - 344,841 rows. The schema, ids and order equal the template.
+  - 0 nulls and 0 negatives. `prc.validate_submission` prints OK.
+- **Same rows as v35.**
+  - **The 430 changed ids are identical to v35's.**
+  - On those rows, file 1 equals the section 12 file, and the overlaid values equal v35 exactly.
+- **Against other candidates.**
+  - Against v36 (`v36_candidate_reweight_adsb_posjoin`): 323,955 rows differ, with RMS 16.6 s and max 597 s.
+  - Against v35: 328,898 rows differ, with RMS 23.7 s and max 1,060 s.
+
+Neither file is submitted.
