@@ -38,3 +38,26 @@ matched-lane effect needs a real re-predict.
 - **Drift in the shifting features:** implies ≈ 0 bias. A residual model on the shifters fails leave-one-month-out.
 
 Scripts: `analysis/local_shift_{unseen,adversarial,pool,pool_ablate,pool_laneB,pool_2026}.py`.
+
+## Full feature audit (same day)
+Every feature used by the production configs was checked:
+
+- **Frame test:** a 2-month rebuild of Jan+Jul 2025 was compared with the 12-month build, row by row.
+- **Label-blind test:** the same rebuild with departure labels blanked; 0 columns differ.
+- **Distribution comparison:** null share, exact 0/1 share, mean and quantiles per airport, lane and feature.
+- **Emulated cost:** a proxy LightGBM fitted on the other 10 months.
+
+| family | verdict |
+|---|---|
+| clock / static / NM offsets / categoricals / `fl_fmt_code` / `fl_len` / `dup_*` / weather / OSM | consistent |
+| `fl_nm_rate_other`, pairq `seq_hw_prev_pairq` / `seq_hw_excess` / `seq_burst_*` | **inconsistent**: +556 / +839 MSE emulated (2 seeds), both lanes, both months |
+| context windows, headways, `nbr_*`, other `seq_*` | edge effects on ≤ 294 rows only (−0.2 / −2.5) |
+| label encodings (`ref_*`, `arh_*`, `apt_med`) | in-sample self-inclusion; cost not reliable (LIRF lane B swings by thousands); test only in a real forward fold |
+
+**Fix:** for the ranking rows, run `extra_candidate_features` on the masked union of the 2025 and 2026 movements,
+one airport at a time. On 2025 this union equals the 12-month frame, so the emulated cost of the fix is 0. EDDF
+matched lane, share of `fl_nm_rate_other` = 1.0: training 0.40, ranking before the fix 0.72, after 0.37.
+
+The re-prediction with the fixed columns is `analysis/local_flrate_fix.py`. Each base config is fitted once and
+predicts the original and the fixed ranking rows together, giving a per-row delta.
+Scripts: `analysis/local_audit_{raw,frame,labelblind,dist,cost,fix2026}.py`.
