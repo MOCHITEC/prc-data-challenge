@@ -84,3 +84,30 @@ against four targets:
 
 **Not adopted.** Among positives, y correlates −0.21 with MVT−SCHED and −0.24 with the neighbour mean: the
 long-wait rows can be flagged, but their length cannot be predicted.
+
+## LIRF deep-dive (2026-10-06): data analysis only
+
+**Error budget.** LIRF holds **30 % of all SSE** in the 4-month OOF (b + c_B; MSE contributions in 4-month units):
+
+| LIRF row type | n | RMSE | MSE contribution |
+|---|---|---|---|
+| unmatched | 537 | 3,704 | **10,956** |
+| matched, exact schedule copy | 8,950 | 522 | 3,623 |
+| matched, other | 29,631 | 275 | 3,329 |
+| matched, BLOCK − SCHED a whole multiple of 5 min | 10,806 | 287 | 1,326 |
+
+**Recording quirk.** LIRF's BLOCK − SCHED has spikes at 0, ±5 and +10 min. The 0 spike is the exact copies;
+the others look like hand-entered times rounded to 5 min. LFPG and EHAM show no such spikes.
+
+**NM AOBT_3 at LIRF** is not fixed: corr(MVT−AOBT_3, y) is 0.49, and 25 % of rows have MVT−AOBT_3 = 900 ± 60 s.
+
+**ADS-B at LIRF** (2025) is good only with a pushback (321 rows: corr 0.80, medAE 129 s). Stand exit without a
+push (7,295 rows) has corr 0.21 and medAE 613 s.
+
+**Unmatched fill blend** (`local_lirf_unm_fill.py`):
+
+* Classifier fit on 8 other months: **AUC 0.912**, T0 = 1,024 s.
+* Blend `p + A·(q·(MVT−SCHED) + (1−q)·T0 − p)`: **−2,352 MSE at A = 0.25, down to −22,120 at A = 1.0.**
+* Model B's schedule reparameterisation already uses this information better than the classifier mixture.
+
+**Closed.**
