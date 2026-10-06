@@ -24,6 +24,7 @@ import sys
 ARGS = sys.argv[1:3]
 MONTHS = "--months" in sys.argv
 STANDMAP = sys.argv[sys.argv.index("--standmap") + 1] if "--standmap" in sys.argv else ""
+PARAMS_V2 = "--params" in sys.argv and sys.argv[sys.argv.index("--params") + 1] == "v2"  # v38's residual settings
 sys.argv = [sys.argv[0], "--base", "a2"]
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts"))
 
@@ -38,6 +39,9 @@ import adsb_learn_features as L  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cv_months as CM  # noqa: E402
 
+if PARAMS_V2:  # plan_standmap.md section 4: P and A with v38's V2 settings; rounds from cv_months_v2fill_a2.json
+    CV.PARAMS = {**CV.PARAMS, "num_leaves": 255, "min_data_in_leaf": 300, "feature_fraction": 0.7}
+
 
 def fit(D: pl.DataFrame, appear: bool, rounds: int, feats_ref: list[str]):
     X, feats, cats = L.design(D, "b")
@@ -51,7 +55,7 @@ def fit(D: pl.DataFrame, appear: bool, rounds: int, feats_ref: list[str]):
 
 def main(src: str, dst: str) -> None:
     if MONTHS:
-        m = json.load(open(os.path.join(L.OUT, "cv_months_a2.json")))
+        m = json.load(open(os.path.join(L.OUT, "cv_months_v2fill_a2.json" if PARAMS_V2 else "cv_months_a2.json")))
         assert m["verdict"] == "ADOPT", "plan.md 6.2: the 4-month re-measure did not pass; no 4-month delta"
         cj = {k: {"final_rounds": m["final_rounds"][a], "features": m["features"][a]}
               for k, a in (("P", "plain4"), ("A", "appear4"))}
@@ -60,7 +64,8 @@ def main(src: str, dst: str) -> None:
             sm = json.load(open(os.path.join(L.OUT, "cv_standmap_a2.json")))
             assert sm["choice"] == STANDMAP, f"plan_standmap.md chose {sm['choice']}, not {STANDMAP}"
             assert sm["features"][STANDMAP] == cj["A"]["features"]
-            cj["A"]["final_rounds"] = sm["final_rounds"][STANDMAP]
+            if not PARAMS_V2:
+                cj["A"]["final_rounds"] = sm["final_rounds"][STANDMAP]
             T = pl.concat([pl.read_parquet(os.path.join(L.OUT, f"appear_{STANDMAP}_{k}.parquet")) for k in ("2025", "2025nd")])
             D = D.drop(list(AP.COLS)).join(T, on="MVT_ID_mvt", how="left")
     else:
@@ -72,7 +77,7 @@ def main(src: str, dst: str) -> None:
     models, feats = {}, {}
     for k in ("P", "A"):
         models[k], feats[k] = fit(D, k == "A", cj[k]["final_rounds"], cj[k]["features"])
-        tag = ("_months" if MONTHS else "") + (f"_{STANDMAP}" if STANDMAP else "")
+        tag = ("_months" if MONTHS else "") + (f"_{STANDMAP}" if STANDMAP else "") + ("_v2" if PARAMS_V2 else "")
         models[k].save_model(os.path.join(L.OUT, f"final_model_a2_delta{tag}_{k}.txt"))
         print(f"model {k}: {D.height} ADS-B rows, {cj[k]['final_rounds']} rounds, {len(feats[k])} features", flush=True)
 
