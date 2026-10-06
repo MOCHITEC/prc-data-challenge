@@ -61,3 +61,15 @@ matched lane, share of `fl_nm_rate_other` = 1.0: training 0.40, ranking before t
 The re-prediction with the fixed columns is `analysis/local_flrate_fix.py`. Each base config is fitted once and
 predicts the original and the fixed ranking rows together, giving a per-row delta.
 Scripts: `analysis/local_audit_{raw,frame,labelblind,dist,cost,fix2026}.py`.
+
+## Re-prediction result (same day)
+- **Production configs:** refitted on all of 2025 (main_flseq lane B with 3 seeds; osm_nolirf and plainy lane A
+  with 1 seed each). Each fit predicted the original and the fixed ranking rows together.
+- **Change magnitude** (Σ Δ² / N):
+  - lane B: 211 (LIRF −79 s on average on its 383 rows);
+  - lane A (mean of the two LGB members, scaled by 1 − 0.4 q at LIRF): 51 (mean |Δ| 1–4 s).
+- **Calibration** from the audit's 2025 emulation (cost / change magnitude): lane A ≈ 1.5, lane B ≈ 0.18.
+  **Expected gain ≈ +114 MSE (≈ 0.24 s).** That is far below the proxy's +556 / +839. The proxy is a weak model
+  (MSE 140k) that leaned on the column much more than production does.
+- **Candidate C9** = v40 + this fix + neighbour-clock residual + LIRF time-zone class + copy band, then LOBT clip:
+  `outputs/c9_v40_flfix_tz_copy_nbr.parquet`, 207 927 rows changed. Expected total ≈ +330 MSE (≈ 0.7 s).
