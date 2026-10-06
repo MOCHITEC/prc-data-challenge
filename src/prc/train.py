@@ -1198,25 +1198,34 @@ def carrier_echo_features(
     tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """CAR_COLS on both frames. Target rows use a table fitted on all training rows; each training row uses a table
-    fitted on the training rows of the OTHER months, so no row sees its own label. Row order is unchanged."""
-    need = (pl.col(LABEL).is_not_null()) & pl.col(SCHED_OFFSET).is_not_null()
-    tr = tr.with_columns(
-        _carrier_expr(), pl.col("MVT_TIME_UTC_mvt").dt.month().alias("_mo"), pl.int_range(pl.len()).alias("_row")
-    )
-    tg = tg.with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
-    lab = tr.filter(need)
-    tg = tg.join(_carrier_tables(lab), on=["ADEP_mvt", "_car"], how="left").sort("_row")
+    fitted on the training rows of the OTHER months, so no row sees its own label. Row order is unchanged.
+
+    Works on a slim copy (a handful of columns) and hstacks the four results, so the wide frames are never copied:
+    the first version joined on the full training frame and was OOM-killed at 2.1M rows."""
+    keep = ["ADEP_mvt", "FLIGHT_mvt", LABEL, SCHED_OFFSET, PROXY]
+    s_tr = tr.select(
+        [c for c in keep if c in tr.columns] + [pl.col("MVT_TIME_UTC_mvt").dt.month().alias("_mo")]
+    ).with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    s_tg = tg.select("ADEP_mvt", "FLIGHT_mvt").with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    need = pl.col(LABEL).is_not_null() & pl.col(SCHED_OFFSET).is_not_null()
+    lab = s_tr.filter(need)
+    out_tg = s_tg.join(_carrier_tables(lab), on=["ADEP_mvt", "_car"], how="left").sort("_row")
     parts = []
-    for m in tr["_mo"].unique().to_list():
+    for m in s_tr["_mo"].unique().to_list():
         parts.append(
-            tr.filter(pl.col("_mo") == m).join(
-                _carrier_tables(lab.filter(pl.col("_mo") != m)), on=["ADEP_mvt", "_car"], how="left"
-            )
+            s_tr.filter(pl.col("_mo") == m)
+            .select("ADEP_mvt", "_car", "_row")
+            .join(_carrier_tables(lab.filter(pl.col("_mo") != m)), on=["ADEP_mvt", "_car"], how="left")
         )
-    tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
-    fill = [pl.col(c).fill_null(0.0) for c in ("car_n_unm", "car_n_all")]
-    tr = tr.with_columns(fill).drop("_car", "_mo", "_row")
-    tg = tg.with_columns(fill).drop("_car", "_row")
+    out_tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
+    if out_tr.height != tr.height or out_tg.height != tg.height:
+        raise AssertionError("carrier_echo_features changed a row count")
+
+    def _cols(o: pl.DataFrame) -> list[pl.Series]:
+        o = o.with_columns(pl.col("car_n_unm").fill_null(0.0), pl.col("car_n_all").fill_null(0.0))
+        return [o[c].cast(pl.Float64) for c in CAR_COLS]
+
+    tr, tg = tr.hstack(_cols(out_tr)), tg.hstack(_cols(out_tg))
     if info is not None:
         info["carrier_echo_target_missing"] = int(tg["car_echo_all"].null_count())
     return tr, tg
