@@ -43,6 +43,7 @@ STATUS = os.path.join(ia.ING, "status_2025.jsonl")
 RSS_MAX_MB = 9000
 _sizes0, _url0 = s1.sizes, s1.part_url
 _single: dict[str, bool] = {}
+_alt: dict[str, str] = {}
 
 
 def _head(url: str) -> tuple[str, int | None]:
@@ -71,12 +72,22 @@ def sizes(repo: str, tag: str) -> list[tuple[str, int]]:
     return _sizes0(repo, tag)
 
 
+def _url_tag(repo: str, tag: str) -> str:
+    """The release name to download from. adsb.lol publishes some 2025 days only as `<tag>tmp` (2025-05-28 to
+    06-10 are `v2025.MM.DD-planes-readsb-prod-0tmp`); the local file names keep `<tag>` so nothing downstream changes."""
+    if tag not in _alt:
+        _alt[tag] = tag
+        if _head(_url0(repo, tag, "aa"))[0] != "200" and _head(_url0(repo, tag + "tmp", "aa"))[0] == "200":
+            _alt[tag] = tag + "tmp"
+    return _alt[tag]
+
+
 def part_url(repo: str, tag: str, sfx: str) -> str:
     repo = _repo(repo, tag)
     if _is_single(repo, tag):
         assert sfx == "aa", (tag, sfx)
         return f"{s1.BASE}/{repo}/releases/download/{tag}/{tag}.tar"
-    return _url0(repo, tag, sfx)
+    return _url0(repo, _url_tag(repo, tag), sfx)
 
 
 s1.sizes, s1.part_url = sizes, part_url
