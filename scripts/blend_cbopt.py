@@ -221,7 +221,9 @@ def build_full_r6(out: Path) -> None:
     m = d[PROXY].is_not_null().to_numpy()
 
     def vals(w):
-        return np.where(m, np.rint(sum(x * d[c].to_numpy() for c, x in w.items())), d["u"].to_numpy())
+        # Weights rounded to 6 decimals, as outputs/hybrid_blend_reweight.parquet was built
+        # (rejected_rereview.py full --weights with the 6-decimal values of rejected-rereview.md §4).
+        return np.where(m, np.rint(sum(round(x, 6) * d[c].to_numpy() for c, x in w.items())), d["u"].to_numpy())
 
     r6 = pl.read_parquet(R6_FILE)["TAXITIME_SEC_mvt"].to_numpy().astype(float)
     print(f"  R6 formula reproduces {R6_FILE}: {np.array_equal(vals(R6_W), r6)}")

@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit killed twice by the 13,000 MB guard (attempt 2, own cgroup: 13,153 MB at ES iteration ~4,045); no output file.** §0 is written and committed before any tuning trial,
+**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit done after two snapshot resumes (guard 13,500 MB own cgroup); `outputs/hybrid_blend_l2_pa_opt_mlp_cbopt.parquet` and `outputs/hybrid_blend_reweight_cbopt.parquet` written and validated. Nothing submitted.** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -345,3 +345,28 @@ further resume would continue from iteration ~4,045 (snapshot progress exists); 
 0.197270, m4 0.220470) and `full` are ready; `full_r6` first checks that R6's own weights reproduce
 `outputs/hybrid_blend_reweight.parquet`. The R6-with-M3' OOF (LOFO weights, as R6's OOF) is
 `logs/cbretune/scratch/oof_rr_R6_pa5_lofo_cbopt.parquet` (local, git-ignored).
+
+**Full fit, attempts 3 (guard 13,500 MB on the own cgroup, user-approved; `scripts/run_guarded.sh`, 1bffa14).**
+Resumed by `logs/cbretune/full_loop.sh` at 09:52:12 UTC from the 09:46:15 snapshot. The early-stopping fit finished
+from its snapshot (ES best 4,036 → refit 4,385 rounds), then the refit ran. **Exit 0, not killed, 8,838 s, peak
+12,652 MB own / 12,857 MB all sessions.** Full fit total: three runs (one start + two resumes), 1,885 + 5,943 + 8,838 s.
+`outputs/main_flseq_osm_nolirf_cb_l2_cbopt.parquet`: `prc.validate_submission` OK (only the >10,800 s warning); its
+5,290 unmatched rows equal `outputs/main_flseq_osm_nolirf_cb_l2.parquet` (model B untouched); matched rows move by
+RMS 73.7 s.
+
+## 5. Outputs (nothing submitted; no ADS-B residual or overlay applied)
+
+- **`outputs/hybrid_blend_l2_pa_opt_mlp_cbopt.parquet`** (pre-registered, §0.5): `blend_cbopt.py full`; the same code
+  with M3 reproduces `outputs/hybrid_blend_l2_pa_opt_mlp.parquet` exactly. 344,841 rows (339,551 matched, 5,290
+  unmatched); schema `{MVT_ID_mvt: double, TAXITIME_SEC_mvt: int32}` = template; ids and order = template; 0 nulls,
+  0 negatives, min 0, max 113,641; differs from the base on 321,409 rows, all matched (max |d| 1,065 s, RMS 18.29 s);
+  `prc.validate_submission` OK.
+- **`outputs/hybrid_blend_reweight_cbopt.parquet`** (coordinator request: R6 with M3' and R6's all-fold weighting):
+  `blend_cbopt.py full_r6`, matched rows `rint(Σ w·member)` with the all-fold weights rounded to 6 decimals as R6's file
+  was (the same code with R6's weights reproduces `outputs/hybrid_blend_reweight.parquet` exactly; with unrounded
+  weights 6 rows differ): **a2o 0.052321, pao 0.357834, p2o 0.172105, M3' 0.197270, m4 0.220470**. 344,841 rows; schema,
+  ids and order = template; 0 nulls, 0 negatives, min 0, max 113,641; differs from `hybrid_blend_reweight.parquet` on
+  314,216 rows, all matched (max |d| 839 s, RMS 12.54 s); `prc.validate_submission` OK.
+- **OOF of the R6-with-M3' variant** (LOFO weights, as R6's own OOF; for the ADS-B residual refit):
+  `logs/cbretune/scratch/oof_rr_R6_pa5_lofo_cbopt.parquet` (local, git-ignored); the 4-member OOF is
+  `logs/cbretune/scratch/oof_hybrid_blend_l2_pa_opt_mlp_cbopt.parquet`.
