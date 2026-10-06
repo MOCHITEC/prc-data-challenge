@@ -99,3 +99,18 @@ OPDI は EUROCONTROL の一般の免責事項（出典明記・非商用・無�
   `results/stress_blanked_days.txt`
 - `evaluate_stress.py`（plan §4 基準 3 の後半）
 - 群の設定 `configs/ox.yaml`（1ffe076b1c）、`configs/ox_stress.yaml`（0b2319a4ca）
+
+## 7. 今の ADS-B 残差（v39 相当）の上での OPDI（plan.md §6）: **採用（ADOPT）、ただし小さい。ライセンスの判断待ち**
+
+4 か月・a2・V2 の設定・appear は fill（`results/cv_opdi4_a2.log`）。OPDI の列は LSZH・EDDF（学習の行のうち 35,180 行: LSZH 29,018、EDDF 6,162）。
+
+| 比較 | 全行 | OPDI の離脱がある行 | LSZH | EDDF |
+|---|---|---|---|---|
+| opdi 対 cur | **−0.079 [−0.147, −0.014]** | −5.14 [−6.03, −4.36] | −3.18 [−3.85, −2.58] | −0.07 [−0.25, +0.12] |
+| opdi 対 opdishuf | **−0.089 [−0.143, −0.043]** | −5.11 | −3.21 | −0.05 |
+| opdishuf 対 cur | +0.010 [−0.049, +0.070] | | | |
+
+- ADS-B（adsb.lol）の残差と appear の上でも、OPDI の離脱がある行で −5.1 s、LSZH で −3.2 s 残る。全体では −0.08 s（§4 の目安 −0.05〜−0.2 s の範囲）。
+- EDDF では効かなかった（11・12 月の学習の行が少ない）。
+- **提出には OPDI のライセンス（非商用・無断改変禁止）の判断が要る。** 効果は LB で −0.1 s 程度の見込みなので、賞の条件に
+  関わる危険と比べて使わない選択もありうる。
