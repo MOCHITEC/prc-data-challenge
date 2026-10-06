@@ -8,7 +8,6 @@ per month. Per fold, five models predict the same test days: P12 / A12 / S12 (pl
 the training days of all 12 months) and P4 / A4 (plain / appear, fit on the training days of Jan, Jul, Nov, Dec only).
 Writes cv_months12_a2.json (final rounds and features of P12 / A12) and cv_months12_rows_a2.parquet."""
 
-import glob
 import json
 import os
 import sys
@@ -28,13 +27,12 @@ FOUR = ("2025-01", "2025-07", "2025-11", "2025-12")
 
 def load_fold(fold: str) -> pl.DataFrame:
     """a2 base OOF of one custom fold (aso / fmj) from the *_asofmj runs."""
-    def oof(stem: str):
-        f = sorted(glob.glob(os.path.join(CV.ROOT, f"experiments/oof_{stem}_asofmj-*_folds.parquet")))
-        assert len(f) == 1, (stem, f)
-        fo = pl.read_parquet(f[0]).filter(pl.col("fold") == fold).select("MVT_ID_mvt")
-        return fo, pl.read_parquet(f[0].replace("_folds.parquet", ".parquet"))
-    fa, oa = oof("main_flseq_osm_nolirf_l2")
-    fb, ob = oof("main_flseq")
+    def oof(exp_id: str):  # the run is named by the config's `name` (the base's), so its hash tells it apart
+        f = os.path.join(CV.ROOT, f"experiments/oof_{exp_id}_folds.parquet")
+        fo = pl.read_parquet(f).filter(pl.col("fold") == fold).select("MVT_ID_mvt")
+        return fo, pl.read_parquet(f.replace("_folds.parquet", ".parquet"))
+    fa, oa = oof("main_flseq_osm_nolirf_l2-f251478c1a")  # configs/main_flseq_osm_nolirf_l2_asofmj.yaml
+    fb, ob = oof("main_flseq-87ea8fee1d")  # configs/main_flseq_asofmj.yaml
     assert fa.sort("MVT_ID_mvt").equals(fb.sort("MVT_ID_mvt")), f"{fold}: folds differ"
     ft = pl.read_parquet(os.path.join(CV.ROOT, "data/work_flseq/feat_train.parquet"),
                          columns=["MVT_ID_mvt", "TAXITIME_SEC_mvt", "mvt_minus_aobt3", "ADEP_mvt", "MVT_TIME_UTC_mvt"])
