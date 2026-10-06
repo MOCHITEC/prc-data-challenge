@@ -52,3 +52,13 @@ AOBT_3 の誤差の説明力は強い: Spearman(label − proxy, 離脱 − AOBT
 ## 5. 範囲
 
 本番と提出は変えない。合格したら、本番（v33 系、ADS-B 残差あり）に入れる手順と表を引き継ぎに書く。
+
+## 6. 追記（2026-10-06 01:55 UTC、CV の前に書く）: 今の ADS-B 残差（v39 相当）の上で OPDI が効くか
+
+`handoff/2026-10-05/README.md` の `--opdi` の確認を、この環境に取り込んだ ADS-B でそのまま測る。
+
+- **群**（4 か月・a2・`docs/appear_tier_2026-10-05/cv_months.py` と同じ fold、V2 の設定、appear は fill = v39 の残差に相当）:
+  cur、opdi（cur ＋ `scripts/adsb_opdi.py` の 6 列）、opdishuf（6 列を空港の中で並べ替えた対照）。
+- **空港**: LSZH と EDDF（学習の 4 か月のうち 2025 年 11・12 月に EDDF の OPDI が 15〜19 % あり、2026 年も 15〜25 %）。他は空。
+- **判定**: opdi が cur と opdishuf の両方に対して、全行の RMSE の差の日単位 95 % CI が改善側でゼロを除外すること。
+- 合格しても、OPDI のライセンス（EUROCONTROL の免責事項: 非商用・無断改変禁止）の判断がユーザーから出るまでは提出候補にしない。
