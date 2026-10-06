@@ -29,3 +29,18 @@
 3. Both the jan and the jul fold improve on the unmatched rows.
 
 Per-airport results and `prc.compare` are reported, but not used for the decision.
+
+## Result (2026-10-06, `car_verdict.txt`)
+**REJECT.** main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_car-574127d012.
+
+| condition | result | met? |
+|---|---|---|
+| 1. matched rows bit-identical | identical | yes |
+| 2. unmatched CI excludes 0 on the improving side | 1571.6 → 1565.3, −6.29 s [−20.80, +4.91] — the CI includes 0 | **no** |
+| 3. jan and jul improve on unmatched rows | jan −1.55, jul −18.59 | yes |
+
+- forward is worse: +4.31.
+- Most of the change is LIRF (−34.2 s). EDDM (+7.1) and LEMD (+6.4) get worse.
+- Whole frame: −0.45 s.
+- **Reading:** this is the same pattern as in `copy.md` (12-month gain, Jan+Jul gain not significant). The airline-only
+  rate does not pass. The finer hierarchy (`fe_stamp_hier`, queued) is the next test of this idea.
