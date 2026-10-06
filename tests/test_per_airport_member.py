@@ -24,6 +24,7 @@ from prc.train import PROXY, TrainConfig, predict_fold, run_cv
 # (experiment id, digest of [model A lgb_params, model B lgb_params]) of every recipe in configs/, computed by the
 # code at f3ab74f, before airport_specialist_only and fold_cache existed.
 BEFORE = {
+    "main_flseq_osm_nolirf_l2_opt_nmb.yaml": ("97a0e31e57", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_mlp_l6.yaml": ("a10f4edb0d", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_car.yaml": ("574127d012", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_l6_cmix.yaml": ("1e01a07623", "9f53bbe724"),

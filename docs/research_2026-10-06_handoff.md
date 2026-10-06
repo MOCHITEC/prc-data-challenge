@@ -30,3 +30,14 @@
 - `docs/research_2026-10-05_measure/l6_plan.md`、`l6_*_verdict.txt`、`l6_blend_check.txt`
 - `docs/research_2026-10-05_measure/copy_plan.md`、`cmix_verdict.txt`
 - `docs/research_2026-10-05_newstand/results.md`
+
+## For the thread that owns the ADS-B residual (added 2026-10-06)
+- **Add carrier and stand-prefix categoricals to the learned ADS-B residual.** `adsb_learn_features.CATS` is currently
+  {ADEP, join, stand_rule}.
+  - Evidence: versatile-violin v38 gave −9.25 LB, adding "heard moving" columns plus the airline prefix together. The
+    airline prefix was the top-gain feature.
+  - Expected for us: −0.2 to −0.8 s.
+  - Details: `docs/research_2026-10-05_repos/round3.md`, idea 2.
+- **Rule:** extra ADS-B days go into the residual stage only. Putting them into stage 1 cost +0.91 LB for
+  versatile-violin.
+- **Rule:** do not prune ADS-B position columns on drift. Dropping them cost +1.54 LB for outgoing-boat.

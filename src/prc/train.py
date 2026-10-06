@@ -161,6 +161,8 @@ _HASH_OPTIONAL: dict = {
     "gmodel_lambda": 0.25,
     # carrier echo (docs/research_2026-10-05_measure/carrier_plan.md): off, every existing id is unchanged.
     "fe_carrier_echo": False,
+    # NM-blind blend (docs/research_2026-10-06_nmblind/plan.md): 0, every existing id is unchanged.
+    "nmblind_weight": 0.0,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -452,6 +454,10 @@ class TrainConfig:
     # smoothed share of departures with |y - (MVT - SCHED)| <= 60 s per (airport, carrier from the flight number),
     # fitted on the training side with nested leave-month-out for training rows. Model A never sees it.
     fe_carrier_echo: bool = False
+    # NM-blind blend for model B (docs/research_2026-10-06_nmblind/plan.md): a LightGBM fitted on ALL labelled
+    # departures with 0 < y <= 7200 s and model B's columns (no NM clock), blended at this weight into model B on the
+    # unmatched target rows outside the reparameterised airports (LIRF). 0 (the default): model B is what it was.
+    nmblind_weight: float = 0.0
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -1926,6 +1932,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))
             g = u_tg["ref_p10_fb"].fill_null(fallback).to_numpy().astype(float)
             info["rounds_unmatched"] = 0
+        if cfg.nmblind_weight > 0 and u_tr.height >= 200:
+            g = _nmblind_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
         if cfg.gmodel_airports and u_tr.height >= 200:
             g = _gmodel_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
@@ -1936,6 +1944,40 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["es_encoder_matched"] = es_stats_a
         info["es_encoder_unmatched"] = es_stats_b
     return _assemble(parts, tr, tg, target_f, info, cfg)
+
+
+NMBLIND_MAX_S = 7200.0
+
+
+def _nmblind_blend(
+    tr: pl.DataFrame,
+    u_tg: pl.DataFrame,
+    pred_b: np.ndarray,
+    cfg: TrainConfig,
+    cols_b: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_b` blended with an NM-blind model on unmatched target rows outside the reparameterised airports.
+
+    The NM-blind model sees model B's columns (no NM clock) but is fitted on every labelled departure of the
+    training side with 0 < y <= NMBLIND_MAX_S, matched rows included, so it learns the airport's ordinary taxi
+    process from 98% of the data instead of from the 1.5% that is unmatched."""
+    w = float(cfg.nmblind_weight)
+    if not (0.0 < w <= 1.0):
+        raise ValueError(f"nmblind_weight must be in (0, 1], got {w!r}")
+    skip = set(cfg.unmatched_sched_reparam_airports) if cfg.unmatched_sched_reparam else set()
+    sel = np.flatnonzero(~u_tg["ADEP_mvt"].is_in(list(skip)).to_numpy()) if skip else np.arange(u_tg.height)
+    out = pred_b.copy()
+    if sel.size == 0:
+        info["nmblind"] = {"target_rows": 0}
+        return out
+    fit_rows = tr.filter(pl.col(LABEL).is_not_null() & (pl.col(LABEL) > 0) & (pl.col(LABEL) <= NMBLIND_MAX_S))
+    cfg_b = cfg.for_unmatched()
+    (p,), rounds = _fit(fit_rows, lambda f: f[LABEL].to_numpy().astype(float), cfg_b, cols_b, cat_cols, [u_tg[sel]])
+    out[sel] = (1.0 - w) * pred_b[sel] + w * p
+    info["nmblind"] = {"train_rows": fit_rows.height, "target_rows": int(sel.size), "rounds": rounds, "weight": w}
+    return out
 
 
 def _gmodel_blend(
