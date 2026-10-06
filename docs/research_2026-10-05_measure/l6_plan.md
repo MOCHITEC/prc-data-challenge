@@ -62,3 +62,10 @@ This is the LGB part of the v35 matched blend, ((0.5·a2o + 0.5·pao) + p2o) / 2
 - **+L6 + cmix:** −1.18 [−1.44, −0.93]. This uses an approximate additive cmix delta on a2o.
 - CatBoost and MLP are unchanged. The LGB part is half of the full blend, so the blend-level effect is roughly half
   of this, about −0.4 to −0.6 s, unless L6 is also added to CB/MLP.
+
+## MLP member — pre-registered before the runs (2026-10-06)
+- **Why:** the user will submit once the accumulated expected gain reaches 2–3 s. L6 now sits in the LGB half of the
+  blend only. CatBoost and the MLP member make up the other half.
+- **Arms (all folds):** `main_flseq_osm_nolirf_l2_mlp` (m4) vs `main_flseq_osm_nolirf_l2_mlp_l6`.
+- **Verdict:** the same as for the LGB members. `prc.compare` must ADOPT; STRICT is reported alongside.
+- **CatBoost** is deferred: its retune was stopped by the memory guard on another branch.
