@@ -187,9 +187,78 @@ def build_full(out: Path) -> None:
     )
 
 
+# R6's all-fold weights (rejected-rereview.md §4) and R6-with-M3' all-fold weights (`r6` above; catboost-retune.md §3).
+R6_W = {
+    "a2o": 0.06942761328559456,
+    "pao": 0.37478538567974895,
+    "p2o": 0.17609915090894604,
+    "c2": 0.14700227784227882,
+    "m4": 0.23268557228343167,
+}
+R6_CBOPT_W = {
+    "a2o": 0.052320574981739434,
+    "pao": 0.3578340985804003,
+    "p2o": 0.17210475217352164,
+    "c2o": 0.19727016176769022,
+    "m4": 0.22047041249664845,
+}
+R6_FILE = "outputs/hybrid_blend_reweight.parquet"
+
+
+def build_full_r6(out: Path) -> None:
+    """outputs/hybrid_blend_reweight_cbopt.parquet: matched rows rint(sum w_c * member_c) with R6_CBOPT_W over the
+    full-fit files, unmatched rows main_flseq - R6's construction with M3' in place of M3. First checks that the
+    same code with R6_W reproduces outputs/hybrid_blend_reweight.parquet exactly."""
+    template = pq.read_table("data/raw/submitting.parquet")
+    ids = pl.from_arrow(template.select(["MVT_ID_mvt"]))
+    lane = pl.read_parquet(WORK / "feat_rank.parquet", columns=["MVT_ID_mvt", PROXY])
+    d = ids.join(lane, on="MVT_ID_mvt", how="left", maintain_order="left")
+    for c, f in FULL_FILES.items():
+        s = pl.read_parquet(f)
+        if not s["MVT_ID_mvt"].equals(ids["MVT_ID_mvt"]):
+            raise AssertionError(f"{f}: ids or order differ from the template")
+        d = d.with_columns(s["TAXITIME_SEC_mvt"].cast(pl.Float64).alias(c))
+    m = d[PROXY].is_not_null().to_numpy()
+
+    def vals(w):
+        return np.where(m, np.rint(sum(x * d[c].to_numpy() for c, x in w.items())), d["u"].to_numpy())
+
+    r6 = pl.read_parquet(R6_FILE)["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    print(f"  R6 formula reproduces {R6_FILE}: {np.array_equal(vals(R6_W), r6)}")
+    v = vals(R6_CBOPT_W)
+    tgt_type = template.schema.field("TAXITIME_SEC_mvt").type
+    sub = pa.table(
+        {"MVT_ID_mvt": template["MVT_ID_mvt"], "TAXITIME_SEC_mvt": pa.array(v, type=pa.float64()).cast(tgt_type)},
+        schema=template.schema,
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(sub, out)
+    back = pq.read_table(out)
+    got = pl.from_arrow(back)
+    vv = got["TAXITIME_SEC_mvt"].to_numpy().astype(float)
+    print(
+        f"wrote {out}: weights {R6_CBOPT_W}; members {[FULL_FILES[c] for c in R6_CBOPT_W]}; unmatched {FULL_FILES['u']}"
+    )
+    print(
+        f"  rows {back.num_rows:,} == template {template.num_rows:,}: {back.num_rows == template.num_rows}"
+        f"  (matched {int(m.sum()):,}, unmatched {int((~m).sum()):,})"
+    )
+    print(f"  schema == template: {back.schema.equals(template.schema)}")
+    same_ids = back["MVT_ID_mvt"].combine_chunks().equals(template["MVT_ID_mvt"].combine_chunks())
+    print(f"  ids and order == template: {same_ids}")
+    print(
+        f"  nulls {got['TAXITIME_SEC_mvt'].null_count()}  negatives {int((vv < 0).sum())}  min {vv.min():.0f}  max {vv.max():.0f}"
+    )
+    diff = vv - r6
+    print(
+        f"  vs {R6_FILE}: differs on {int((diff != 0).sum()):,} rows (unmatched untouched: "
+        f"{int((diff[~m] != 0).sum()) == 0}), max |d| {np.abs(diff).max():.0f} s, RMS {np.sqrt((diff**2).mean()):.2f} s"
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("what", choices=["oof", "detail", "full", "r6"])
+    ap.add_argument("what", choices=["oof", "detail", "full", "r6", "full_r6"])
     ap.add_argument("--a", default=BASE)
     ap.add_argument("--b", default=CAND)
     ap.add_argument("--c2o")
@@ -198,6 +267,9 @@ def main() -> int:
     a = ap.parse_args()
     if a.what == "full":
         build_full(a.out)
+        return 0
+    if a.what == "full_r6":
+        build_full_r6(Path("outputs/hybrid_blend_reweight_cbopt.parquet"))
         return 0
     if a.scratch is None:
         raise SystemExit("--scratch is required for oof and detail (keep hybrid OOF files out of experiments/)")

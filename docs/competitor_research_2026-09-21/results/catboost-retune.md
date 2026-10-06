@@ -1,6 +1,6 @@
 # Hyperparameter retune of the anchored CatBoost+L2 member M3 (model A) — pre-registration (2026-10-05)
 
-**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit killed by the memory guard (own 12,817 MB, all sessions 13,102 MB); no output file.** §0 is written and committed before any tuning trial,
+**Status (2026-10-06): member ADOPT (−1.86 s [−2.36, −1.46], K=200 −2.18 [−2.65, −1.76]); blend `hybrid_blend_l2_pa_opt_mlp` → `_cbopt` ADOPT (−0.18 s [−0.28, −0.09], K=200 −0.21 [−0.34, −0.11]); R6 secondary −0.07 [−0.14, −0.01], K=200 −0.09 [−0.16, −0.01]. Full fit killed twice by the 13,000 MB guard (attempt 2, own cgroup: 13,153 MB at ES iteration ~4,045); no output file.** §0 is written and committed before any tuning trial,
 confirmation or blend run. Results will be appended as §1+ without editing §0, except this status line and the one
 measured number §0.3 asks to be filled in (the trial budget N, fixed by a rule stated here before it is measured).
 
@@ -329,3 +329,19 @@ Facts for the decision (not acted on):
 
 **Per the stop rule, the full fit and `outputs/hybrid_blend_l2_pa_opt_mlp_cbopt.parquet` are not produced.** The
 member and blend verdicts (§2, §3) stand; the full-fit step is "not runnable within memory" under the current guard.
+
+**Full fit, attempt 2 (user-approved guard on the own cgroup only, threshold 13,000 MB unchanged;
+`scripts/run_guarded.sh`, fce0b80).** Resumed from the attempt-1 snapshot at 08:07:45 UTC (CatBoost's `time_left.tsv`
+continued from iteration ~1,500 with the elapsed clock carried over, i.e. a resume, not a restart). **Killed at
+09:46:47 (5,943 s, rc 137): own-cgroup total_rss 13,153 MB** (13,363 MB all sessions), a 10-s spike from ~12.5 GB.
+The early-stopping fit was at iteration ~4,045 of the 5,000 cap; the last snapshot (95 MB) is from 09:46:15. Over the
+attempt the own cgroup sat at 11.9–12.9 GB with repeated short spikes above 12.6 GB that are not aligned with the
+300-s snapshot writes. The 13,680 MB cgroup limit was not reached.
+
+**Stopped per the rule (total_rss > 13,000 MB).** No member full-fit file, so neither
+`outputs/hybrid_blend_l2_pa_opt_mlp_cbopt.parquet` nor `outputs/hybrid_blend_reweight_cbopt.parquet` is built. A
+further resume would continue from iteration ~4,045 (snapshot progress exists); that is a decision for the user.
+`scripts/blend_cbopt.py full_r6` (R6's all-fold weights with M3': a2o 0.052321, pao 0.357834, p2o 0.172105, M3'
+0.197270, m4 0.220470) and `full` are ready; `full_r6` first checks that R6's own weights reproduce
+`outputs/hybrid_blend_reweight.parquet`. The R6-with-M3' OOF (LOFO weights, as R6's OOF) is
+`logs/cbretune/scratch/oof_rr_R6_pa5_lofo_cbopt.parquet` (local, git-ignored).
