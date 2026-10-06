@@ -36,3 +36,16 @@ fill と mapfirst のそれぞれについて、次をすべて満たせば合�
 
 両方合格なら、全行の osm に対する差が小さい（良い）ほうを採る。合格した群があれば、その地図で 2026 年の appear の列を作り直し、
 `apply_delta.py --months` の A を差し替えて差分を作り直す（提出候補の更新。提出するかはユーザーと相談）。
+
+## 4. 追記（2026-10-06 00:25 UTC、提出の前・CV の前に書く）: v38 の V2 残差の上でも効くか
+
+v38（LB 242.0919）= v37 の 4 か月の残差を V2 の設定（`num_leaves` 255、`min_data_in_leaf` 300、`feature_fraction` 0.7、他は
+`adsb_learn_cv.PARAMS`）に差し替えたもの（`claude/laughing-cray-vvwh0k` の `analysis/local_adsb_apply_swap.py`）。特徴量は同じだが、
+木が大きくなった分 appear の効果の一部を先に拾っている可能性がある。そこで:
+
+- **CV**（`docs/appear_tier_2026-10-05/cv_v2.py`）: 4 か月・a2・同じ fold で、すべて V2 の設定の 3 群: plain_v2、appear_fill_v2
+  （fill の表）、shuffle_fill_v2（fill の表を §0 の並べ替えにかけた対照）。
+- **判定**（plan.md §3 と同じ形）: appear_fill_v2 が plain_v2 と shuffle_fill_v2 の両方に対して、全行の RMSE の差の日単位 95 % CI が
+  改善側でゼロを除外すること。
+- **合格なら**: V2 の設定の P（plain）と A（appear fill）で差分を作り（`apply_delta.py v38 ... --months --standmap fill --params v2`）、
+  v38 に載せて validate のうえ提出する（ユーザーの依頼）。**不合格なら**提出せず報告する。
