@@ -251,3 +251,4 @@ deterministic, so a restarted fold finds them (≈ 73 MB each).
 | fold | start (UTC) | wall s | peak total_rss MB (own / all sessions) | ES best → refit rounds (model A) | matched RMSE: base M3 → cbopt |
 |---|---|---:|---:|---|---|
 | jan | 10-05 23:29:08 | 8,141 | 12,145 / 12,401 | 2,361 → 2,583 | 202.50 → 201.07 |
+| jul | 10-06 01:44:49 | 8,751 | 11,769 / 12,044 | 2,621 → 2,872 | 244.16 → 240.45 |
