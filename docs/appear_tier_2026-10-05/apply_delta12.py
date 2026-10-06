@@ -9,8 +9,11 @@ plain residual the file carries (4:v2 in v39, 12:v2 or 7:v2 in v40). The change 
     delta = (c_A12 - c_P12)(b) - (c_A4 - c_P4)(b)        on rows with appear columns, else 0,
 
 with P12 / A12 fit on all ADS-B rows of the 12 months of 2025 with the rounds of cv_months12_a2.json. b enters only
-through the residual features; it is recovered by the fixed point b = file - c_plain(b) - (c_A4 - c_P4)(b), once with
-c_plain = c_P4 and once with c_P12, and the delta is reported for both (the file's own plain residual is between).
+through the residual features, but the delta is sensitive to it (on v39: RMS 15.7 s between the two recoveries below,
+against an RMS delta of 25.9 s), so b must be recovered with the plain residual the input file really carries:
+b = file - c_plain(b) - (c_A4 - c_P4)(b), with c_plain = c_P4 for v39 (v38's 4:v2). The base b under v39 and v40 is the
+same, so the delta found on v39 is also the one for v40 and later files that kept v39's appear delta. The recovery with
+c_P12 is printed for comparison only.
 <delta_out> holds MVT_ID_mvt and delta (whole seconds, as applied to <in>) for the rows that change, so it can be added
 to any later file that still carries v39's appear delta. Nothing is uploaded."""
 
@@ -93,7 +96,7 @@ def main() -> None:
     dd = deltas["P12"] - deltas["P4"]
     print(f"delta with b from c_P4 vs c_P12: RMS {np.sqrt(np.mean(dd[has] ** 2)):.2f} s, max |.| {np.abs(dd).max():.1f} s; "
           f"RMS delta {np.sqrt(np.mean(deltas['P12'][has] ** 2)):.2f} s", flush=True)
-    delta = deltas["P12"]  # v40 and later carry the 12-month plain residual on most rows
+    delta = deltas["P4"]  # the input is v39, whose plain residual is v38's 4-month one
     new = np.round(f + delta)
     new = np.where(new < 0, f, new)
     G = G.with_columns(pl.Series("new", new), pl.Series("delta", new - f))
