@@ -1,0 +1,11 @@
+2026 ADS-B feature rows (not LTFM) 285,661; with appear columns 248,334
+b38 fixed point step 0: max |db| 1074.8
+b38 fixed point step 1: max |db| 636.7
+b38 fixed point step 2: max |db| 627.7
+4-month term in the file (v39 - v38) vs the model at b38: RMS diff 1.27 s (term RMS 44.14 s); v39 reproduced on 285,661 of 285,661 rows
+b shift v39 -> C12 on appear rows: RMS 22.7 s, median |.| 8.0 s
+swap: rows 241,252, RMS 26.67 s, sum d^2/N(344,841) 512, mean -1.09; vs the v39-based table: RMS diff 16.08 s, corr 0.813
+old: rows 240,982, RMS 26.36 s, sum d^2/N(344,841) 500, mean -1.28; vs the v39-based table: RMS diff 14.80 s, corr 0.839
+req: rows 241,101, RMS 26.29 s, sum d^2/N(344,841) 498, mean -1.35; vs the v39-based table: RMS diff 15.64 s, corr 0.820
+full: rows 242,785, RMS 30.75 s, sum d^2/N(344,841) 681, mean +0.81; vs the v39-based table: RMS diff 21.92 s, corr 0.715
+=== rebase rc 0
