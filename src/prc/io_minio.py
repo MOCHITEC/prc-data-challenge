@@ -10,6 +10,7 @@ from pathlib import Path
 import certifi
 import urllib3
 from minio import Minio
+from minio.error import S3Error
 
 from .config import OsnConfig, _first_env, data_dir
 
@@ -81,12 +82,57 @@ def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnCo
     return out
 
 
-def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = None) -> str:
-    """Upload <team-name>_v<version>.parquet to the team bucket. Caller must have run the validation gate."""
+# stat_object answers these codes for "no such object"; every other error (403, 503, network) is not "absent".
+_ABSENT_CODES = ("NoSuchKey", "NoSuchObject", "NotFound")
+
+
+def submission_object_name(version: int, cfg: OsnConfig) -> str:
+    return f"{cfg.team_name}_v{version}.parquet"
+
+
+def stat_submission(object_name: str, cfg: OsnConfig, c: Minio | None = None):
+    """HEAD the object in the team bucket: its stat if it exists, None if the bucket says it does not.
+
+    Any other failure (unreachable, denied) raises, so callers fail closed instead of reading it as "absent"."""
+    c = c or client(cfg)
+    try:
+        return c.stat_object(cfg.team_bucket, object_name)
+    except S3Error as exc:
+        if exc.code in _ABSENT_CODES:
+            return None
+        raise
+
+
+def list_team_submissions(cfg: OsnConfig | None = None) -> list[tuple[str, int]]:
+    """Every object in the team bucket that starts with <team-name>_v (submissions and the scorer's sidecars)."""
+    cfg = cfg or OsnConfig.from_env()
+    if not cfg.team_bucket or not cfg.team_name:
+        raise RuntimeError("OSN_TEAM_BUCKET and PRC_TEAM_NAME must be set to list submissions")
+    return list_objects(cfg.team_bucket, prefix=f"{cfg.team_name}_v", cfg=cfg)
+
+
+def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = None, overwrite: bool = False) -> str:
+    """Upload <team-name>_v<version>.parquet to the team bucket. Caller must have run the validation gate.
+
+    Refuses to replace an object that already exists, unless `overwrite=True` is passed deliberately (guard
+    ported from claude/quirky-hopper-b7q73j). Two sessions both uploaded resilient-hedgehog_v42.parquet and the
+    second PUT silently replaced the first: the bucket has no versioning and the scorer re-reads a re-PUT name,
+    so an overwrite can move an already-scored submission's leaderboard score in place. prc.submit adds the
+    leaderboard and next-version checks on top; this HEAD is the last line, right before the PUT."""
     cfg = cfg or OsnConfig.from_env()
     if not cfg.team_bucket or not cfg.team_name:
         raise RuntimeError("OSN_TEAM_BUCKET and PRC_TEAM_NAME must be set to upload submissions")
-    object_name = f"{cfg.team_name}_v{version}.parquet"
-    client(cfg).fput_object(cfg.team_bucket, object_name, str(local_file))
+    object_name = submission_object_name(version, cfg)
+    c = client(cfg)
+    if not overwrite:
+        existing = stat_submission(object_name, cfg, c)
+        if existing is not None:
+            raise FileExistsError(
+                f"{cfg.team_bucket}/{object_name} already exists "
+                f"({existing.size:,} bytes, uploaded {existing.last_modified}). "
+                "Re-uploading a scored name can change its leaderboard score in place, with no way to undo it. "
+                "Use the next free version (python -m prc.submit --check-version N)."
+            )
+    c.fput_object(cfg.team_bucket, object_name, str(local_file))
     log.info("uploaded %s -> %s/%s", local_file, cfg.team_bucket, object_name)
     return object_name
