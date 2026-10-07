@@ -34,3 +34,19 @@ weight 1/4 on matched rows), then the LOBT clip (26 rows).
 
 - vs v40: 336 939 rows changed, Σ Δ² / N = 1 840, mean −3.1 s.
 - Expected about +1 000–1 300 MSE (238.77 → ≈ 236).
+
+## Board results (2026-10-07)
+v42 = **236.4369** (−2.33 s vs v40 238.7712; rank 25/232). The first read of the board for v42 said 238.7644; that
+read was wrong, so the isolation submissions were not needed. They still give the attribution (all vs v40):
+
+| sub | content | score | Δ MSE | Δ s |
+|---|---|---|---|---|
+| v44 | C10 only (fl_/seq_ fix, LIRF time-zone class, copy band) | 237.4070 | +650 | −1.36 |
+| v45 | peaceful-babbage member deltas only (L6+cmix, L6 pao/p2o/MLP) | 238.3508 | +201 | −0.42 |
+| v43 | apron residual swap only | 238.6626 | +52 | −0.11 |
+| v42 − (v43+v44+v45) | ≈ NM-blind + interactions | | ≈ +207 | ≈ −0.43 |
+
+- The pipeline-consistency fix (C10) beat its estimate by about 2×.
+- Apron transferred poorly (+52 vs +300–400 expected). Candidate reasons: CV on the 7-month model but applied as a
+  12-month swap, or the effect does not generalise to 2026.
+- Label-encoding cross-fit (`local_xfit_enc.py`): forward fold all-rows dMSE +295 [−384, +1170]. Rejected.
