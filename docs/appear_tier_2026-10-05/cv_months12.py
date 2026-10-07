@@ -45,21 +45,20 @@ def load_fold(fold: str) -> pl.DataFrame:
     return D.select(CM.KEEP)
 
 
-def load() -> pl.DataFrame:
+def load(variant: str = "fill") -> pl.DataFrame:
+    """The 12 months with the appear columns of one own-stand table (fill here; fill12 / rand12 in plan_standmap12.md)."""
     D = pl.concat([CV.load_labelled().select(CM.KEEP), CM.load_novdec(), load_fold("aso"), load_fold("fmj")])
     assert D["MVT_ID_mvt"].n_unique() == D.height
     keys = ("2025", "2025nd", "2025m8")
     F = pl.concat([pl.read_parquet(os.path.join(L.OUT, f"feat_{k}.parquet")) for k in keys],
                   how="diagonal_relaxed").drop("ADEP_mvt", "day")
     D = D.join(F, on="MVT_ID_mvt", how="left").with_columns(pl.col("icao").is_not_null().alias("has"))
-    T = pl.concat([pl.read_parquet(os.path.join(L.OUT, f"appear_fill_{k}.parquet")) for k in keys])
+    T = pl.concat([pl.read_parquet(os.path.join(L.OUT, f"appear_{variant}_{k}.parquet")) for k in keys])
     return D.drop([c for c in AP.COLS if c in D.columns]).join(T, on="MVT_ID_mvt", how="left").sort("MVT_ID_mvt")
 
 
-def main() -> None:
-    CV.PARAMS = {**CV.PARAMS, **V2}
-    D = load()
-    days = sorted(D["day"].unique().to_list())
+def folds(days: list[str]) -> tuple[list[str], dict[str, int]]:
+    """K = 5 day groups within each month."""
     months = sorted({d[:7] for d in days})
     assert len(months) == 12, months
     rng = np.random.default_rng(CV.SEED)
@@ -68,14 +67,24 @@ def main() -> None:
         ds = sorted(d for d in days if d.startswith(m))
         for i, j in enumerate(rng.permutation(len(ds))):
             fold_of[ds[j]] = i % CV.K
+    return months, fold_of
 
-    def inner(tr_days, seed):
-        r = np.random.default_rng(seed)
-        val = set()
-        for m in months:
-            ds = sorted(d for d in tr_days if d.startswith(m))
-            val |= {ds[j] for i, j in enumerate(r.permutation(len(ds))) if i % 5 == 0}
-        return val
+
+def inner(months: list[str], tr_days: list[str], seed: int) -> set[str]:
+    """The early-stopping days: one in five of each month's training days."""
+    r = np.random.default_rng(seed)
+    val = set()
+    for m in months:
+        ds = sorted(d for d in tr_days if d.startswith(m))
+        val |= {ds[j] for i, j in enumerate(r.permutation(len(ds))) if i % 5 == 0}
+    return val
+
+
+def main() -> None:
+    CV.PARAMS = {**CV.PARAMS, **V2}
+    D = load()
+    days = sorted(D["day"].unique().to_list())
+    months, fold_of = folds(days)
 
     D = D.with_columns(pl.col("day").replace_strict(fold_of).alias("cvfold"),
                        pl.col("day").replace_strict({d: i for i, d in enumerate(days)}).alias("day_idx"))
@@ -96,7 +105,7 @@ def main() -> None:
     c = {k: np.zeros(D.height) for k in arms}
     its = {k: [] for k in arms}
     for k in range(CV.K):
-        val_days = inner([d for d in days if fold_of[d] != k], CV.SEED + 1 + k)
+        val_days = inner(months, [d for d in days if fold_of[d] != k], CV.SEED + 1 + k)
         is_te = has & (cvf == k)
         for arm, (mat, rowsel) in arms.items():
             Xn, feats, cats = mats[mat]
