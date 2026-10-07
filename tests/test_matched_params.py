@@ -239,7 +239,9 @@ def test_every_existing_recipe_keeps_its_id_and_both_models_params():
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))
         assert (c.hash(), _digest(c)) == (want_id, want_params), name
-        assert c.matched_params == {} and c.for_matched() is c, name
+        # Arms built on an *_opt recipe (docs/research_2026-10-05_measure, 2026-10-06/07) carry its tuned params.
+        if "_opt" not in name:
+            assert c.matched_params == {} and c.for_matched() is c, name
 
 
 def test_the_default_plainy_and_pa_paths_predict_byte_for_byte_as_before():
