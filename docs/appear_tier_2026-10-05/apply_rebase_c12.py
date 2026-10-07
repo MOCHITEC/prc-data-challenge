@@ -24,6 +24,7 @@ import os
 import sys
 
 SRC = sys.argv[1]
+DAMPED = os.environ.get("DAMPED") == "1"  # recover b38 with the damped fixed point (variant D2)
 sys.argv = [sys.argv[0]]
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cv_months12 as M  # noqa: E402  (sets --base a2)
@@ -66,8 +67,15 @@ def main() -> None:
         b_new = f38 - corr("P4", b)
         print(f"b38 fixed point step {it}: max |db| {np.abs(b_new - b).max():.1f}", flush=True)
         b = b_new
+    b3 = b  # the b v39 was built from (reproduces v39); 3 plain steps leave RMS 15 s of v38 unexplained
+    if DAMPED:  # damped fixed point b <- b + 0.5 (v38 - c_P4(b) - b), 30 steps: reproduces v38 to RMS 5 s
+        b = f38.copy()
+        for it in range(30):
+            b = b + 0.5 * (f38 - corr("P4", b) - b)
+        print(f"damped b38: v38 residual RMS {np.sqrt(np.mean((b + corr('P4', b) - f38) ** 2)):.2f} s "
+              f"(3-step {np.sqrt(np.mean((b3 + corr('P4', b3) - f38) ** 2)):.2f} s)", flush=True)
     app4_file = (G["v39"] - G["v38"]).to_numpy()
-    app4_model = np.where(has, corr("A4", b) - corr("P4", b), 0.0)
+    app4_model = np.where(has, corr("A4", b3) - corr("P4", b3), 0.0)
     rep = np.where(has, np.round(f38 + app4_model), f38)
     rep = np.where(rep < 0, f38, rep)
     print(f"4-month term in the file (v39 - v38) vs the model at b38: RMS diff {np.sqrt(np.mean((app4_file - app4_model)[has] ** 2)):.2f} s "
@@ -92,7 +100,7 @@ def main() -> None:
               f"{float((d ** 2).sum()) / 344841:.0f}, mean {d[has].mean():+.2f}; vs the v39-based table: RMS diff "
               f"{np.sqrt(np.mean((d - oldv)[has] ** 2)):.2f} s, corr {np.corrcoef(d[has], oldv[has])[0, 1]:.3f}", flush=True)
         out = G.select("MVT_ID_mvt").with_columns(pl.Series("delta", np.round(d)).cast(pl.Int32)).filter(pl.col("delta") != 0)
-        out.write_parquet(os.path.join(SRC, f"appear12_c12_{k}_delta.parquet"))
+        out.write_parquet(os.path.join(SRC, f"appear12_c12_{k}{'_damped' if DAMPED else ''}_delta.parquet"))
 
 
 if __name__ == "__main__":
