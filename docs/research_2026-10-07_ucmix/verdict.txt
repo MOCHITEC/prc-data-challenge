@@ -1,0 +1,12 @@
+ucmix-b581da8fb2 vs opt-7244b3004f
+1. matched and non-LIRF bit-identical: True changed rows 506
+2. LIRF unmatched n 537 pooled -143.58 [-253.82  -37.74]
+3. by fold:
+    jan 60 -362.9
+    jul 337 -138.25
+    forward 140 -54.25
+4. whole frame -1.603 CI [-2.955 -0.401]
+   ms band 0 3600 32 dSSE share of whole 0.09 %
+   ms band 3600 7200 259 dSSE share of whole -0.24 %
+   ms band 7200 14400 184 dSSE share of whole -1.23 %
+   ms band 14400 28800 31 dSSE share of whole 0.2 %

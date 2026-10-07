@@ -28,3 +28,17 @@ main_flseq_osm_nolirf_l2_opt_ucmix 対 base main_flseq_osm_nolirf_l2_opt-7244b30
 **選択バイアスの注記:** ゲート（8 h）と重み（0.5）は、同じ 2025 年 OOF を見てから選んだ。
 ただし本実装は fold の学習側だけで分類器と回帰を作り直すので、後付け試算とは独立した再現になる。
 stamp_lirf（同じ行を対象にする）とは足し算にならない。両方採用候補になった場合は、どちらか一方を選ぶ。
+
+## Result (2026-10-07, `verdict.txt` and `compare.txt`)
+**ADOPT.** opt-7244b3004f → ucmix-b581da8fb2.
+
+| Condition | Result | Pass |
+|---|---|---|
+| 1. Only LIRF unmatched rows change | Matched rows and non-LIRF rows are bit-identical; 506 rows changed | yes |
+| 2. LIRF unmatched airport-day CI excludes 0 | −143.6 s [−253.8, −37.7] on n = 537 | yes |
+| 3. Every fold improves (LIRF unmatched) | jan −362.9, jul −138.3, forward −54.3 | yes |
+| 4. `prc.compare` ADOPT (whole frame) | −1.60 s [−2.95, −0.40]; −0.49 s [−0.82, −0.16] with the worst 200 rows dropped; folds jan −1.74, jul −3.08, forward −0.41 | yes |
+
+- The STRICT line rejects with 1/10 airports. That is expected for a single-airport change, as with cmix.
+- The gain sits in the 2–4 h band of MVT − SCHED: −1.23% of whole-frame SSE.
+- On the leaderboard, LIRF has 383 unmatched rows out of 345k. That is a similar or higher density than the 537 out of 672k in the OOF, so a similar per-frame effect is plausible if it transfers. **Plan on about −1 s.**
