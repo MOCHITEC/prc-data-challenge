@@ -230,7 +230,9 @@ def test_every_existing_recipe_keeps_its_id_and_its_lgb_params():
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))
         assert (c.hash(), _digest(c)) == (want_id, want_params), name
-        assert not c.airport_specialist_only, name
+        # *_pa_opt_* arms (docs/research_2026-10-05_measure) are PA members by design.
+        if "_pa_opt" not in name:
+            assert not c.airport_specialist_only, name
 
 
 def test_the_default_and_the_p11_grouped_paths_predict_byte_for_byte_as_before():
