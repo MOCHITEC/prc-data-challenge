@@ -46,3 +46,10 @@ def test_hierarchy_shrinks_toward_parent_and_is_leave_month_out():
 def test_off_by_default():
     c = TrainConfig()
     assert c.fe_stamp_hier is False and replace(c, fe_stamp_hier=True).hash() != c.hash()
+
+
+def test_airport_restriction_nulls_other_airports():
+    tr = _frame([("AZA101", "LIML", 1, 3000, 3000), ("AZA101", "LIML", 7, 3000, 3000)])
+    tg = _frame([("AZA101", "LIML", 1, 5000, None)]).with_columns(pl.lit("EDDF").alias("ADEP_mvt"))
+    _, b = stamp_hier_features(tr, tg, airports=["LIRF"])
+    assert b["stamp_car"].null_count() == 1

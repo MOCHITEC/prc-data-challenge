@@ -26,6 +26,7 @@ CB_BASE = "main_flseq_osm_nolirf_cb_l2.yaml"
 
 # (experiment id, digest of [model A params, model B params]) of every recipe in configs/ at f830720.
 BEFORE = {
+    "main_flseq_osm_nolirf_l2_opt_stamp_lirf.yaml": ("b667d433c1", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_cmix_ltfm.yaml": ("2c83177796", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_cmix_lebl.yaml": ("8ea5dd5990", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_stamp.yaml": ("84be677e9d", "9f53bbe724"),

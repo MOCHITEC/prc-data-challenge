@@ -46,3 +46,17 @@ main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_stamp-8
 - **Whole frame:** −1.07 s (270.12 vs 271.20). This is attractive, but it rests on LIRF unmatched tail rows (537 rows, RMSE in the thousands) and fails the CI.
 - **Reading:** the hierarchy is far stronger than the airline-only rate (−6.3), and the signal sits at LIRF.
   - A LIRF-only version would be a **new** hypothesis chosen after seeing these numbers. It would need its own pre-registration, and its result would carry the selection caveat. It is not adopted here.
+
+## Addendum — LIRF-only stamp, pre-registered before its run (2026-10-07)
+**Selection caveat:** this arm was chosen after seeing that the all-airport arm's gain sits at LIRF. Its result therefore
+carries a selection effect, and the rule below is set tighter than the original.
+
+**Change:** `stamp_airports: [LIRF]`. The stamp columns are null outside LIRF, and model B is otherwise unchanged.
+
+**Arm:** main_flseq_osm_nolirf_l2_opt_stamp_lirf vs base main_flseq_osm_nolirf_l2_opt-7244b3004f (all folds).
+
+**Verdict:** ADOPT only if all of the following hold.
+1. Matched rows are bit-identical.
+2. On LIRF unmatched rows, the airport-day CI excludes 0 on the improving side, and jan, jul and forward each improve.
+3. On non-LIRF unmatched rows, the pooled change is not worse than +2 s.
+4. On all unmatched rows, the pooled CI excludes 0 on the improving side.

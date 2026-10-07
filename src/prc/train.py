@@ -165,6 +165,7 @@ _HASH_OPTIONAL: dict = {
     "nmblind_weight": 0.0,
     # stamp hierarchy (docs/research_2026-10-06_stamp/plan.md): off, every existing id is unchanged.
     "fe_stamp_hier": False,
+    "stamp_airports": [],
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -464,6 +465,8 @@ class TrainConfig:
     # departures with |y - (MVT - SCHED)| <= 60 s per airport x carrier, x carrier x destination and x flight number,
     # each shrunk toward its parent level, nested leave-month-out on the training side. Model A never sees them.
     fe_stamp_hier: bool = False
+    # Restrict the stamp columns to these airports (null elsewhere). Empty: every airport.
+    stamp_airports: list = field(default_factory=list)
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -1302,7 +1305,7 @@ def _stamp_attach(rows: pl.DataFrame, lab: pl.DataFrame) -> pl.DataFrame:
 
 
 def stamp_hier_features(
-    tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None
+    tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None, airports: list | tuple = ()
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """STAMP_COLS on both frames, slim copies only. Target rows use all training rows; each training row uses the
     training rows of the other months. Row order is unchanged."""
@@ -1323,6 +1326,11 @@ def stamp_hier_features(
     out_tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
     if out_tr.height != tr.height or out_tg.height != tg.height:
         raise AssertionError("stamp_hier_features changed a row count")
+    if airports:
+        keep_tr = s_tr["ADEP_mvt"].is_in(list(airports))
+        keep_tg = s_tg["ADEP_mvt"].is_in(list(airports))
+        out_tr = out_tr.with_columns([pl.when(keep_tr).then(pl.col(c)).otherwise(None).alias(c) for c in STAMP_COLS])
+        out_tg = out_tg.with_columns([pl.when(keep_tg).then(pl.col(c)).otherwise(None).alias(c) for c in STAMP_COLS])
     tr = tr.hstack([out_tr[c].cast(pl.Float64) for c in STAMP_COLS])
     tg = tg.hstack([out_tg[c].cast(pl.Float64) for c in STAMP_COLS])
     if info is not None:
@@ -1905,7 +1913,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     if cfg.fe_carrier_echo:
         tr, tg = carrier_echo_features(tr, tg, info)
     if cfg.fe_stamp_hier:
-        tr, tg = stamp_hier_features(tr, tg, info)
+        tr, tg = stamp_hier_features(tr, tg, info, airports=cfg.stamp_airports)
     if (
         cfg.fe_freq
         or cfg.fe_aggdiff
