@@ -27,3 +27,10 @@ gate: PASS.
 | **total** | 335 180 | 1 512 | **≈ +1 000–1 200 MSE ≈ 2.1–2.6 s (238.77 → ≈ 236.2–236.7)** |
 
 The neighbour-clock residual is left out (it overlaps L6), and so are the LIRF one-day class and the LFPG item.
+
+## Submitted: v42 = C12 (2026-10-07)
+C12 = C11 + L6 in the MLP member (peaceful-babbage `main_flseq_osm_nolirf_l2_mlp` → `_l2_mlp_l6`, 3 seeds each,
+weight 1/4 on matched rows), then the LOBT clip (26 rows).
+
+- vs v40: 336 939 rows changed, Σ Δ² / N = 1 840, mean −3.1 s.
+- Expected about +1 000–1 300 MSE (238.77 → ≈ 236).
