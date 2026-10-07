@@ -1,0 +1,9 @@
+stamp_lirf-b667d433c1 vs opt-7244b3004f
+1. matched bit-identical: True  max|diff| matched 0.0
+2. LIRF unmatched n 537 pooled -91.22 [-294.18  102.41]
+    jan 60 -338.58
+    jul 337 -167.75
+    forward 140 191.09
+3. non-LIRF unmatched n 7841 1.63
+4. all unmatched pooled -12.98 [-49.47  19.64]
+whole frame -0.935
