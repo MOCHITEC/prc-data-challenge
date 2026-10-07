@@ -55,3 +55,10 @@ a different test.
 - LEBL matched rows, pooled: +0.01 [−0.83, +0.93].
 - LEBL by fold: jan −0.89, jul −0.41, forward +0.75.
 - Reading: the summer fill share at LEBL (about 4.5%) is too small for the mixture to change anything.
+
+### LTFM result (2026-10-07, `cmix_ltfm_verdict.txt`)
+**ADOPT.** cmix-d9b7e7a288 → cmix_ltfm-2c83177796.
+- Condition 1, `prc.compare`: ADOPT. Whole frame −0.25 s, airport-day CI [−0.39, −0.12]. With the worst 200 rows dropped it is still −0.24 s.
+  By fold: jan −0.02, jul −0.23, forward −0.45.
+- The STRICT line rejects with 1/10 airports improving. That outcome is expected for a single-airport change; the plan said this line is reported for information and is not part of the verdict.
+- Condition 2, LTFM matched rows (n = 90,041): pooled −2.26 s [−3.25, −1.13] (123 airport-day blocks); jan −0.21, jul −2.03, forward −3.49. All parts hold.
