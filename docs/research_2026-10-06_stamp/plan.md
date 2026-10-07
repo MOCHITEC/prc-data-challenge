@@ -30,3 +30,19 @@ Same as `carrier_plan.md`. ADOPT only if all three hold:
 3. Both jan and jul improve on unmatched rows.
 
 Report the 2025-vs-2026 adversarial AUC of `stamp_flt` (flight-number churn risk).
+
+## Result (2026-10-07, `verdict.txt`)
+**REJECT** under the pre-registered rule.
+main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_stamp-84be677e9d.
+
+| condition | result | met? |
+|---|---|---|
+| 1. matched rows bit-identical | identical | yes |
+| 2. unmatched rows, CI excludes 0 on the improving side | 1571.6 → 1556.6, −14.93 s [−40.56, +4.39] — the CI includes 0 | **no** |
+| 3. jan and jul both improve on unmatched rows | jan −22.00, jul −30.93 | yes |
+
+- **forward gets worse:** +14.19.
+- **Per airport:** LIRF −90.8 dominates. EDDF +4.5, EDDM +3.6 and LEMD +3.7 get worse; the other airports are within ±10.
+- **Whole frame:** −1.07 s (270.12 vs 271.20). This is attractive, but it rests on LIRF unmatched tail rows (537 rows, RMSE in the thousands) and fails the CI.
+- **Reading:** the hierarchy is far stronger than the airline-only rate (−6.3), and the signal sits at LIRF.
+  - A LIRF-only version would be a **new** hypothesis chosen after seeing these numbers. It would need its own pre-registration, and its result would carry the selection caveat. It is not adopted here.

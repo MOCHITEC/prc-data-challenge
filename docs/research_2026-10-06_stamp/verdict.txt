@@ -1,0 +1,17 @@
+B = main_flseq_osm_nolirf_l2_opt_stamp-84be677e9d
+matched rows bit-identical: True
+unmatched n=8378: 1571.6 -> 1556.6  -14.93 [-40.56,+4.39]
+  jan: n=1435 2879.3 -> 2857.3 (-22.00)
+  jul: n=3938 1224.0 -> 1193.1 (-30.93)
+  forward: n=3005 981.7 -> 995.9 (+14.19)
+  EDDF: n=787 (+4.5)
+  EDDM: n=402 (+3.6)
+  EGLL: n=647 (-9.5)
+  EHAM: n=1353 (-6.1)
+  LEBL: n=652 (-6.6)
+  LEMD: n=416 (+3.7)
+  LFPG: n=1565 (+0.8)
+  LIRF: n=537 (-90.8)
+  LSZH: n=722 (-0.1)
+  LTFM: n=1297 (-7.3)
+whole frame -1.0747744435941513
