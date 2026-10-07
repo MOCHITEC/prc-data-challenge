@@ -166,6 +166,10 @@ _HASH_OPTIONAL: dict = {
     # stamp hierarchy (docs/research_2026-10-06_stamp/plan.md): off, every existing id is unchanged.
     "fe_stamp_hier": False,
     "stamp_airports": [],
+    # unmatched copy mixture (docs/research_2026-10-07_ucmix/plan.md): empty, every existing id is unchanged.
+    "ucmix_airports": [],
+    "ucmix_max_s": 28800.0,
+    "ucmix_weight": 0.5,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -467,6 +471,14 @@ class TrainConfig:
     fe_stamp_hier: bool = False
     # Restrict the stamp columns to these airports (null elsewhere). Empty: every airport.
     stamp_airports: list = field(default_factory=list)
+    # Gated copy mixture on model B's unmatched target rows at these airports (docs/research_2026-10-07_ucmix/
+    # plan.md): p = P(|y - (MVT - SCHED)| <= 60 s) from a classifier fitted on ALL of the airport's labelled
+    # departures (both lanes, a lane flag added), a non-copy regressor on its non-copy rows with 0 < y <= 7200 s,
+    # and pred = (1 - w)*B + w*(p*(MVT - SCHED) + (1 - p)*regressor) only where 0 < MVT - SCHED < ucmix_max_s.
+    # Empty (the default): model B is what it was.
+    ucmix_airports: list = field(default_factory=list)
+    ucmix_max_s: float = 28800.0
+    ucmix_weight: float = 0.5
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -2041,6 +2053,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             g = _nmblind_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
         if cfg.gmodel_airports and u_tr.height >= 200:
             g = _gmodel_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
+        if cfg.ucmix_airports and u_tr.height >= 200:
+            g = _ucmix_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
     # Everything a silent no-op would hide. An empty record with the flag on means the holdout was never
@@ -2189,6 +2203,70 @@ def _copy_mixture(
             "target_mean_p": float(p.mean()),
         }
     info["copy_mix"] = stats
+    return out
+
+
+UCMIX_LANE = "_ucmix_matched"
+
+
+def _ucmix_blend(
+    tr: pl.DataFrame,
+    u_tg: pl.DataFrame,
+    pred_b: np.ndarray,
+    cfg: TrainConfig,
+    cols_b: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_b` with the gated copy mixture on the unmatched target rows at cfg.ucmix_airports.
+
+    Everything is fitted on the training side of the fold only. The gate keeps rows with MVT - SCHED >= the
+    cutoff on model B, where the copy-or-rollover regime makes the schedule reparameterisation the right model."""
+    import lightgbm as lgb
+
+    w, cut = float(cfg.ucmix_weight), float(cfg.ucmix_max_s)
+    if not (0.0 < w <= 1.0) or not (cut > 0.0):
+        raise ValueError(f"ucmix_weight must be in (0, 1] and ucmix_max_s > 0, got {w!r}, {cut!r}")
+    out = pred_b.copy()
+    tg_apt = u_tg["ADEP_mvt"].to_numpy()
+    cols = list(cols_b) + [UCMIX_LANE]
+    cfg_b = cfg.for_unmatched()
+    stats = {}
+    for ap in cfg.ucmix_airports:
+        tr_a = tr.filter(
+            (pl.col("ADEP_mvt") == ap) & pl.col(SCHED_OFFSET).is_not_null() & pl.col(LABEL).is_not_null()
+        ).with_columns(pl.col(PROXY).is_not_null().cast(pl.Float64).alias(UCMIX_LANE))
+        ms_all = u_tg[SCHED_OFFSET].to_numpy().astype(float)
+        with np.errstate(invalid="ignore"):
+            gate = (tg_apt == ap) & np.isfinite(ms_all) & (ms_all > 0.0) & (ms_all < cut)
+        sel = np.flatnonzero(gate)
+        if tr_a.height < 1000 or sel.size == 0:
+            stats[ap] = {"skipped": True, "train_rows": tr_a.height, "target_rows": int(sel.size)}
+            continue
+        tg_a = u_tg[sel].with_columns(pl.lit(0.0).alias(UCMIX_LANE))
+        y = tr_a[LABEL].to_numpy().astype(float)
+        echo = np.abs(y - tr_a[SCHED_OFFSET].to_numpy().astype(float)) <= COPY_TOL_S
+        X, _ = _matrix(pl.concat([tr_a, tg_a], how="diagonal_relaxed"), cols, cat_cols)
+        cat_idx = list(range(len(cols), len(cols) + len(cat_cols)))
+        clf = lgb.train(
+            COPY_CLS_PARAMS,
+            lgb.Dataset(X[: tr_a.height], label=echo.astype(float), categorical_feature=cat_idx),
+            COPY_CLS_ROUNDS,
+        )
+        p = clf.predict(X[tr_a.height :])
+        nc = tr_a.filter(pl.Series(~echo & (y > 0) & (y <= NMBLIND_MAX_S)))
+        (g_nc,), rounds = _fit(nc, lambda f: f[LABEL].to_numpy().astype(float), cfg_b, cols, cat_cols, [tg_a])
+        ms = ms_all[sel]
+        out[sel] = (1.0 - w) * pred_b[sel] + w * (p * ms + (1.0 - p) * g_nc)
+        stats[ap] = {
+            "train_rows": tr_a.height,
+            "train_copy_share": float(echo.mean()),
+            "nc_rows": nc.height,
+            "rounds": rounds,
+            "target_rows": int(sel.size),
+            "target_mean_p": float(p.mean()),
+        }
+    info["ucmix"] = stats
     return out
 
 
