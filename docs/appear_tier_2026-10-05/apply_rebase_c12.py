@@ -13,7 +13,11 @@ Deltas relative to v42, on the rows with appear columns (LTFM 0):
   full = swap + P(b_C12) - P(b38)                        (also refresh C12's plain residual at C12's base, as a change;
                                                           P = c_P4 at LIRF, c_P12 elsewhere; apron stays as it is.
                                                           Post hoc: cv_stale's C0full -0.20 / -0.29 s)
-Writes appear12_c12_{swap,old,req,full}_delta.parquet (MVT_ID_mvt, delta in whole seconds) next to the inputs; the overlay
+  clean = b_C12 + c_A12(b_C12) - v42                     (rebuild every ADS-B layer of C12 in this model frame: drops the
+                                                          other session's plain swaps and apron, which local_adsb_apply_swap.py
+                                                          evaluated at b = file - c_OLD(b), i.e. with v39's 4-month appear
+                                                          term left inside b; cv_stale's arm "full" -1.15 / -1.25 s)
+Writes appear12_c12_{swap,old,req,full,clean}_delta.parquet (MVT_ID_mvt, delta in whole seconds) next to the inputs; the overlay
 exclusions and the LOBT clip are then applied by c12_apply.py. Nothing is uploaded."""
 
 import os
@@ -79,7 +83,8 @@ def main() -> None:
     lirf = (G["ADEP_mvt"] == "LIRF").to_numpy()
     plain_ref = np.where(lirf, corr("P4", b_c12) - corr("P4", b), corr("P12", b_c12) - corr("P12", b))
     deltas = {"swap": np.where(has, a12 - app4_file, 0.0), "old": np.where(has, a12_old - app4_file, 0.0),
-              "req": np.where(has, a12 - a4n, 0.0), "full": np.where(has, a12 - app4_file + plain_ref, 0.0)}
+              "req": np.where(has, a12 - a4n, 0.0), "full": np.where(has, a12 - app4_file + plain_ref, 0.0),
+              "clean": np.where(has, b_c12 + corr("A12", b_c12) - G["v42"].to_numpy(), 0.0)}
     old = pl.read_parquet(os.path.join(CV.ROOT, "handoff/2026-10-06/appear12_delta.parquet"))
     oldv = G.select("MVT_ID_mvt").join(old, on="MVT_ID_mvt", how="left")["delta"].fill_null(0).to_numpy().astype(float)
     for k, d in deltas.items():
