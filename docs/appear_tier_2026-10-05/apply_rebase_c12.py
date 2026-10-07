@@ -2,13 +2,15 @@
 
     SCRATCH=... POLARS_MAX_THREADS=2 .venv/bin/python docs/appear_tier_2026-10-05/apply_rebase_c12.py <dir with v38 v39 v42 v43>
 
-b_v39 is recovered from v39 as before (fixed point with v39's 4-month P4 and appear models). The 4-month appear term C12
-actually carries is v39 - v38 (the file difference). C12's base on the appear rows is b_C12 = b_v39 + (v42 - v43)
-(the requester's estimate: v42 and v43 share v40's ADS-B layers plus the apron swap, and differ by the base changes).
-Two deltas relative to v42, on the rows with appear columns (LTFM 0):
+b38 is recovered from v38 exactly as v39 was built (fixed point with the plain 4-month P4 only); with it, (c_A4 - c_P4)
+reproduces v39 - v38 on every row (plan_rebase_c12.md section 4). Recovering b from v39 instead (as apply_delta12.py did)
+gives a different b and a 4-month term RMS 24.5 s off the one in the file: the cause of v46's miss. The 4-month term C12
+carries is v39 - v38. C12's base on the appear rows is b_C12 = b38 + (v42 - v43) (the requester's estimate).
+Deltas relative to v42, on the rows with appear columns (LTFM 0):
   swap = -(v39 - v38) + (c_A12 - c_P12)(b_C12)
-  req  = (c_A12 - c_P12 - c_A4 + c_P4)(b_C12)            (the request's formula)
-Writes appear12_c12_{swap,req}_delta.parquet (MVT_ID_mvt, delta in whole seconds) next to the inputs; the overlay
+  old  = -(v39 - v38) + (c_A12 - c_P12)(b38)               (the 12-month term at the same b as C12's other ADS-B layers)
+  req  = (c_A12 - c_P12 - c_A4 + c_P4)(b_C12)            (the request's formula; re-computes the 4-month term, for the record)
+Writes appear12_c12_{swap,old,req}_delta.parquet (MVT_ID_mvt, delta in whole seconds) next to the inputs; the overlay
 exclusions and the LOBT clip are then applied by c12_apply.py. Nothing is uploaded."""
 
 import os
@@ -51,22 +53,28 @@ def main() -> None:
         assert f2 == models[k].feature_name()
         return np.clip(models[k].predict(Xg.select(f2).to_numpy().astype(np.float64)), -CV.CLIP_C, CV.CLIP_C)
 
-    f39 = G["v39"].to_numpy()
-    b = f39.copy()
+    f38 = G["v38"].to_numpy()
+    b = f38.copy()
     for it in range(3):
-        b_new = f39 - corr("P4", b) - np.where(has, corr("A4", b) - corr("P4", b), 0.0)
-        print(f"b_v39 fixed point step {it}: max |db| {np.abs(b_new - b).max():.1f}", flush=True)
+        b_new = f38 - corr("P4", b)
+        print(f"b38 fixed point step {it}: max |db| {np.abs(b_new - b).max():.1f}", flush=True)
         b = b_new
     app4_file = (G["v39"] - G["v38"]).to_numpy()
     app4_model = np.where(has, corr("A4", b) - corr("P4", b), 0.0)
-    print(f"4-month term in the file (v39 - v38) vs the model at b_v39: RMS diff {np.sqrt(np.mean((app4_file - app4_model)[has] ** 2)):.2f} s "
-          f"(term RMS {np.sqrt(np.mean(app4_file[has] ** 2)):.2f} s)", flush=True)
+    rep = np.where(has, np.round(f38 + app4_model), f38)
+    rep = np.where(rep < 0, f38, rep)
+    print(f"4-month term in the file (v39 - v38) vs the model at b38: RMS diff {np.sqrt(np.mean((app4_file - app4_model)[has] ** 2)):.2f} s "
+          f"(term RMS {np.sqrt(np.mean(app4_file[has] ** 2)):.2f} s); v39 reproduced on {int((rep == G['v39'].to_numpy()).sum()):,} "
+          f"of {G.height:,} rows", flush=True)
+    assert (rep == G["v39"].to_numpy()).mean() > 0.999, "b38 does not reproduce v39"
     shift = (G["v42"] - G["v43"]).to_numpy()
     b_c12 = b + shift
     print(f"b shift v39 -> C12 on appear rows: RMS {np.sqrt(np.mean(shift[has] ** 2)):.1f} s, median |.| {np.median(np.abs(shift[has])):.1f} s", flush=True)
     a12 = corr("A12", b_c12) - corr("P12", b_c12)
     a4n = corr("A4", b_c12) - corr("P4", b_c12)
-    deltas = {"swap": np.where(has, a12 - app4_file, 0.0), "req": np.where(has, a12 - a4n, 0.0)}
+    a12_old = corr("A12", b) - corr("P12", b)
+    deltas = {"swap": np.where(has, a12 - app4_file, 0.0), "old": np.where(has, a12_old - app4_file, 0.0),
+              "req": np.where(has, a12 - a4n, 0.0)}
     old = pl.read_parquet(os.path.join(CV.ROOT, "handoff/2026-10-06/appear12_delta.parquet"))
     oldv = G.select("MVT_ID_mvt").join(old, on="MVT_ID_mvt", how="left")["delta"].fill_null(0).to_numpy().astype(float)
     for k, d in deltas.items():
