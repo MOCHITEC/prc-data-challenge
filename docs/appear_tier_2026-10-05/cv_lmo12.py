@@ -10,7 +10,7 @@ import json
 import os
 import sys
 
-sys.argv = [sys.argv[0]]
+_ARGV, sys.argv = sys.argv, [sys.argv[0]]
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cv_months12 as M  # noqa: E402  (sets --base a2)
 
@@ -19,7 +19,8 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 
 CV, L, AP, CM = M.CV, M.L, M.AP, M.CM
-TEST = ("2025-01", "2025-07")
+TEST = tuple(_ARGV[1].split(",")) if len(_ARGV) > 1 else ("2025-01", "2025-07")  # plan_lmo12.md §5: 2025-11,2025-12
+TAG = "" if TEST == ("2025-01", "2025-07") else "_" + "".join(m[5:] for m in TEST)
 
 
 def main() -> None:
@@ -70,21 +71,21 @@ def main() -> None:
     out = {}
     tests = [("final_12 vs final_mix", "final_mix", "final_12"), ("final_12 vs P12", "P12", "final_12"),
              ("final_mix vs P12", "P12", "final_mix"), ("final_12f12 vs final_12", "final_12", "final_12f12")]
-    groups = [("Jan+Jul", sel)] + [(m, mo == m) for m in TEST] + [(a, sel & (apt == a)) for a in sorted(set(apt[sel]))]
+    groups = [("pooled", sel)] + [(m, mo == m) for m in TEST] + [(a, sel & (apt == a)) for a in sorted(set(apt[sel]))]
     for key, a, b_ in tests:
         out[key] = {}
         for label, g in groups:
             dd, lo, hi = CM._paired(y[g], pred[a][g], pred[b_][g], di[g], nd)
             out[key][label] = {"n": int(g.sum()), "d_rmse": dd, "lo": lo, "hi": hi}
             print(f"  {key:26s} {label:>8s} n={int(g.sum()):>7,}  {dd:+.3f}  [{lo:+.3f}, {hi:+.3f}]")
-    j = out["final_12 vs final_mix"]["Jan+Jul"]
+    j = out["final_12 vs final_mix"]["pooled"]
     rejected = j["d_rmse"] <= -0.3 and j["hi"] < 0
-    print(f"\nDIAGNOSIS (plan_lmo12.md section 3): final_12 vs final_mix on Jan+Jul {j['d_rmse']:+.3f} "
+    print(f"\nDIAGNOSIS (plan_lmo12.md section {3 if not TAG else 5}): final_12 vs final_mix on {'+'.join(TEST)} {j['d_rmse']:+.3f} "
           f"[{j['lo']:+.3f}, {j['hi']:+.3f}] -> H {'rejected' if rejected else 'supported'}")
     json.dump({"rounds": its, "params": CV.PARAMS, "results": out, "H": "rejected" if rejected else "supported"},
-              open(os.path.join(L.OUT, "cv_lmo12_a2.json"), "w"), indent=1)
+              open(os.path.join(L.OUT, f"cv_lmo12{TAG}_a2.json"), "w"), indent=1)
     keep.filter(pl.Series(sel)).with_columns([pl.Series(k, v[sel]) for k, v in pred.items()]).write_parquet(
-        os.path.join(L.OUT, "cv_lmo12_rows_a2.parquet"))
+        os.path.join(L.OUT, f"cv_lmo12{TAG}_rows_a2.parquet"))
 
 
 if __name__ == "__main__":
