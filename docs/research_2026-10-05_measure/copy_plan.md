@@ -48,3 +48,10 @@ a different test.
 1. `prc.compare cmix arm` returns ADOPT.
 2. On the added airport's matched rows, the pooled airport-day CI excludes 0 on the improving side, jul improves,
    and jan is not worse by more than 1 s.
+
+### LEBL result (2026-10-07, `cmix_lebl_verdict.txt`)
+**REJECT.** cmix-d9b7e7a288 → cmix_lebl-8ea5dd5990.
+- Whole frame: +0.00 s [−0.04, +0.05].
+- LEBL matched rows, pooled: +0.01 [−0.83, +0.93].
+- LEBL by fold: jan −0.89, jul −0.41, forward +0.75.
+- Reading: the summer fill share at LEBL (about 4.5%) is too small for the mixture to change anything.
