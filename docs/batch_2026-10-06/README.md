@@ -50,3 +50,15 @@ read was wrong, so the isolation submissions were not needed. They still give th
 - Apron transferred poorly (+52 vs +300–400 expected). Candidate reasons: CV on the 7-month model but applied as a
   12-month swap, or the effect does not generalise to 2026.
 - Label-encoding cross-fit (`local_xfit_enc.py`): forward fold all-rows dMSE +295 [−384, +1170]. Rejected.
+
+## Submitted: v47 = C15 (2026-10-08)
+C15 = v42 + three changes, then the LOBT clip:
+
+- **Per-member fl_/seq_ fix correction** (C13).
+- **L6 member deltas rebuilt with 3 seeds** (C14): the member change Σ Δ² / N fell from ≈ 2 200 to ≈ 1 050, so
+  about half of it was seed noise. Expected ≈ +88 MSE.
+- **peaceful-babbage ucmix** on LIRF unmatched rows with 0 < ms < 8 h (`analysis/local_ucmix_laneB.py`): 356 rows.
+  The 6 time-zone-class rows and the 3 copy-band rows keep our values. Flights 2–4 h late: median prediction
+  6 416 → 5 791 s.
+
+vs v42: 315 356 rows changed, Σ Δ² / N = 1 131. Expected −1.0 to −1.7 s.
