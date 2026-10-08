@@ -170,6 +170,7 @@ _HASH_OPTIONAL: dict = {
     "ucmix_airports": [],
     "ucmix_max_s": 28800.0,
     "ucmix_weight": 0.5,
+    "ucmix_day_feats": False,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -479,6 +480,10 @@ class TrainConfig:
     ucmix_airports: list = field(default_factory=list)
     ucmix_max_s: float = 28800.0
     ucmix_weight: float = 0.5
+    # Label-free same-day context for the ucmix classifier and regressor (docs/research_2026-10-08_ucday/plan.md):
+    # per airport x UTC day of the frame a row belongs to, the departure count, the unmatched count and share, the
+    # unmatched rows' median MVT - SCHED and their count with MVT - SCHED in [2 h, 4 h). Off: ucmix is unchanged.
+    ucmix_day_feats: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -2054,7 +2059,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         if cfg.gmodel_airports and u_tr.height >= 200:
             g = _gmodel_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
         if cfg.ucmix_airports and u_tr.height >= 200:
-            g = _ucmix_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
+            g = _ucmix_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info, tg_all=tg)
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
     # Everything a silent no-op would hide. An empty record with the flag on means the holdout was never
@@ -2207,6 +2212,34 @@ def _copy_mixture(
 
 
 UCMIX_LANE = "_ucmix_matched"
+UCDAY_COLS = ("ud_n_dep", "ud_n_unm", "ud_unm_share", "ud_unm_ms_med", "ud_unm_ms_2_4h")
+_UCDAY_KEY = "_ucday_date"
+
+
+def _attach_day_feats(rows: pl.DataFrame, frame: pl.DataFrame) -> pl.DataFrame:
+    """`rows` with the UCDAY_COLS of its airport x UTC day, aggregated over `frame` (the side the rows belong to).
+
+    Label-free: only the NM-match flag and MVT - SCHED of the day's departures are read."""
+    day = pl.col("MVT_TIME_UTC_mvt").dt.date().alias(_UCDAY_KEY)
+    unm = pl.col(PROXY).is_null()
+    ms = pl.col(SCHED_OFFSET)
+    agg = (
+        frame.select("ADEP_mvt", day, unm.alias("_u"), ms.alias("_ms"))
+        .group_by("ADEP_mvt", _UCDAY_KEY)
+        .agg(
+            pl.len().cast(pl.Float64).alias("ud_n_dep"),
+            pl.col("_u").sum().cast(pl.Float64).alias("ud_n_unm"),
+            pl.col("_u").mean().cast(pl.Float64).alias("ud_unm_share"),
+            pl.col("_ms").filter(pl.col("_u")).median().cast(pl.Float64).alias("ud_unm_ms_med"),
+            (pl.col("_u") & (pl.col("_ms") >= 7200.0) & (pl.col("_ms") < 14400.0))
+            .sum()
+            .cast(pl.Float64)
+            .alias("ud_unm_ms_2_4h"),
+        )
+    )
+    keep = [c for c in rows.columns if c not in UCDAY_COLS]
+    out = rows.select(keep).with_columns(day)
+    return out.join(agg, on=["ADEP_mvt", _UCDAY_KEY], how="left", maintain_order="left").drop(_UCDAY_KEY)
 
 
 def _ucmix_blend(
@@ -2217,6 +2250,7 @@ def _ucmix_blend(
     cols_b: list[str],
     cat_cols: list[str],
     info: dict,
+    tg_all: pl.DataFrame | None = None,
 ) -> np.ndarray:
     """`pred_b` with the gated copy mixture on the unmatched target rows at cfg.ucmix_airports.
 
@@ -2230,6 +2264,12 @@ def _ucmix_blend(
     out = pred_b.copy()
     tg_apt = u_tg["ADEP_mvt"].to_numpy()
     cols = list(cols_b) + [UCMIX_LANE]
+    if cfg.ucmix_day_feats:
+        if tg_all is None:
+            raise ValueError("ucmix_day_feats needs the full target frame")
+        tr = _attach_day_feats(tr, tr)
+        u_tg = _attach_day_feats(u_tg, tg_all)
+        cols += list(UCDAY_COLS)
     cfg_b = cfg.for_unmatched()
     stats = {}
     for ap in cfg.ucmix_airports:

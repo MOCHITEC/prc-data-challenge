@@ -46,3 +46,33 @@ def test_bad_weight_refused():
 def test_off_by_default():
     c = TrainConfig()
     assert c.ucmix_airports == [] and replace(c, ucmix_airports=["LIRF"]).hash() != c.hash()
+
+
+def test_day_feats_are_label_free_and_order_preserving():
+    from prc.train import UCDAY_COLS, _attach_day_feats
+
+    f = _frame(500, 3).with_columns(
+        pl.datetime(2025, 7, 1, time_zone="UTC").alias("MVT_TIME_UTC_mvt")
+        + pl.duration(hours=pl.int_range(0, 500) % 72)
+    )
+    out = _attach_day_feats(f, f)
+    assert out["MVT_ID_mvt"].equals(f["MVT_ID_mvt"])
+    relabelled = _attach_day_feats(f.with_columns(pl.lit(1.0).alias(LABEL)), f.with_columns(pl.lit(1.0).alias(LABEL)))
+    for c in UCDAY_COLS:
+        assert out[c].equals(relabelled[c]), c
+    first = f.filter((pl.col("ADEP_mvt") == "LIRF") & (pl.col("MVT_TIME_UTC_mvt").dt.day() == 1))
+    row = out.filter(pl.col("MVT_ID_mvt") == first["MVT_ID_mvt"][0])
+    assert row["ud_n_dep"][0] == first.height
+    assert row["ud_n_unm"][0] == first[PROXY].is_null().sum()
+
+
+def test_day_feats_run_through_the_blend():
+    tr, tg = _frame(6000, 1), _frame(800, 2)
+    t = pl.datetime(2025, 7, 1, time_zone="UTC") + pl.duration(hours=pl.int_range(0, pl.len()) % 240)
+    tr, tg = tr.with_columns(t.alias("MVT_TIME_UTC_mvt")), tg.with_columns(t.alias("MVT_TIME_UTC_mvt"))
+    cfg = replace(TrainConfig(), ucmix_airports=["LIRF"], ucmix_day_feats=True, num_rounds=40, early_stopping=10)
+    u_tg = tg.filter(pl.col(PROXY).is_null())
+    info = {}
+    out = _ucmix_blend(tr, u_tg, u_tg[SCHED_OFFSET].to_numpy().copy(), cfg, ["x"], ["ADEP_mvt"], info, tg_all=tg)
+    assert out.shape == (u_tg.height,) and np.isfinite(out).all()
+    assert info["ucmix"]["LIRF"]["target_rows"] > 0
