@@ -69,3 +69,10 @@
 | A（`A_c12_appear12_old.parquet`） | −0.6〜−0.9 s | 1 番目 |
 | D2（`D2_c12_clean_rebuild_damped.parquet`） | −0.9〜−1.5 s（振れ幅大） | 2 番目 |
 | B / D | — | D2 を出すなら不要 |
+
+## 結果（2026-10-08 01:21 UTC）
+
+- **v47 = A を提出: LB 236.3563（v42 から −0.081 s）。チームの最良はこれに更新。** 次の施策は v47 の上に載せる
+  （バケットの `resilient-hedgehog_v47.parquet`、手元では `A_c12_appear12_old.parquet` と同じ）。C12 系の別ファイルに載せるなら
+  `A_delta_vs_c12.parquet` を足す（base に依らない）。
+- 効き目は CV の約 9 %。laughing-cray の監査（2025 → 2026 の受信網の変化）と合う。**D2 は出さない**（B・D も同様）。
