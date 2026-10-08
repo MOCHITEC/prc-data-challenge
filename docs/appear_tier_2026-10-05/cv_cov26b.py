@@ -26,7 +26,7 @@ THIN = os.path.join(os.environ["THIN"], "learn")
 
 def with_thin_eddf(D: pl.DataFrame) -> pl.DataFrame:
     """D with the EDDF rows' features and appear columns replaced by the thinned build (all 12 months)."""
-    days = DAYS["2025"] + DAYS["2025nd"] + DAYS["2025m8"]
+    days = [d for d in DAYS["2025"] + DAYS["2025nd"] + DAYS["2025m8"] if os.path.exists(os.path.join(THIN, f"feat_{d}.parquet"))]
     F = pl.concat([pl.read_parquet(os.path.join(THIN, f"feat_{d}.parquet")) for d in days], how="diagonal_relaxed")
     T = pl.concat([pl.read_parquet(os.path.join(THIN, f"appear_fill_{d}.parquet")) for d in days])
     E = D.filter(pl.col("ADEP_mvt") == "EDDF").select(CM.KEEP)
