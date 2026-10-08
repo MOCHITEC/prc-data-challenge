@@ -17,3 +17,17 @@
   2. no fold worsens by more than +0.05 s on the whole frame.
 - 2025 has very few affected rows, so this is a **safety check, not a proof of gain**. The upside lies in the January 2026 EHAM de-icing rows, which 2025 barely contains.
 - If the rule is adopted, it goes to the integration session as a post-processing step, with the diagnostic to be re-run on the v47 file first.
+
+## Result (2026-10-08, `verdict.txt`)
+**REJECT.** The rule fails the pre-registered safety check.
+
+| | Primary, k = 0.8 | Info, k = 0.95 |
+|---|---|---|
+| Rows moved | 65 of 467 gated | 196 |
+| Moved rows, RMSE change (airport-day CI) | **+75 s [+0.5, +173]** | +96 s [+36, +165] |
+| Whole frame | +0.018 s | +0.063 s |
+| Folds | jan +0.012, jul −0.006, forward +0.042 | — |
+| EHAM moved rows, RMSE | 725 → 1,051 | — |
+
+- When the level is high, 2025 unmatched rows at EHAM, LFPG and LSZH often sit well below it. They are not "matched-like" departures, so a floor pushes them the wrong way.
+- The suspicious January 2026 EHAM rows remain an open question, but 2025 gives no support for floor-correcting them.
