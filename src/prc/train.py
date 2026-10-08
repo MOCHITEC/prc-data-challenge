@@ -171,6 +171,8 @@ _HASH_OPTIONAL: dict = {
     "ucmix_max_s": 28800.0,
     "ucmix_weight": 0.5,
     "ucmix_day_feats": False,
+    # within-day demeaned context (docs/research_2026-10-08_daydemean/plan.md): off, every existing id is unchanged.
+    "fe_day_demean": False,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -484,6 +486,10 @@ class TrainConfig:
     # per airport x UTC day of the frame a row belongs to, the departure count, the unmatched count and share, the
     # unmatched rows' median MVT - SCHED and their count with MVT - SCHED in [2 h, 4 h). Off: ucmix is unchanged.
     ucmix_day_feats: bool = False
+    # Within-day demeaned context for model A (docs/research_2026-10-08_daydemean/plan.md): for each DD_SRC column,
+    # dd_<col> = col - its mean over the airport x UTC day of the frame the row belongs to. Label-free. Model B never
+    # sees the dd_ columns. Off (the default): nothing is added.
+    fe_day_demean: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -1945,6 +1951,9 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         tr, tg = add_fold_features(tr, tg, cfg, info)
     if cfg.stand_dropout > 0:
         tr, tg = apply_new_stand_token(tr, tg, cfg.stand_dropout, info)
+    if cfg.fe_day_demean:
+        tr, tg = day_demean_features(tr), day_demean_features(tg)
+        info["day_demean_cols"] = [f"dd_{c}" for c in DD_SRC if c in tr.columns]
 
     # P2 Fix 1. One factory per lane so the two lanes' records stay separable in `info`; the month-keyed
     # cache lives inside each factory, and the encoder build is shared within a lane, not across them.
@@ -2029,7 +2038,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
-        cols_b = unmatched_columns(num_cols)
+        cols_b = [c for c in unmatched_columns(num_cols) if not c.startswith("dd_")]
         if not cfg.fe_fwd_nm_unmatched:
             cols_b = [c for c in cols_b if c not in L2_COLS]
         # Model A's and model B's visible column counts have differed by one in past records without the
@@ -2209,6 +2218,40 @@ def _copy_mixture(
         }
     info["copy_mix"] = stats
     return out
+
+
+DD_SRC = (
+    "nbr_aobt_delay_mean_30m",
+    "nbr_mvt_minus_aobt_mean_30m",
+    "nbr_mvt_minus_aobt_mean_60m",
+    "nbr_dep_n_30m",
+    "dep_tko_prev_15m",
+    "dep_tko_next_15m",
+    "arr_land_prev_15m",
+    "congestion_vs_usual_30m",
+    "queue_ahead",
+    "rwy_headway_prev_s",
+    "bk_sched_backlog_60m",
+    "aobt3_minus_sched",
+    "mvt_minus_aobt3",
+    "delay_neighbor_deviation",
+    "seq_hw_mean_prev5",
+)
+
+
+def day_demean_features(frame: pl.DataFrame) -> pl.DataFrame:
+    """`frame` with dd_<col> = col - mean(col) over the row's airport x UTC day, for each DD_SRC column present.
+
+    Each frame is demeaned over itself (training rows over the training side, target rows over the target month), so
+    nothing crosses the fold boundary. Row order is unchanged."""
+    src = [c for c in DD_SRC if c in frame.columns]
+    day = pl.col("MVT_TIME_UTC_mvt").dt.date()
+    return frame.with_columns(
+        [
+            (pl.col(c).cast(pl.Float64) - pl.col(c).cast(pl.Float64).mean().over("ADEP_mvt", day)).alias(f"dd_{c}")
+            for c in src
+        ]
+    )
 
 
 UCMIX_LANE = "_ucmix_matched"
