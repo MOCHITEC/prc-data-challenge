@@ -1,0 +1,12 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+  EDDF 2025 normal    rows 35719, ground_fix 0.988, post_n_median 27.000, stand_run_missing 0.527, at_own_stand 0.124
+  EDDF 2025 thinned   rows 35718, ground_fix 0.979, post_n_median 8.000, stand_run_missing 0.807, at_own_stand 0.068
+  EDDF 2026           rows 34902, ground_fix 0.940, post_n_median 10.000, stand_run_missing 0.718, at_own_stand 0.074
+  test 2025-01 A12: best_iter 858
+  test 2025-07 A12: best_iter 908
+  EDDF            n= 36,830  RMSE b 184.14  normal 129.68  thinned 140.16  value lost +10.474 [+8.997, +12.036]
+  other airports  n=307,589  RMSE b 329.06  normal 313.92  thinned 313.92  value lost +0.000 [-0.000, +0.000]
+  all             n=344,419  RMSE b 316.75  normal 299.67  thinned 300.18  value lost +0.504 [+0.377, +0.673]
+
+DECISION (plan_cov26.md section 3): EDDF value lost under 2026-like coverage +10.474 s -> GO
+=== cov26 rc 0
