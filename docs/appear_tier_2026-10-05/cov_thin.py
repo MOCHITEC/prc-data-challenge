@@ -97,8 +97,8 @@ def build(days: list[str]) -> None:
     for d in days:
         tag = L.tag_of(d)
         fp, ap = os.path.join(L.OUT, f"feat_{d}.parquet"), os.path.join(L.OUT, f"appear_fill_{d}.parquet")
-        if os.path.exists(fp) and os.path.exists(ap):
-            continue
+        if (os.path.exists(fp) and os.path.exists(ap)) or not os.path.exists(os.path.join(SRC, f"{tag}.parquet")):
+            continue  # done, or a day the normal ingest does not have (e.g. 2025-12-31)
         K = keep_for(d[:7])
         fx = cells(pl.read_parquet(os.path.join(SRC, f"{tag}.parquet")))
         rng = np.random.default_rng(zlib.crc32(d.encode()))
