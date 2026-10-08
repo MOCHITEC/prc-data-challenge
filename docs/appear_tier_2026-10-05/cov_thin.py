@@ -28,6 +28,8 @@ import adsb_learn_features as L  # noqa: E402
 import adsb_stage1_feasibility as s1  # noqa: E402
 
 APT, CELL = "EDDF", 100.0
+from build_features import DAYS as _BD  # noqa: E402
+DAYS_ALL = _BD["2025"] + _BD["2025nd"] + _BD["2025m8"]
 LAT0, LON0 = s1.AIRPORTS[APT]
 KEEP = os.path.join(s1.SCRATCH, f"keep_{APT}.parquet")
 
@@ -65,8 +67,27 @@ def density() -> None:
           f"{int((K['keep'] < 0.2).sum())} of {K.height} -> {KEEP}", flush=True)
 
 
+def keep_for(month: str) -> pl.DataFrame:
+    """Jan / Jul: the pooled table of `density` (stage 1). Other 2025 months: that month's own density against the same
+    2026 density (plan_cov26.md section 4), cached as keep_EDDF_<month>.parquet."""
+    if month in ("2025-01", "2025-07"):
+        return pl.read_parquet(KEEP).select("cx", "cy", "keep")
+    path = os.path.join(s1.SCRATCH, f"keep_{APT}_{month}.parquet")
+    if not os.path.exists(path):
+        r26 = pl.read_parquet(KEEP).select("cx", "cy", "r2026").drop_nulls()
+        days = [d for d in DAYS_ALL if d.startswith(month) and os.path.exists(os.path.join(SRC, f"{L.tag_of(d)}.parquet"))]
+        G = pl.concat([ground(d).group_by("cx", "cy").len() for d in days]).group_by("cx", "cy").agg(pl.col("len").sum())
+        dep = sum(n_dep(d) for d in days)
+        K = G.with_columns((pl.col("len") / dep).alias("rm")).join(r26, on=["cx", "cy"], how="left").with_columns(
+            pl.min_horizontal(pl.col("r2026").fill_null(0.0) / pl.col("rm"), pl.lit(1.0)).alias("keep"))
+        K.select("cx", "cy", "keep").write_parquet(path)
+        w = K["rm"].to_numpy()
+        print(f"{month}: {len(days)} days, {G['len'].sum() / dep:.1f} ground fixes per departure, keep (fix-weighted) "
+              f"{float((K['keep'].to_numpy() * w).sum() / w.sum()):.3f}", flush=True)
+    return pl.read_parquet(path)
+
+
 def build(days: list[str]) -> None:
-    K = pl.read_parquet(KEEP).select("cx", "cy", "keep")
     os.makedirs(L.OUT, exist_ok=True)
     m = os.path.join(L.OUT, "stand_map_2026.parquet")
     if not os.path.exists(m):
@@ -78,6 +99,7 @@ def build(days: list[str]) -> None:
         fp, ap = os.path.join(L.OUT, f"feat_{d}.parquet"), os.path.join(L.OUT, f"appear_fill_{d}.parquet")
         if os.path.exists(fp) and os.path.exists(ap):
             continue
+        K = keep_for(d[:7])
         fx = cells(pl.read_parquet(os.path.join(SRC, f"{tag}.parquet")))
         rng = np.random.default_rng(zlib.crc32(d.encode()))
         is_g = ((fx["apt"] == APT) & fx["ground"]).to_numpy()
@@ -95,4 +117,5 @@ if __name__ == "__main__":
     if sys.argv[1] == "density":
         density()
     else:
-        build(sys.argv[2].split(",") if len(sys.argv) > 2 else L.DAYS["2025"])
+        arg = sys.argv[2] if len(sys.argv) > 2 else "2025"
+        build(_BD[arg] if arg in _BD else arg.split(","))
