@@ -18,3 +18,9 @@ main_flseq_osm_nolirf_l2_opt_ucday vs main_flseq_osm_nolirf_l2_opt_ucmix-b581da8
 2. On LIRF unmatched rows, the airport-day bootstrap CI excludes 0 on the improving side.
 3. jan, jul and forward each improve on LIRF unmatched rows.
 4. `prc.compare` gives ADOPT on the whole frame.
+
+## Result (2026-10-08, `verdict.txt` and `compare.txt`)
+**REJECT.** ucmix-b581da8fb2 → ucday-6ccbb291ff.
+- Whole frame: +0.08 s [−0.30, +0.56].
+- LIRF unmatched rows: +7.6 [−28.6, +50.3]. By fold: jan +42.0, jul +16.9, forward −29.3.
+- Reading: the day-level label persistence does not reach the target side through label-free counts. ucmix stays as adopted.

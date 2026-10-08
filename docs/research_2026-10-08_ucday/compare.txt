@@ -1,0 +1,244 @@
+A = main_flseq_osm_nolirf_l2_opt_ucmix-b581da8fb2
+B = main_flseq_osm_nolirf_l2_opt_ucday-6ccbb291ff
+rows = 672,428
+top-20 share of B's squared error: 0.304
+
+ dropped         A         B     diff                 CI95   P(B)
+       0    269.59    269.68    +0.08    [  -0.35,  +0.56]  0.362
+      20    224.98    225.02    +0.05    [  -0.24,  +0.30]  0.364
+     200    211.96    212.01    +0.05    [  -0.05,  +0.14]  0.178
+    2000    189.08    189.08    +0.00    [  -0.02,  +0.02]  0.458
+
+month-level bootstrap (4 months): +0.08 s [-0.22, +0.31]  P(B better) = 0.344
+
+   matched: n=664,050  A=   208.1  B=   208.1
+ unmatched: n=  8,378  A=  1549.3  B=  1550.5
+
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+and none of these lines change adopt/reject):
+
+  unmatched rows            n=  8,378  A=   1549.3  B=   1550.5      +1.17 [    -5.48,     +8.01]
+  unmatched @ LIRF          n=    537  A=   3708.7  B=   3716.3      +7.64 [   -31.71,    +49.01]   100.0% of the unmatched disagreement
+
+  unmatched difference by airport (ordered by share of sum (p_a - p_b)^2):
+     airport       n         A         B      diff                   CI95  gap share
+        LIRF     537    3708.7    3716.3     +7.64    [  -31.71,  +49.01]    100.0%
+        EDDF     787     394.7     394.7     +0.00    [   +0.00,   +0.00]      0.0%
+        EDDM     402     720.3     720.3     +0.00    [   +0.00,   +0.00]      0.0%
+        EGLL     647    1005.1    1005.1     +0.00    [   +0.00,   +0.00]      0.0%
+        EHAM   1,353     466.6     466.6     +0.00    [   +0.00,   +0.00]      0.0%
+        LEBL     652     348.0     348.0     +0.00    [   +0.00,   +0.00]      0.0%
+        LEMD     416     280.6     280.6     +0.00    [   +0.00,   +0.00]      0.0%
+        LFPG   1,565    2622.5    2622.5     +0.00    [   +0.00,   +0.00]      0.0%
+        LSZH     722     578.1     578.1     +0.00    [   +0.00,   +0.00]      0.0%
+        LTFM   1,297     502.5     502.5     +0.00    [   +0.00,   +0.00]      0.0%
+
+  the K=200 drop removes 200 rows (146 unmatched, 54 matched) - these are the rows the K=200 CI is blind to:
+    rank     MVT_ID_mvt  airport       grp          y        p_a        p_b
+       0      182378789     LFPG unmatched    84240.0     1037.7     1037.7
+       1      182377662     LFPG unmatched    58206.0      973.9      973.9
+       2      200297323     LIRF unmatched    87480.0    58720.7    58720.7
+       3      192628959     LIRF unmatched    87186.0    59452.2    59452.2
+       4      182646487     LIRF unmatched    87177.0    61069.9    61069.9
+       5      200300302     LIRF unmatched    87598.0    62334.6    62334.6
+       6      192615553     LIRF unmatched    87361.0    68208.9    68208.9
+       7      192621312     LIRF unmatched     1377.0    19183.3    19058.2
+       8      192625591     LIRF unmatched      959.0    13398.5    13232.1
+       9      201193674     LIRF unmatched      782.0    12158.5    10811.8
+      10      192620845     LIRF unmatched    24900.0    17230.2    14025.4
+      11      182040319     EHAM unmatched    11032.0      255.4      255.4
+      12      192616028     LIRF unmatched      896.0    10082.2    11042.2
+      13      191483190     EGLL unmatched    11167.0     1765.2     1765.2
+      14      193379926     LSZH unmatched     9652.0     1104.9     1104.9
+      15      192628021     LIRF unmatched     1256.0     9728.8     9329.7
+      16      191483171     EGLL unmatched     9901.0     1688.9     1688.9
+      17      192620776     LIRF unmatched     1552.0     9659.4     9531.2
+      18      192628379     LIRF unmatched      723.0     8829.4     8448.3
+      19      192620774     LIRF unmatched     1926.0     9924.7     9327.2
+      20      201099330     LFPG unmatched     9182.0     1457.4     1457.4
+      21      182494057     LSZH unmatched     7625.0       99.6       99.6
+      22      192626268     LIRF unmatched    88132.0    80798.8    80798.8
+      23      192626949     LIRF unmatched      842.0     7912.5     6913.4
+      24      192621453     LIRF unmatched    14822.0     7778.4     8449.5
+      25      192620868     LIRF unmatched    16549.0    10329.2     9680.2
+      26      191466661     EGLL unmatched     8518.0     1650.7     1650.7
+      27      192629340     LIRF unmatched      529.0     7283.9     7158.3
+      28      192615551     LIRF unmatched      905.0     6391.5     7468.7
+      29      192622331     LIRF unmatched     1444.0     7807.8     7979.2
+      30      192620865     LIRF unmatched      604.0     7108.4     6972.8
+      31      192621117     LIRF unmatched     3116.0     8504.4     9500.3
+      32      182641237     LIRF unmatched    20225.0    15005.9    13846.1
+      33      191770069     LFPG unmatched     7437.0     1083.9     1083.9
+      34      191466588     EGLL unmatched     8220.0     1892.3     1892.3
+      35      192621083     LIRF unmatched    15716.0     9743.1     9491.3
+      36      182773636     LTFM unmatched     7374.0     1153.8     1153.8
+      37      200297679     LIRF unmatched      710.0     6495.0     6732.6
+      38      192617502     LIRF unmatched     8034.0     2118.8     2077.5
+      39      201195389     LIRF unmatched     9848.0     4373.8     3927.4
+      40      192620832     LIRF unmatched    20576.0    14741.3    16013.4
+      41      182641684     LIRF unmatched     1190.0     6939.7     7024.4
+      42      192232597     EDDM unmatched     6899.0     1082.0     1082.0
+      43      199350134     EDDF unmatched     6907.0     1104.3     1104.3
+      44      192620788     LIRF unmatched     1622.0     7402.8     7270.1
+      45      191483160     EGLL unmatched     8464.0     2686.3     2686.3
+      46      192624005     LIRF unmatched     1077.0     6806.6     6615.1
+      47      192616947     LIRF unmatched      668.0     6375.6     5137.5
+      48      192621659     LIRF unmatched     8509.0     2803.8     2859.7
+      49      192628013     LIRF unmatched    18431.0    12759.4    13413.1
+      50      192620324     LIRF unmatched     7981.0     2384.0     2329.0
+      51      192615498     LIRF unmatched      910.0     6518.9     5942.9
+      52      192618112     LIRF unmatched     8103.0     2555.6     2501.0
+      53      182638265     LIRF unmatched      719.0     5994.9     6274.3
+      54      192616437     LIRF unmatched     8576.0     3041.7     3052.7
+      55      192621256     LIRF unmatched     2288.0     7814.6     7733.3
+      56      200298723     LIRF unmatched     6786.0     1315.2     1323.7
+      57      192409267     LTFM   matched     6908.0     1467.9     1467.9
+      58      192627319     LIRF   matched     6656.0     1226.3     1226.3
+      59      192615662     LIRF unmatched      650.0     5750.1     6044.7
+      60      192409834     LTFM unmatched     6473.0     1106.3     1106.3
+      61      192235412     EDDM unmatched     6305.0      949.3      949.3
+      62      192620864     LIRF unmatched      956.0     6197.0     6305.0
+      63      192628429     LIRF unmatched     7810.0     2600.1     2485.2
+      64      201113278     LFPG unmatched     7392.0     2068.5     2068.5
+      65      192408863     LTFM unmatched     6302.0      995.8      995.8
+      66      191468507     EGLL unmatched     7255.0     1992.5     1992.5
+      67      192620872     LIRF unmatched    11636.0     7020.4     6401.5
+      68      192620857     LIRF unmatched    64437.0    59247.3    59247.3
+      69      192621247     LIRF unmatched     2047.0     7148.2     7201.3
+      70      192619283     LIRF unmatched     7682.0     2604.4     2555.6
+      71      191606727     EHAM   matched    10972.0     5853.9     5853.9
+      72      182642569     LIRF unmatched      712.0     5610.8     5794.4
+      73      192623448     LIRF unmatched     1090.0     6155.1     6029.0
+      74      191601862     EHAM   matched     6711.0     1709.3     1709.3
+      75      192623372     LIRF unmatched      773.0     5640.9     5719.4
+      76      192615504     LIRF unmatched      780.0     5657.4     5389.7
+      77      192621989     LIRF unmatched    16674.0    12342.7    11803.0
+      78      182372450     LFPG unmatched     5929.0     1094.6     1094.6
+      79      192620709     LIRF unmatched     1027.0     5817.4     5610.7
+      80      192615525     LIRF unmatched      895.0     5649.0     5237.2
+      81      192622063     LIRF   matched     7733.0     2992.0     2992.0
+      82      192621141     LIRF unmatched     2705.0     7157.8     7438.6
+      83      200297206     LIRF unmatched     7917.0     3212.8     3191.0
+      84      200306193     LIRF unmatched    11392.0     7628.5     6701.1
+      85      199519773     LFPG unmatched     7863.0     3193.7     3193.7
+      86      192410769     LTFM   matched     6291.0     1660.5     1660.5
+      87      192619520     LIRF unmatched     6783.0     2174.3     2166.2
+      88      201103619     LFPG   matched     6600.0     2003.9     2003.9
+      89      191483816     EGLL unmatched     6472.0     1922.0     1922.0
+      90      192624509     LIRF unmatched     8107.0     3598.5     3624.8
+      91      193392243     LSZH   matched     5777.0     1290.7     1290.7
+      92      192624037     LIRF unmatched     1560.0     6038.2     6010.9
+      93      192627873     LIRF unmatched    18905.0    14434.0    14729.2
+      94      182637467     LIRF unmatched      594.0     5041.8     4564.7
+      95      191466919     EGLL unmatched     6241.0     1812.0     1812.0
+      96      192409272     LTFM   matched     6848.0     2424.3     2424.3
+      97      192620917     LIRF   matched     5950.0     1528.8     1528.8
+      98      201193287     LIRF   matched     5763.0     1350.6     1350.6
+      99      191752957     LFPG unmatched     5289.0      877.1      877.1
+     100      192627712     LIRF unmatched      847.0     5254.8     4674.2
+     101      201198682     LIRF unmatched     1073.0     5439.2     5466.9
+     102      192615867     LIRF unmatched      772.0     4650.7     5164.8
+     103      191483166     EGLL unmatched     7264.0     2877.9     2877.9
+     104      191483168     EGLL unmatched     7141.0     2773.0     2773.0
+     105      201198845     LIRF unmatched    11645.0     7300.6     8852.1
+     106      192617987     LIRF unmatched     1139.0     5479.9     4705.0
+     107      181990595     EGLL unmatched     6126.0     1790.1     1790.1
+     108      192620869     LIRF   matched     8208.0     3873.9     3873.9
+     109      192616478     LIRF unmatched      951.0     5285.0     5045.2
+     110      192616210     LIRF   matched     6428.0     2100.3     2100.3
+     111      192615974     LIRF unmatched    10508.0     6468.9     6210.5
+     112      199522384     LFPG   matched     6355.0     2057.9     2057.9
+     113      201101018     LFPG unmatched     1201.0     5485.0     5485.0
+     114      192623454     LIRF unmatched     1671.0     5943.0     5677.1
+     115      192393823     LTFM unmatched     5765.0     1495.5     1495.5
+     116      201194712     LIRF   matched     5351.0     1113.7     1113.7
+     117      192626287     LIRF unmatched       62.0     4285.2     4249.6
+     118      201049525     EDDM   matched     1609.0     5820.0     5820.0
+     119      192621899     LIRF unmatched     1810.0     6016.4     5801.7
+     120      182645230     LIRF unmatched     1092.0     5039.4     5297.2
+     121      192626946     LIRF unmatched     6783.0     2623.2     2583.8
+     122      192628748     LIRF unmatched    10091.0     5896.3     6222.9
+     123      192615893     LIRF   matched     5524.0     1354.8     1354.8
+     124      191483801     EGLL   matched     5757.0     1633.9     1633.9
+     125      191466638     EGLL   matched     6065.0     1984.6     1984.6
+     126      192410237     LTFM unmatched     5269.0     1215.5     1215.5
+     127      192621474     LIRF unmatched     8638.0     4762.4     4596.0
+     128      192624508     LIRF unmatched     1680.0     5715.6     5588.1
+     129      201104572     LFPG unmatched     5514.0     1481.1     1481.1
+     130      191753306     LFPG   matched     5696.0     1672.0     1672.0
+     131      192615961     LIRF   matched     5463.0     1441.4     1441.4
+     132      192626586     LIRF unmatched     7735.0     3713.5     3718.1
+     133      182486684     LSZH unmatched     5992.0     1980.8     1980.8
+     134      192621311     LIRF unmatched     1913.0     5575.9     5907.8
+     135      199515061     LFPG unmatched     6715.0     2721.4     2721.4
+     136      191483831     EGLL unmatched     5571.0     1579.2     1579.2
+     137      201590336     LTFM unmatched     5170.0     1183.3     1183.3
+     138      201196888     LIRF   matched     5579.0     1597.2     1597.2
+     139      201190135     LIRF   matched     5273.0     1298.3     1298.3
+     140      192624097     LIRF unmatched     9418.0     5444.5     5559.5
+     141      201195209     LIRF   matched     4972.0     1006.3     1006.3
+     142      192629921     LIRF unmatched     8638.0     5565.7     4695.2
+     143      182638289     LIRF   matched     4862.0      919.5      919.5
+     144      182643282     LIRF   matched     5337.0     1410.7     1410.7
+     145      201589240     LTFM unmatched      911.0     4830.3     4830.3
+     146      192615566     LIRF   matched     7992.0     4079.8     4079.8
+     147      181990542     EGLL unmatched     5813.0     1957.2     1957.2
+     148      201049509     EDDM   matched     1810.0     5651.7     5651.7
+     149      192624944     LIRF   matched     6960.0     3125.2     3125.2
+     150      192617841     LIRF   matched     5933.0     2100.9     2100.9
+     151      192621294     LIRF unmatched     2412.0     6215.4     6208.7
+     152      201049508     EDDM unmatched     4918.0     1116.6     1116.6
+     153      192620825     LIRF unmatched     8646.0     4845.0     5651.3
+     154      182642507     LIRF unmatched      719.0     4356.6     4512.3
+     155      192624194     LIRF   matched     6953.0     3178.6     3178.6
+     156      192624632     LIRF unmatched    14762.0    11069.7    11007.2
+     157      200296422     LIRF   matched     5091.0     1343.2     1343.2
+     158      192619235     LIRF unmatched      594.0     4330.7     4257.6
+     159      192615379     LIRF   matched     5411.0     1680.4     1680.4
+     160      192629881     LIRF   matched     5222.0     1503.7     1503.7
+     161      192616819     LIRF unmatched    13849.0    10152.3    10418.3
+     162      192615280     LIRF unmatched      351.0     4044.9     3867.4
+     163      191697166     EDDF   matched     4695.0     1006.5     1006.5
+     164      191467764     EGLL   matched     5812.0     2140.6     2140.6
+     165      192615936     LIRF   matched     4491.0      832.9      832.9
+     166      200304433     LIRF   matched     4799.0     1149.9     1149.9
+     167      201194868     LIRF   matched     5350.0     1717.2     1717.2
+     168      191483182     EGLL   matched     5512.0     1882.3     1882.3
+     169      192616121     LIRF unmatched     1151.0     4382.0     4768.4
+     170      200298915     LIRF   matched     5107.0     1496.2     1496.2
+     171      199837369     LTFM   matched     4375.0      765.1      765.1
+     172      192621162     LIRF unmatched    87170.0    90776.6    90776.6
+     173      192627216     LIRF   matched     7020.0     3414.0     3414.0
+     174      199514985     LFPG   matched     5997.0     9599.7     9599.7
+     175      181982305     EGLL unmatched     1435.0     5031.2     5031.2
+     176      192620814     LIRF unmatched     1260.0     4239.4     4836.2
+     177      200299334     LIRF   matched     4620.0     1055.6     1055.6
+     178      192624486     LIRF unmatched     1090.0     4653.4     4245.1
+     179      192620837     LIRF unmatched    19315.0    15877.7    15752.6
+     180      192620841     LIRF unmatched    45791.0    42246.0    42246.0
+     181      192620909     LIRF unmatched     7679.0     4151.6     4134.3
+     182      192621676     LIRF unmatched     1210.0     4272.9     4737.9
+     183      192627335     LIRF unmatched     1263.0     4582.2     4772.3
+     184      192621282     LIRF   matched     5748.0     2256.3     2256.3
+     185      199828026     LTFM   matched     7318.0     3834.5     3834.5
+     186      192621112     LIRF unmatched     1251.0     4637.7     4731.8
+     187      192628194     LIRF unmatched      773.0     3956.2     4252.5
+     188      201197309     LIRF   matched     4556.0     1077.1     1077.1
+     189      192623943     LIRF   matched     4915.0     1440.8     1440.8
+     190      192617989     LIRF unmatched     1684.0     5041.2     5157.2
+     191      191484074     EGLL unmatched     4860.0     1391.5     1391.5
+     192      192615755     LIRF   matched     7388.0     3929.6     3929.6
+     193      200306565     LIRF   matched     4375.0      928.7      928.7
+     194      191751795     LFPG   matched     5583.0     2149.0     2149.0
+     195      200306524     LIRF   matched     4451.0     1019.8     1019.8
+     196      192615752     LIRF unmatched     1444.0     4865.6     4650.3
+     197      192629902     LIRF   matched     4389.0      975.6      975.6
+     198      192616770     LIRF unmatched     8510.0     5188.7     5099.0
+     199      192620666     LIRF unmatched      717.0     4088.2     4121.1
+
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: +0.08 s [-0.35, +0.56]
+
+strict checks (reporting next to the verdict above):
+            all rows: folds forward=-0.22  jan=+0.19  jul=+0.37 | airports better 0/10 | airport-day CI (1230 blocks) +0.08 [-0.30, +0.56]
+   worst 200 removed: folds forward=-0.06  jan=+0.03  jul=+0.20 | airports better 0/10 | airport-day CI (1230 blocks) +0.05 [-0.03, +0.13]
+STRICT VERDICT: REJECT - the curve verdict already rejects
