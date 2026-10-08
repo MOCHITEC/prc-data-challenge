@@ -1,0 +1,11 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+  test 2025-01 normal-trained: best_iter 839
+  test 2025-01 thin-trained: best_iter 827
+  test 2025-07 normal-trained: best_iter 908
+  test 2025-07 thin-trained: best_iter 803
+  EDDF            n= 36,830  RMSE b 184.14  normal-trained 140.15  thin-trained 139.02  thin vs normal -1.129 [-1.734, -0.464]
+  other airports  n=307,589  RMSE b 329.06  normal-trained 313.90  thin-trained 313.76  thin vs normal -0.142 [-0.345, +0.027]
+  all             n=344,419  RMSE b 316.75  normal-trained 300.16  thin-trained 299.97  thin vs normal -0.189 [-0.392, -0.015]
+
+DECISION (plan_cov26.md section 4): EDDF -1.129, other airports -0.142 -> ADOPT
+=== cov26b rc 0
