@@ -19,3 +19,9 @@ main_flseq_osm_nolirf_l2_opt_l6_dd vs main_flseq_osm_nolirf_l2_opt_l6-177174f530
 2. `prc.compare` returns ADOPT: the full CI and the K=200 CI both exclude 0 on the improving side.
 3. jan, jul and forward each improve on the whole frame.
 4. The STRICT VERDICT is ADOPT. This change touches every airport, so the strict rule applies.
+
+## Result (2026-10-08, `compare.txt`)
+**REJECT.** l6-177174f530 → l6_dd-cc501d0804.
+- Whole frame: +0.09 s, airport-day CI [−0.09, +0.29].
+- By fold: jan +0.04, jul +0.52, forward −0.20. 4 of 10 airports improve.
+- Reading: the existing nbr_*/seq_*/L6 columns already carry the within-day relative signal, so demeaned copies add nothing. This matches the decomposition, where label-free time-local aggregates did not reach the airport-hour residual.
