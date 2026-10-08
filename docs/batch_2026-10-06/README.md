@@ -62,3 +62,14 @@ C15 = v42 + three changes, then the LOBT clip:
   6 416 → 5 791 s.
 
 vs v42: 315 356 rows changed, Σ Δ² / N = 1 131. Expected −1.0 to −1.7 s.
+
+## v47 result and a version-collision incident (2026-10-08)
+v47 = C15 scored **234.4831** (−1.95 s vs v42; rank 20/237).
+
+**Incident: two version numbers collided with another session.** Another session uploaded its own
+`resilient-hedgehog_v47.parquet` at ~01:21Z, which scored 236.3563. Ours, uploaded at 01:28Z, overwrote the object,
+and the board entry (same submissionId) was re-scored with our file. The first v42 read (238.7644) was the same
+thing: another session's v42 was overwritten by ours. Both overwritten files scored worse than our best, so the
+board best is unaffected. But `prc.submit` only checks the local log for used versions.
+
+**Rule from now on:** list the team bucket right before uploading and use max(existing) + 1.
