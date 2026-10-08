@@ -31,3 +31,14 @@
 
 - When the level is high, 2025 unmatched rows at EHAM, LFPG and LSZH often sit well below it. They are not "matched-like" departures, so a floor pushes them the wrong way.
 - The suspicious January 2026 EHAM rows remain an open question, but 2025 gives no support for floor-correcting them.
+
+## Addendum (2026-10-08): restricted floor, isolation submission
+- **Why:** the audit (`docs/research_2026-10-08_audit`) found that the 2025 safety test above measured a different population. It covered level 1.5–2.5 ks at EGLL and LFPG. The 2026 rows in question sit at level > 3 ks on the EHAM and LFPG snow days, and 2025 has only 16 rows like them, so there is no offline test.
+- **Rule (fixed before submission):**
+  - Applies to unmatched rows outside LIRF with live level > 3,000 s.
+  - pred = max(pred, 0.8 · level).
+  - The base is v47.
+  - The level comes from `level.py` on the 2026 rank frame.
+  - The usual submission gate and the LOBT clip apply afterwards.
+- **Size on the v40 file:** 130 rows gated, 93 moved (EHAM 78, mean +1,273 s; LFPG 15, mean +481 s). The RMS shift over the 344,841 LB rows is 23.3 s, which bounds the LB change to about ±1.2 s.
+- **Decision rule:** keep the floor if the LB score is lower than v47 (234.4831); otherwise drop it.
