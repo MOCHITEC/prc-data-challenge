@@ -54,3 +54,10 @@
 - ADS-B の層: 1・7 月も final_ranking の時刻で突き合わせ直す（`docs/appear_tier_2026-10-05/final_janjul_adsb.py`）。
   - `scripts/adsb_stage1_feasibility.our_departures` は、`PRC_FINAL=1` のとき 2026 年のすべての月を final_ranking から読む。
   - 4 か月分の ADS-B の特徴量と final_adsb.py をまとめて置けば、どの土台にも同じ層をかけられる。
+
+## 追記（18:30 UTC）: 4 か月分の ADS-B の層がそろった
+- 2・6 月の adsb.lol は 58 日すべて取り込み済み（欠けた日なし）。1・7 月は final_ranking の時刻で突き合わせ直した。
+- **`handoff/2026-10-11/adsb/`**（README あり）に、4 か月分の特徴量とモデルを置いた。
+  - `final_adsb.py` を SCRATCH にこのフォルダを指定して回せば、どの土台にも同じ層をかけられる（動作確認済み）。
+- **統合役へ**: 4 か月分の「ADS-B の層をかける前の予測」が handoff にあれば、こちらで層をかけ、validate して最終ファイルにする。
+  統合役が自分で回してもよい。
