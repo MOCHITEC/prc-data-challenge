@@ -34,3 +34,11 @@
 - `outputs/final_v2_v47_blend5_adsbFeb.parquet`: Jan/Jul = v47, Feb/Jun = 5-member blend + ADS-B (February only) +
   LOBT clip. Gate OK.
 - **Pending:** LIRF overlays, NM-blind and ucmix for Feb/Jun; June ADS-B.
+
+## v3 (2026-10-11 ~21:10Z)
+- `outputs/final_v3_v47_full_chain_adsbFeb.parquet`: Jan/Jul = v47; Feb/Jun = blend → ADS-B layer (February) →
+  lane-B (NM-blind, ucmix) → LIRF overlays → LOBT clip, using `apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`
+  (see `overlays_README.md`). Gate OK.
+- **Check:** the same chain on Jan/Jul is within RMS 52 s of v47 (median |d| 16 s). The rest comes from the ADS-B refit
+  and air-only proxy and the new MVT noise draw in the final file.
+- **Still missing:** June ADS-B (ingest not resumed).
