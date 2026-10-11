@@ -253,8 +253,10 @@ def our_departures(day: str):
     import polars as pl
 
     y, m, _ = day.split("-")
-    # Feb and Jun 2026 exist only in the final-phase file (Jan+Feb+Jun+Jul 2026, released 2026-10-08)
-    src = REPO_DIR + ("data/raw/final_ranking.parquet" if y == "2026" and m in ("02", "06") else
+    # Feb and Jun 2026 exist only in the final-phase file (Jan+Feb+Jun+Jul 2026, released 2026-10-08). With
+    # PRC_FINAL=1 every 2026 month is read from it (its Jan/Jul MVT times are dithered by up to +-12 s).
+    final = y == "2026" and (m in ("02", "06") or os.environ.get("PRC_FINAL") == "1")
+    src = REPO_DIR + ("data/raw/final_ranking.parquet" if final else
                       "data/raw/ranking.parquet" if y == "2026" else
                       f"data/raw/training_{y}-{m}-01_{y if m != '12' else int(y) + 1}-"
                       f"{int(m) % 12 + 1:02d}-01.parquet")
