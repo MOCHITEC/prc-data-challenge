@@ -253,7 +253,9 @@ def our_departures(day: str):
     import polars as pl
 
     y, m, _ = day.split("-")
-    src = REPO_DIR + ("data/raw/ranking.parquet" if y == "2026" else
+    # Feb and Jun 2026 exist only in the final-phase file (Jan+Feb+Jun+Jul 2026, released 2026-10-08)
+    src = REPO_DIR + ("data/raw/final_ranking.parquet" if y == "2026" and m in ("02", "06") else
+                      "data/raw/ranking.parquet" if y == "2026" else
                       f"data/raw/training_{y}-{m}-01_{y if m != '12' else int(y) + 1}-"
                       f"{int(m) % 12 + 1:02d}-01.parquet")
     d0 = pl.lit(day).str.to_datetime(time_zone="UTC")
