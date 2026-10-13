@@ -1,4 +1,4 @@
-# Final phase: status of this thread (外部知見, branch claude/peaceful-babbage-md9l2x), 2026-10-13
+# Final phase: status of this thread (色々調査, branch claude/peaceful-babbage-md9l2x), 2026-10-13
 
 Follows `origin/claude/model-b-and-arrival-features:docs/final_phase_2026-10-11/NO_FINAL_UPLOAD.md`.
 
@@ -30,3 +30,12 @@ Follows `origin/claude/model-b-and-arrival-features:docs/final_phase_2026-10-11/
 - **Rejected after validation:** G-model, carrier echo, stamp (all and LIRF), cmix LEBL, ucday, day-demean, live-level floor.
 - The restricted floor was never submitted.
 - See the docs/research_2026-10-0*/ verdicts and docs/research_2026-10-08_audit.
+
+## Ready-to-run tool for the blend lever
+- `scripts/blend_nonlirf_reweight.py FRAME a2o pao p2o c2 m4 OUT [INNER_A2O=0.2]`
+  - On matched rows outside LIRF it changes the inner a2o:pao split from 0.5:0.5 to 0.2:0.8. LIRF matched rows keep the production formula.
+  - Output columns: MVT_ID_mvt, pred_prod, pred.
+  - Use it before the ADS-B layer, and rebuild that layer on the new base.
+- **Self-test on the 2025 OOFs:** a2o, pao, p2o and m4, with c2 stood in by p2o.
+  - 664,050 matched rows; 614,592 moved; RMS change 3.75 s.
+  - Matched RMSE 204.165 → 203.997, about −0.13 s whole frame. This matches the leave-one-fold-out estimate.
