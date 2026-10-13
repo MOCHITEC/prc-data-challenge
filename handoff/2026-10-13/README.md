@@ -253,3 +253,10 @@ md5 の一覧は `MD5SUMS`。
 - c2 = (seed42 + seed43 + seed44 + 2 × mean(seed45, seed46))/5（`members/cb_l2_s45.parquet` は seed 45・46 の平均、`configs/local_pb/cb_l2_s45.yaml`）。
 - CatBoost 単体: mean5 − mean3 の RMS 14.4 s（matched）。推奨ファイル比の変化: 各月 RMS 3.5〜4.6 s。見込み −0.02 s 程度（seed 平均なので方向のリスクなし）。
 - MLP の seed 45・46 も学習中（22:50 UTC ごろ）。両方入れた版を最終点検にかけ、通れば `final_recommended.parquet` を差し替える。
+
+## 追加（2026-10-13 22:35 UTC）: v4 = v3 ＋ MLP も 5 seeds 平均に（最終点検を実行中）
+- `final_v4_cb5_mlp5.parquet`（md5 d0ce32b68f3a7a4599d8a0982ca81988、validate OK）、1・7 月だけ: `janjul_only_final_v4_cb5_mlp5.parquet`（1e7fa78e74f4c00f66eedc9356f144bf）。
+- m4 = (3 × mean(seed42–44) + 2 × mean(seed45, 46))/5（`members/mlp_l6_5seeds.parquet`。seed 45・46 は `members/mlp_l6_s45.parquet`、`configs/mlp_l6_s45.yaml`）。
+- MLP 単体: mean5 − mean3 の RMS 20.9 s（matched）。推奨ファイル（v2）比の変化: 各月 RMS 5.5〜7.9 s。
+- 1・7 月の v48 からの変化: unmatched 5,290 行は同一、matched は RMS 10.9 s、平均 −0.14 s、max 546 s。
+- 実行: `assemble_step.py --a2o members/a2o_cattight_flfix.parquet --pao members/pao_l6_cattight_nolirf.parquet --m4 members/mlp_l6_5seeds.parquet --cb cb_l2 cb_l2_s43 cb_l2_s44 cb_l2_s45 cb_l2_s45 --tag final_v4_cb5_mlp5 --c13`。

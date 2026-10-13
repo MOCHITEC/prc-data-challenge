@@ -1,0 +1,47 @@
+features: reusing the cache in data/work_final
+features: train 2,085,047 rows, ranking 670,790 rows (21s)
+    epoch 1/40 lr 1.00e-03 85s holdout 221.307 best 221.307@1
+    epoch 2/40 lr 1.00e-03 66s holdout 211.754 best 211.754@2
+    epoch 3/40 lr 1.00e-03 63s holdout 221.583 best 211.754@2
+    epoch 4/40 lr 1.00e-03 61s holdout 212.225 best 211.754@2
+    epoch 5/40 lr 5.00e-04 65s holdout 207.009 best 207.009@5
+    epoch 6/40 lr 5.00e-04 71s holdout 207.726 best 207.009@5
+    epoch 7/40 lr 5.00e-04 74s holdout 207.003 best 207.003@7
+    epoch 8/40 lr 5.00e-04 70s holdout 205.472 best 205.472@8
+    epoch 9/40 lr 5.00e-04 72s holdout 207.015 best 205.472@8
+    epoch 10/40 lr 5.00e-04 74s holdout 205.538 best 205.472@8
+    epoch 11/40 lr 2.50e-04 75s holdout 205.164 best 205.164@11
+    epoch 12/40 lr 2.50e-04 74s holdout 202.822 best 202.822@12
+    epoch 13/40 lr 2.50e-04 73s holdout 205.144 best 202.822@12
+    epoch 14/40 lr 2.50e-04 72s holdout 204.251 best 202.822@12
+    epoch 15/40 lr 1.25e-04 75s holdout 203.541 best 202.822@12
+    epoch 16/40 lr 1.25e-04 72s holdout 204.451 best 202.822@12
+    epoch 17/40 lr 6.25e-05 77s holdout 204.572 best 202.822@12
+    epoch 1/12 lr 1.00e-03 71s
+    epoch 2/12 lr 1.00e-03 71s
+    epoch 3/12 lr 1.00e-03 72s
+    epoch 4/12 lr 1.00e-03 73s
+    epoch 5/12 lr 5.00e-04 81s
+    epoch 6/12 lr 5.00e-04 86s
+    epoch 7/12 lr 5.00e-04 82s
+    epoch 8/12 lr 5.00e-04 79s
+    epoch 9/12 lr 5.00e-04 84s
+    epoch 10/12 lr 5.00e-04 82s
+    epoch 11/12 lr 2.50e-04 88s
+    epoch 12/12 lr 2.50e-04 85s
+    epoch 1/12 lr 1.00e-03 70s
+    epoch 2/12 lr 1.00e-03 69s
+    epoch 3/12 lr 1.00e-03 62s
+    epoch 4/12 lr 1.00e-03 68s
+    epoch 5/12 lr 5.00e-04 70s
+    epoch 6/12 lr 5.00e-04 72s
+    epoch 7/12 lr 5.00e-04 75s
+    epoch 8/12 lr 5.00e-04 73s
+    epoch 9/12 lr 5.00e-04 76s
+    epoch 10/12 lr 5.00e-04 83s
+    epoch 11/12 lr 2.50e-04 75s
+    epoch 12/12 lr 2.50e-04 75s
+submission gate warning: max prediction 112782 exceeds 10800s; check outliers
+submission gate warning: rounded to int32 for the template dtype (max shift 0.500s)
+submission written: outputs/final/mlp_l6_s45.parquet ({'train_rows': 2085047, 'dropped_unlabelled': 0, 'lever_cols': ['fw_apt15_mean', 'fw_apt15_n', 'fw_apt30_mean', 'fw_apt30_n', 'fw_rwy15_mean', 'fw_rwy15_n', 'fw_rwy30_mean', 'fw_rwy30_n', 'ret_overdue_eobt', 'ret_overdue_sched', 'ret_overdue_eobt_rwy', 'ret_dly15'], 'fold_feature_cols': ['osm_stand_rwy_km'], 'es_holdout_encodings': False, 'mlp_matched': {'params': {'hidden': [512, 256], 'activation': 'relu', 'alpha': 0.0001, 'batch_size': 1024, 'learning_rate': 0.001, 'max_epochs': 40, 'patience': 5, 'lr_halve_every': 2, 'chunk_rows': 65536, 'quantiles': 1000, 'quantile_rows': 200000, 'cat_min_count': 1000, 'cat_max_levels': 64}, 'n_num': 135, 'n_nan_indicators': 60, 'cat_levels': {'ADEP_mvt': 10, 'RUNWAY_mvt': 38, 'STAND_mvt': 64, 'AIRCRAFT_TYPE_mvt': 64, 'WK_TBL_CAT_flt': 4, 'AIRCRAFT_OPERATOR_flt': 64, 'MARKET_SEGMENT_flt': 7, 'FLIGHT_TYPE_flt': 4, 'ADES_mvt': 64, 'ADES_REGION': 64}, 'input_width': 588, 'train_rows': 2062577, 'holdout_rows': 164028, 'es_holdout_rmse': [221.30732818476451, 211.75404577820734, 221.5833847758841, 212.22492177515795, 207.0092077687073, 207.7257794132085, 207.0026908852031, 205.47187957289756, 207.01475416276003, 205.5376130931586, 205.16424247207695, 202.82216464988676, 205.14448786016393, 204.25111535894064, 203.54128188809932, 204.45056142868563, 204.5717349663823], 'es_best_epoch': 12, 'es_epochs_run': 17, 'es_lrs': [0.001, 0.001, 0.001, 0.001, 0.0005, 0.0005, 0.0005, 0.0005, 0.0005, 0.0005, 0.00025, 0.00025, 0.00025, 0.00025, 0.000125, 0.000125, 6.25e-05], 'epochs': 12, 'seconds': 3229.4}, 'rounds_matched': 12, 'n_features_unmatched': 108, 'rounds_unmatched': 49, 'sched_reparam_train_rows': 1488, 'sched_reparam_target_rows': 619, 'lobt_bound_slack': 3606.0, 'lobt_bound_rows': 252, 'lobt_bound_up': 233, 'lobt_bound_down': 19, 'lobt_bound_max_move': 3566.7284565881737, 'parity_max_gap': 0.01567987622490427})
+exit 0
