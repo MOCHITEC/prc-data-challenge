@@ -1,0 +1,4 @@
+main_flseq_osm_nolirf_l2_opt_l6_fj-70d62ec888 vs main_flseq_osm_nolirf_l2_opt_fj-10b45b5b78  対象=all n=326874  差 -1.20 CI [-1.89 -0.63]
+   2月 n=143732 差 -1.93
+   6月 n=183142 差 -0.73
+   全体の差 -1.201 秒
