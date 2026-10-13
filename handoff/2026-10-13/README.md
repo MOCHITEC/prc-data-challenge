@@ -121,3 +121,20 @@
 |---|---|
 | `final_from_v48_cb3.parquet`（4 か月、validate OK）← **現在の推奨** | 6bbcb6c831d131acbd33ebb647f7d6f2 |
 | `janjul_only_v48_cb3.parquet`（1・7 月だけ、LB で確かめる用） | b1e8203df971f331f5ea570ae040eb6e |
+
+## 追加（2026-10-13 13:05 UTC）: 2・6 月に appear（スタンド出現）の補正を入れた版 ← **現在の推奨**
+- 外部知見の指摘（`beautiful-davinci:handoff/2026-10-13/CANDIDATES.md` 部品 2）: v47 / v48 の 1・7 月の ADS-B の層には、
+  自前の層（G12A/G7A/GL4/AIR/POS/RULE）に無い **appear の項**（12 か月、EDDF は間引き版）が入っている。
+  v39 でこの層は LB −2.57 s。1・7 月で v48 − v47 ≈ (c_A12 − c_P12) + EDDF − (c_A4 − c_P4)、相関 0.989。
+- **やったこと**: 外部知見の `final_adsb.py --months 02,06 --increment` を、**今の土台 `base_blend_cb3`**（3 seeds の CatBoost 入りの blend）で回し、
+  増分 (c_A12 − c_P12)（EDDF は c_A12thin − c_P12）を `final_from_v48_cb3` の 2・6 月の行に足した。
+  - 2026-06-11 の行は除外（A12 の層が直接入っているため）。LTFM、LIRF の unmatched、LOBT 境界の行は増分側で触らない。
+  - 足したあとに LOBT の切り詰めをかけ直した。1・7 月は変えていない。
+- **変化**: 2 月 103,343 行（RMS 39.9 s）、6 月 123,751 行（RMS 42.3 s）。Σd²/N 575。
+- **検証（外部知見）**: 1・7 月で、自前の層 + 増分は v48 に近づく（RMS 差 53.2 → 43.4 s）。
+- これで 2・6 月は v48 と同じ組み立て（自前の層 + 12 か月 appear + EDDF 間引き）になった。
+
+| ファイル | md5 |
+|---|---|
+| `final_from_v48_cb3_appear.parquet`（4 か月、validate OK）← **推奨** | 6aa805f44a6171e5a2a79263d952baae |
+| `janjul_only_v48_cb3_appear.parquet`（1・7 月だけ。`janjul_only_v48_cb3` と同一） | b1e8203df971f331f5ea570ae040eb6e |
