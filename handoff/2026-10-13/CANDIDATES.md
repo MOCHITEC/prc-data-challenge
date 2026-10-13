@@ -68,3 +68,38 @@
 - 出発便の正解が「ずれ × 2」動いているなら、v47 / v48 をそのまま使うと約 +97 s² の誤差が増える（4 か月全体で +0.1 s 程度）。
 - anchor に合わせて「+ ずれ × 1」を足すと、どの場合でも損は 24 s² 以下で済む（いちばん悪い場合で比べて最も損が小さい）。
   ただし LB では確かめられない。手で足すことが審査でどう見られるかも含めて、統合役と RPC で判断してほしい。
+
+## 追記（2026-10-13 01:40 UTC）: 統合役の final_from_v48 に、2 月のスタンドの補正（appear の増分）を足した候補
+
+**ベース**: laughing-cray 558c736 の `handoff/2026-10-13/final_from_v48.parquet`（md5 `c7ffa31edc2a4de5f1837682d90e14cb`）。
+- 1・7 月 = v48。
+- 2 月 = 統合役の自前の ADS-B の層だけ。appear の層が無い。
+- 6 月 = こちらの A12 の層（appear 込み）。
+
+**候補**: `handoff/2026-10-13/final_from_v48_plus_feb_appear.parquet`（md5 `6f2cd1af92d8e636c2159f4fd7e5413c`、670,790 行、validate OK）
+- ベースの 2 月の行（103,311 行）に、appear の増分を足しただけ。1・6・7 月は変えていない。
+- 変わった行の RMS 40 s、Σd²/N 246。
+
+**増分の作り方**:
+
+      SCRATCH=$PWD/handoff/2026-10-11/adsb .venv/bin/python docs/appear_tier_2026-10-05/final_adsb.py \
+        pre_adsb_base_blend5_final.parquet incr_4m.parquet --months 01,02,06,07 --increment
+
+  - 土台 b は統合役の `pre_adsb_base_blend5_final.parquet`（md5 `38edd5a6a6ab0328de841936cffa907a`）。統合役が ADS-B の層に渡したものと同じ。
+  - 増分 = 出力 − round(b)。
+  - ベースに足したあとで、LOBT の切り詰め（±3606 s）をかけ直した。
+  - 2・6 月の増分の表: `handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet`（md5 `fe3aedc0467fc0777ea2326c714f2a35`、MVT_ID_mvt / month / delta）。
+
+**検証（1・7 月の行で、v48 との近さ）**: 統合役の chain（自前の層だけ）は v4b、0220c69 の `cand_v4b_refit4m_oursJanFebJul_A12Jun.parquet`。
+
+| | v48 との RMS 差 | 差の中央値 |
+|---|---|---|
+| chain（自前の層だけ） | 53.2 s | 16 s |
+| chain + 増分 | **43.4 s** | **13 s** |
+
+- 増分を足すと v48 の作り方に近づく。残りは時刻のずらしと、層の作り直しの近似の分。
+- v48 = 統合役の層 + appear の増分、という関係は 1・7 月で確かめた（相関 0.989）。
+
+**6 月の扱い**:
+- 今の 6 月は A12 の層（appear 込み）なので、増分は足していない。
+- 統合役が 6 月を自前の層に替えたとき（v5）は、上の表の 6 月の delta を足すと v48 と同じ作り方になる（土台は同じ blend5）。
