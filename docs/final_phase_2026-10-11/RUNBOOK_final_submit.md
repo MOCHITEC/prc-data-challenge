@@ -290,4 +290,4 @@ Commit after step 6 and step 7.
     steps.
   - Arrivals show the same pattern: 317,088 of 344,693 rows changed.
   - `SCHED_TIME_UTC_mvt`, `AOBT_3_flt` and `LOBT_flt` are unchanged on all Jan/Jul departures.
-- **Test suite**: see the commit that added this runbook.
+- **Test suite** (10-13, after 7673584): 314 passed, 2 skipped in 4 min 56 s. Before the final tooling: 287 passed, 2 skipped. 27 new tests: 10 in `test_validate_final.py`, 17 in `test_submit_final.py`; every bucket call there is mocked.
