@@ -156,3 +156,22 @@ reweight 版の作り方:
 **選び方は統合役の目安と同じ**:
 - janjul_only（reweight）の LB が v48 以下なら → `final_reweight_plus_febjun_appear.parquet`
 - そうでなければ → `final_v5_plus_febjun_appear.parquet`
+
+## 追記（2026-10-13 04:00 UTC）: 統合役の reweight + LTFM 版にも、2・6 月のスタンドの補正を足した候補
+
+- **ベース**: laughing-cray 1cf2bc2 の `final_from_v48_reweight_ltfm.parquet`（md5 `155f479aa27a8b7a8f6ed5bf8355c7bf`）。
+  - reweight 版との差は LTFM の行（69,093 行）だけであることを確かめた。
+- **候補**: `handoff/2026-10-13/final_reweight_ltfm_plus_febjun_appear.parquet`（md5 `5e09da0c180e1c14166eac1e4f13ea6f`、validate OK）
+  - reweight 版と同じ増分の表（`feb_jun_appear_increment_on_reweight.parquet`）を、2 月 103,299 行と 6 月 123,713 行に足した。
+  - 増分は LTFM の行を含まない。LTFM は ADS-B の補正が 0 なので、LTFM の変更とは重ならない。
+  - 前の reweight 候補との差は LTFM の行だけ。
+
+**統合役の 3 つの案と、補正を足した候補の対応**
+
+| 統合役の案 | 補正を足した候補 | md5 |
+|---|---|---|
+| v5（`final_from_v48`） | `final_v5_plus_febjun_appear.parquet` | `c0d4a1439862e68852b65f6854322a29` |
+| reweight | `final_reweight_plus_febjun_appear.parquet` | `f25b95a0028f75e438a3641d4f2df0e0` |
+| reweight + LTFM | `final_reweight_ltfm_plus_febjun_appear.parquet` | `5e09da0c180e1c14166eac1e4f13ea6f` |
+
+選び方: 統合役が LB で確かめた結果に合わせて、どの案を使うかを決める。その案の右の列のファイルを提出に使う。
