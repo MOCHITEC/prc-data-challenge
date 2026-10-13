@@ -143,6 +143,49 @@ def list_team_submissions(cfg: OsnConfig | None = None) -> list[tuple[str, int]]
     return list_objects(cfg.team_bucket, prefix=f"{cfg.team_name}_v", cfg=cfg)
 
 
+def final_object_name(cfg: OsnConfig) -> str:
+    """The one final-phase object: <team-name>_final.parquet (ranking.html, "Final Submission")."""
+    if not cfg.team_name:
+        raise RuntimeError("PRC_TEAM_NAME must be set to name the final object")
+    return f"{cfg.team_name}_final.parquet"
+
+
+def stat_identity(st) -> tuple | None:
+    """What identifies one PUT of an object: size, etag and mtime (None when the object is absent)."""
+    if st is None:
+        return None
+    return (st.size, getattr(st, "etag", None), str(getattr(st, "last_modified", None)))
+
+
+def upload_final(local_file: Path, cfg: OsnConfig, expected_existing=None, c: Minio | None = None) -> str:
+    """PUT <team>_final.parquet into the team bucket, replacing only the object the caller has already shown.
+
+    `expected_existing` is the stat the caller printed and the user confirmed (None: the caller saw no object).
+    The object is HEADed again right before the PUT; if it is not the same one (another session uploaded in
+    between, or it appeared or vanished), nothing is written. Any HEAD error other than "absent" raises."""
+    if not cfg.team_bucket:
+        raise RuntimeError("OSN_TEAM_BUCKET must be set to upload the final")
+    object_name = final_object_name(cfg)
+    c = c or client(cfg)
+    now = stat_submission(object_name, cfg, c)
+    if stat_identity(now) != stat_identity(expected_existing):
+        raise FileExistsError(
+            f"{cfg.team_bucket}/{object_name} changed since it was shown: expected {stat_identity(expected_existing)}, "
+            f"found {stat_identity(now)}. Nothing uploaded; re-run and re-confirm."
+        )
+    c.fput_object(cfg.team_bucket, object_name, str(local_file))
+    log.info("uploaded %s -> %s/%s", local_file, cfg.team_bucket, object_name)
+    return object_name
+
+
+def download_team_object(object_name: str, dest: Path, cfg: OsnConfig, c: Minio | None = None) -> Path:
+    """GET one object of the team bucket into dest (used to verify the final upload byte for byte)."""
+    c = c or client(cfg)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    c.fget_object(cfg.team_bucket, object_name, str(dest))
+    return dest
+
+
 def upload_submission(local_file: Path, version: int, cfg: OsnConfig | None = None, overwrite: bool = False) -> str:
     """Upload <team-name>_v<version>.parquet to the team bucket. Caller must have run the validation gate.
 

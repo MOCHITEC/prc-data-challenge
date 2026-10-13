@@ -6,20 +6,35 @@ the team bucket and the official leaderboard, because the local ledger cannot se
 (two sessions both uploaded resilient-hedgehog_v42.parquet and the second overwrote the first). If either
 remote source cannot be read, the upload is refused (fail closed).
 
-Dry check, no upload:  python -m prc.submit --check-version N"""
+Dry check, no upload:  python -m prc.submit --check-version N
+
+Final phase (one object, <team>_final.parquet, no _vNN checks; see docs/final_phase_2026-10-11/RUNBOOK_final_submit.md):
+    python -m prc.submit --final --file F --template final_submitting.parquet --ranking final_ranking.parquet \
+        --source-commit C --source-path P --expect-md5 M [--dry-run] [--confirm-final-overwrite]"""
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import subprocess
+import tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pyarrow.parquet as pq
 
 from .config import OsnConfig
-from .io_minio import list_team_submissions, stat_submission, submission_object_name, upload_submission
+from .io_minio import (
+    download_team_object,
+    final_object_name,
+    list_team_submissions,
+    stat_submission,
+    submission_object_name,
+    upload_final,
+    upload_submission,
+)
 from .leaderboard import team_versions, version_of
+from .validate_final import file_md5, format_report, validate_final_files
 from .validate_submission import validate_files
 
 DAILY_LIMIT = 5
@@ -45,7 +60,7 @@ def _today_count(log: Path, now: dt.datetime | None = None) -> tuple[int, set[in
         if not line.strip():
             continue
         rec = json.loads(line)
-        if rec.get("dry_run"):
+        if rec.get("dry_run") or rec.get("kind") == "final":  # the final is one object outside the _vNN series
             continue
         v = int(rec["version"])
         versions.add(v)
@@ -163,6 +178,139 @@ def remote_version_check(version: int, cfg: OsnConfig, local_versions: set[int] 
     return out
 
 
+class FinalRefused(RuntimeError):
+    """The final upload was refused before anything was written to the bucket."""
+
+
+class FinalVerifyError(RuntimeError):
+    """The final object was uploaded, but the bytes read back do not match the local file."""
+
+
+def source_blob_md5(commit: str, path: str) -> str:
+    """md5 of `git show <commit>:<path>`, so the ledger's source commit and path are checked, not just copied."""
+    import hashlib
+
+    blob = subprocess.run(["git", "show", f"{commit}:{path}"], capture_output=True, check=True).stdout
+    return hashlib.md5(blob).hexdigest()  # integrity fingerprint, not a security hash
+
+
+def _stat_dict(st) -> dict | None:
+    if st is None:
+        return None
+    return {"size": st.size, "last_modified": str(st.last_modified), "etag": getattr(st, "etag", None)}
+
+
+def submit_final(
+    file_path: Path,
+    template_path: Path,
+    ranking_path: Path,
+    source_commit: str,
+    source_path: str,
+    expect_md5: str | None = None,
+    note: str = "",
+    log: Path = LOG,
+    cfg: OsnConfig | None = None,
+    dry_run: bool = False,
+    confirm_overwrite: bool = False,
+) -> dict:
+    """Validate, then upload <team>_final.parquet once, then read it back and compare md5.
+
+    Order: (1) the final gate (prc.validate_final), (2) the local file must equal the blob at
+    source_commit:source_path, (3) HEAD the final object and print its size and mtime, (4) refuse if it exists and
+    `confirm_overwrite` is False, (5) dry run: one ledger entry and stop, (6) write-ahead "attempted" entry, PUT
+    (io_minio.upload_final re-HEADs and refuses if the object changed since step 3), (7) GET it back and compare
+    md5, (8) final ledger entry. The _vNN checks (daily counter, version numbers, leaderboard) do not apply.
+    A refusal in steps 1 to 4 raises FinalRefused and writes nothing to the ledger."""
+    file_path = Path(file_path)
+    rep = validate_final_files(file_path, Path(template_path), Path(ranking_path), expect_md5=expect_md5)
+    print(format_report(rep))
+    if not rep.ok:
+        raise FinalRefused("final gate failed, nothing uploaded:\n- " + "\n- ".join(rep.errors))
+    md5 = rep.md5
+
+    try:
+        src_md5 = source_blob_md5(source_commit, source_path)
+    except Exception as exc:  # an unreadable source must refuse, not skip the check
+        raise FinalRefused(f"cannot read {source_commit}:{source_path} ({type(exc).__name__}: {exc})") from exc
+    if src_md5 != md5:
+        raise FinalRefused(f"{file_path} (md5 {md5}) is not {source_commit}:{source_path} (md5 {src_md5})")
+    print(f"source: {source_commit}:{source_path} md5 {src_md5} == local file")
+
+    cfg = cfg or OsnConfig.from_env()
+    if not cfg.team_bucket or not cfg.team_name:
+        raise FinalRefused("OSN_TEAM_BUCKET and PRC_TEAM_NAME must be set")
+    object_name = final_object_name(cfg)
+    try:
+        existing = stat_submission(object_name, cfg)
+    except Exception as exc:  # unreachable or denied is not "absent": fail closed
+        raise FinalRefused(f"cannot HEAD {cfg.team_bucket}/{object_name} ({type(exc).__name__}: {exc})") from exc
+    if existing is None:
+        print(f"target: {cfg.team_bucket}/{object_name} does not exist yet")
+    else:
+        print(
+            f"target: {cfg.team_bucket}/{object_name} EXISTS: {existing.size:,} bytes, "
+            f"last modified {existing.last_modified}, etag {getattr(existing, 'etag', None)}"
+        )
+        if not confirm_overwrite:
+            raise FinalRefused(
+                f"{cfg.team_bucket}/{object_name} already exists ({existing.size:,} bytes, last modified "
+                f"{existing.last_modified}); pass --confirm-final-overwrite to replace it"
+            )
+        print("overwrite confirmed (--confirm-final-overwrite)")
+
+    entry = {
+        "version": "final",
+        "kind": "final",
+        "object_name": object_name,
+        "team_bucket": cfg.team_bucket,
+        "file": str(file_path),
+        "md5": md5,
+        "source_commit": source_commit,
+        "source_path": source_path,
+        "n_rows": rep.n_rows,
+        "validation": rep.summary(),
+        "existing_object": _stat_dict(existing),
+        "overwrite_confirmed": bool(confirm_overwrite),
+        "note": note,
+        "uploaded_at": dt.datetime.now(dt.UTC).isoformat(),
+        "dry_run": dry_run,
+    }
+    log.parent.mkdir(parents=True, exist_ok=True)
+    if dry_run:
+        entry["status"] = "dry_run"
+        _append(log, entry)
+        print(f"DRY RUN: would upload {file_path} -> {cfg.team_bucket}/{object_name}; nothing uploaded")
+        return entry
+
+    _append(log, {**entry, "status": "attempted"})  # write-ahead: a transfer that dies still leaves a trace
+    try:
+        upload_final(file_path, cfg, expected_existing=existing)
+    except Exception as exc:
+        _append(log, {**entry, "status": "failed", "error": repr(exc)})
+        raise
+
+    try:
+        remote_stat = stat_submission(object_name, cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            back = download_team_object(object_name, Path(tmp) / object_name, cfg)
+            remote_md5 = file_md5(back)
+    except Exception as exc:
+        _append(log, {**entry, "status": "uploaded_unverified", "error": repr(exc)})
+        raise FinalVerifyError(f"uploaded, but the read-back failed ({type(exc).__name__}: {exc})") from exc
+    entry["remote_object"] = _stat_dict(remote_stat)
+    entry["remote_md5"] = remote_md5
+    entry["verified_at"] = dt.datetime.now(dt.UTC).isoformat()
+    if remote_md5 != md5:
+        entry["status"] = "verify_failed"
+        _append(log, entry)
+        raise FinalVerifyError(f"{cfg.team_bucket}/{object_name} reads back md5 {remote_md5}, local {md5}")
+    entry["status"] = "uploaded"
+    entry["verified"] = True
+    _append(log, entry)
+    print(f"UPLOADED and verified: {cfg.team_bucket}/{object_name} md5 {remote_md5} ({_stat_dict(remote_stat)})")
+    return entry
+
+
 def _append(log: Path, entry: dict) -> None:
     with open(log, "a") as fh:
         fh.write(json.dumps(entry, default=str) + "\n")
@@ -186,15 +334,57 @@ def _print_check(res: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    ap = argparse.ArgumentParser(prog="python -m prc.submit", description="Version checks; never uploads.")
-    ap.add_argument("--check-version", type=int, required=True, metavar="N", help="version to check")
+    ap = argparse.ArgumentParser(
+        prog="python -m prc.submit",
+        description="--check-version N: version checks, never uploads. --final: the one final upload.",
+    )
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--check-version", type=int, metavar="N", help="version to check")
+    mode.add_argument("--final", action="store_true", help="upload <team>_final.parquet (no _vNN checks)")
     ap.add_argument("--log", type=Path, default=LOG)
+    fin = ap.add_argument_group("--final")
+    fin.add_argument("--file", type=Path, help="the final parquet")
+    fin.add_argument("--template", type=Path, help="final_submitting.parquet")
+    fin.add_argument("--ranking", type=Path, help="final_ranking.parquet (per-month checks)")
+    fin.add_argument("--source-commit", help="commit the file comes from (checked with git show)")
+    fin.add_argument("--source-path", help="path of the file in that commit")
+    fin.add_argument("--expect-md5", help="md5 the hand-off names")
+    fin.add_argument("--note", default="")
+    fin.add_argument("--dry-run", action="store_true", help="everything except the upload")
+    fin.add_argument("--confirm-final-overwrite", action="store_true", help="replace an existing final object")
     args = ap.parse_args(argv)
     try:
         cfg = OsnConfig.from_env()
     except Exception as exc:  # noqa: BLE001
         print(f"REFUSED: cannot build the OSN config ({exc})")
         return 2
+    if args.final:
+        need = ("file", "template", "ranking", "source_commit", "source_path")
+        missing = [f"--{n.replace('_', '-')}" for n in need if getattr(args, n) is None]
+        if missing:
+            ap.error(f"--final needs {' '.join(missing)}")
+        try:
+            entry = submit_final(
+                args.file,
+                args.template,
+                args.ranking,
+                args.source_commit,
+                args.source_path,
+                expect_md5=args.expect_md5,
+                note=args.note,
+                log=args.log,
+                cfg=cfg,
+                dry_run=args.dry_run,
+                confirm_overwrite=args.confirm_final_overwrite,
+            )
+        except FinalRefused as exc:
+            print(f"REFUSED: {exc}")
+            return 1
+        except FinalVerifyError as exc:
+            print(f"VERIFY FAILED: {exc}")
+            return 3
+        print(f"status: {entry['status']}  ledger: {args.log}")
+        return 0
     _, local = _today_count(args.log)
     res = remote_version_check(args.check_version, cfg, local_versions=local)
     _print_check(res)
