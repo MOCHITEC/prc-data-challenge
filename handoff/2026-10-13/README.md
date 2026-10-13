@@ -216,3 +216,34 @@
 6. 最後に全 matched 行へ LOBT の切り詰め（±3606 s）、0 で下限、丸めて int32。
 実行: `docs/final_2026-10-11/assemble_step.py --a2o outputs/final/a2o_cattight_flfix.parquet --pao outputs/final/pao_l6_cattight_nolirf.parquet --tag final_from_v48_cb3_appear_cat_c13_v2 --c13`。
 md5 の一覧は `MD5SUMS`。
+
+---
+# ★ 提出役へ（2026-10-13 21:00 UTC 時点のまとめ）
+
+## 推奨ファイル
+- **`handoff/2026-10-13/final_recommended.parquet`**（= `final_from_v48_cb3_appear_cat_c13_v2.parquet`、md5 **ce79384d26bc0a87ddba43f19df719fa**、670,790 行、validate OK）。
+- 1・7 月だけのファイル: `janjul_only_final_recommended.parquet`（md5 4eb9c497dd175dad23a9fb069b1f21c1）。旧 LB で確かめたい場合用。
+- 中身 = v48 ＋ (a) CatBoost 3 seeds 平均 ＋ (b) 2・6 月の appear 増分 ＋ (c) a2o / pao（LIRF 以外）の cat_tight ＋ (d) C13 の正確版、全 matched 行に LOBT の切り詰め。
+- 1・7 月の v48 からの変化: unmatched 5,290 行は同一、matched は RMS 9.1 s、平均 −0.05 s（max 600 s は LIRF 1/29 の 1 行、CatBoost の seed 平均 + ADS-B 残差の再評価によるもの）。
+
+## 独立点検（4 観点 × 2 回、反証役つき）の結論
+- 形式・網羅: 合格（行数・ID・順序・型・null・負値・空港×月×lane の件数すべて一致。LOBT の範囲違反 0）。
+- 1・7 月: 合格（v48 相当。変化は記録どおりのメンバー差分 + C13 だけ）。
+- 2・6 月: 合格（各層が 1 回ずつ。06-11 は地上 fix がほぼ無い日で AIR のみ。LIRF 6 月は 7 月と同じく AIR のみの受信。EDDM 2/19 は乱れの日で v48 の 1 月と同じ扱い）。
+- 再現性: 値には影響しない指摘が 3 件（入力ファイルが支店外）→ 下の「再現用の同梱物」で対応した。
+- 残る軽微な点: 60 s 未満の予測 32 行（主に LSZH のヘリ、v48 でも同じ）。影響は最大 0.03 s。手を入れていない。
+
+## 再現用の同梱物（このフォルダ、md5 は `MD5SUMS`）
+- `members/`: 5 メンバーの予測（a2o は `a2o_cattight_flfix.parquet` の pred_fix、pao は `pao_l6_cattight_nolirf.parquet`、c2 は cb_l2 / _s43 / _s44、p2o、m4、本番の a2o / pao）。
+- `inputs/`: union 版の fl_/seq_ 列、lane-B 差分、LIRF copy q（`copyq_LIRF_final_unfixed.parquet` = 実際に使った q）、旧 chain（`orig_chain_blend_adsb2_ovl.parquet`）、ADS-B 層の行別出力、appear 増分の出力、C13 の旧フレーム入力。
+- `adsb_store/`: 自前 ADS-B 層の入力（1・7 月の learn/pos/rescat、2・6 月の日別 feat/pos）。モデルは `docs/final_2026-10-11/adsb_models/`。
+- 外部ブランチの入力: v48 = `beautiful-davinci:handoff/2026-10-08/C15_appear12_cov26eddf.parquet`（md5 8ee6679f43ead60db1a1aec7876caf09）、`final_adsb.py` と `handoff/2026-10-11/adsb`（同ブランチ 6b9d29e）、メンバーのコードは `peaceful-babbage` 6a97bf0。
+- スクリプト: `docs/final_2026-10-11/{assemble_step.py, flfix_member_final.py, adsb_layer.py, apply_overlays.py, add_delta_janjul.py}`、設定は `docs/final_2026-10-11/configs/`、ログは `docs/final_2026-10-11/logs/`。
+
+## 任意の変種（推奨には入れていない）
+- `optional_janjul_reanchor_plus1delta.parquet`（md5 85291ccce9d21c428612bc0b6b392d55、validate OK）: 推奨ファイルの 1・7 月 matched 行に、final_ranking と旧 ranking の MVT の差（−12〜+12 s）を 1 倍だけ足して anchor を final の時刻に合わせ直したもの。
+  - 検討役の見積り: 期待値 −0.03 s（幅 −0.05〜+0.05 s）。出発便の正解が「ずらした時刻で再生成」なら得、そうでなければ最大 +0.05 s の損。
+  - **旧 LB では確かめられない**（正解がずらされている場合、旧 LB では約 +0.10 s 悪く見える）。使うかどうかは提出役の判断。
+
+## 進行中（間に合えば差し替える）
+- CatBoost を seed 45・46 まで足して 5 seeds 平均にする版（見込み −0.02 s 程度）。できたら同じ点検をして `final_recommended.parquet` を上書きし、この README に追記する。差し替えなければ上の md5 のままが最終。

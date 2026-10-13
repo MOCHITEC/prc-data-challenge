@@ -78,7 +78,10 @@ inc = A + f"incr_{a.tag}_febjun.parquet"
 if not a.skip_chain:
     subprocess.run([PY, "adsb_layer.py", "apply", "--base", base, "--out", adsb], cwd="/home/user/prc-final/adsb_out", env=ENV, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run([PY, "overlays/apply_overlays.py", "--base", adsb, "--out", ovl, "--laneB", "--lobt-clip", "--copy-feat", "unfixed"],
+    # --q-cache: the LIRF copy classifier fitted on the UNFIXED final frame (overlays/val/copyq_final_unfixed.parquet,
+    # shipped as handoff inputs/copyq_LIRF_final_unfixed.parquet), so the step no longer refits from feat_train.
+    subprocess.run([PY, "overlays/apply_overlays.py", "--base", adsb, "--out", ovl, "--laneB", "--lobt-clip", "--copy-feat", "unfixed",
+                    "--q-cache", "/home/user/prc-final/overlays/val/copyq_final_unfixed.parquet"],
                    cwd="/home/user/prc-final", env=ENV, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run([PY, "docs/appear_tier_2026-10-05/final_adsb.py", base, inc, "--months", "02,06", "--increment"],
                    cwd="/home/user/bd-work", env={**ENV, "SCRATCH": "/home/user/bd-work/handoff/2026-10-11/adsb"}, check=True,
