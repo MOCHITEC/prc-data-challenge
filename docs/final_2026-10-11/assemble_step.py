@@ -6,7 +6,8 @@ Chain for the given blend: adsb_layer.py apply -> apply_overlays.py (laneB + LIR
 appear increment (other thread's final_adsb.py --increment) on the SAME base.
 Rows:
   Jan/Jul : v48 + (chain_new - chain_orig) [+ (1/8)(delta_a2o_exact - delta_pao_applied) on matched rows, --c13]
-  Feb/Jun : chain_new + appear increment (2026-06-11 rows: A12 chain + (b_new - b0))
+  Feb/Jun : chain_new + appear increment (2026-06-11 too: own chain from the beautiful-davinci feat_2026-06-11 file,
+            an AIR-only day, 3,171 of 6,099 rows get no ADS-B correction)
 Then LOBT clip on every matched row, clip at 0, round, int32. Writes handoff/<tag>.parquet + janjul_only_<tag>.parquet.
 """
 import argparse

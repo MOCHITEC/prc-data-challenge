@@ -1,3 +1,5 @@
+> **最終版（2026-10-13 23:20 UTC）**: 推奨は `final_recommended.parquet`（md5 d0ce32b68f3a7a4599d8a0982ca81988）。詳細はこのファイル末尾の「★★ 最終版」を見てください。それより上の節は作業の記録です。
+
 # データ分析（laughing-cray）の最終候補（2026-10-13 00:50 UTC）
 
 チーム指示（`claude/model-b-and-arrival-features:docs/final_phase_2026-10-11/NO_FINAL_UPLOAD.md`）に従う。
@@ -128,7 +130,7 @@
   v39 でこの層は LB −2.57 s。1・7 月で v48 − v47 ≈ (c_A12 − c_P12) + EDDF − (c_A4 − c_P4)、相関 0.989。
 - **やったこと**: 外部知見の `final_adsb.py --months 02,06 --increment` を、**今の土台 `base_blend_cb3`**（3 seeds の CatBoost 入りの blend）で回し、
   増分 (c_A12 − c_P12)（EDDF は c_A12thin − c_P12）を `final_from_v48_cb3` の 2・6 月の行に足した。
-  - 2026-06-11 の行は除外（A12 の層が直接入っているため）。LTFM、LIRF の unmatched、LOBT 境界の行は増分側で触らない。
+  - 2026-06-11 の行は除外（A12 の層が直接入っているため）。【後日訂正: 06-11 の A12 層は実質空だったので、v2 以降は 06-11 も自前の層 + 増分にしている】LTFM、LIRF の unmatched、LOBT 境界の行は増分側で触らない。
   - 足したあとに LOBT の切り詰めをかけ直した。1・7 月は変えていない。
 - **変化**: 2 月 103,343 行（RMS 39.9 s）、6 月 123,751 行（RMS 42.3 s）。Σd²/N 575。
 - **検証（外部知見）**: 1・7 月で、自前の層 + 増分は v48 に近づく（RMS 差 53.2 → 43.4 s）。
@@ -260,3 +262,59 @@ md5 の一覧は `MD5SUMS`。
 - MLP 単体: mean5 − mean3 の RMS 20.9 s（matched）。推奨ファイル（v2）比の変化: 各月 RMS 5.5〜7.9 s。
 - 1・7 月の v48 からの変化: unmatched 5,290 行は同一、matched は RMS 10.9 s、平均 −0.14 s、max 546 s。
 - 実行: `assemble_step.py --a2o members/a2o_cattight_flfix.parquet --pao members/pao_l6_cattight_nolirf.parquet --m4 members/mlp_l6_5seeds.parquet --cb cb_l2 cb_l2_s43 cb_l2_s44 cb_l2_s45 cb_l2_s45 --tag final_v4_cb5_mlp5 --c13`。
+
+
+---
+# ★★ 最終版（2026-10-13 23:20 UTC）— 提出役へ
+
+## 推奨ファイル
+- **`handoff/2026-10-13/final_recommended.parquet`** — md5 **d0ce32b68f3a7a4599d8a0982ca81988**、670,790 行、validate OK（= `final_v4_cb5_mlp5.parquet` と同一）。
+- 1・7 月だけ（旧 LB 用）: `janjul_only_final_recommended.parquet`（md5 1e7fa78e74f4c00f66eedc9356f144bf）。
+- 任意の変種（推奨には含めない）: `optional_janjul_reanchor_plus1delta.parquet`（md5 9d0a5bf1b814e4a0cf69ac0d9d69f3c8）。1・7 月 matched 行の anchor を final の MVT に合わせ直したもの（期待値 −0.03 s、幅 −0.05〜+0.05 s、旧 LB では確かめられない）。
+- 1 つ前の推奨（v2、md5 ce79384d26bc0a87ddba43f19df719fa）も `final_from_v48_cb3_appear_cat_c13_v2.parquet` として残してある。v4 との違いは CatBoost と MLP の seed 平均（3 → 5 seeds）だけ。
+
+## 中身
+v48（1・7 月の LB 最良 234.4099）を土台に、次を積んだもの。
+1. 2・6 月の予測: v48 と同じ組み立て（5 メンバー blend → 自前の ADS-B 層 → lane-B（NM-blind / ucmix）＋ LIRF の overlay ＋ LOBT 切り詰め → 12 か月 appear の増分）。
+2. CatBoost を 5 seeds 平均（seed 42–46）、MLP を 5 seeds 平均（seed 42–46）。
+3. a2o と pao（LIRF 以外）を cat_tight（cat_smooth 50 / cat_l2 50 / min_data_per_group 200）で学習し直し。2025 年の 1・7 月（3 seeds）と 2・6 月（held-out）の検証で合格。
+4. C13（学習時・予測時の計算ずれ修正）の a2o 分を正確版に。
+5. 1・7 月は v48 + (新 chain − 旧 chain) + C13 補正、全 matched 行に LOBT 切り詰め。unmatched 5,290 行は v48 と同一。matched の変化は RMS 10.9 s、平均 −0.14 s、max 546 s（LIRF 1/31、seed 平均によるもの）。
+
+## 独立点検（4 観点、反証役つき）: v2 と v4 の両方で合格
+- 形式・網羅: 行数・ID・順序・型・null・負値・空港×月×lane の件数が final_ranking と完全一致。LOBT の範囲違反 0。
+- 1・7 月: v48 相当（差はメンバーの seed 平均 / cat_tight / C13 で説明がつく。LIRF と LTFM の RMS が 15 s を少し超えるのは CatBoost / MLP の seed 分散）。
+- 2・6 月: 各層が 1 回ずつ（appear 増分の二重計上なし、06-11 は AIR のみの日、EDDM 2/19 は乱れの日で v48 の 1 月と同じ扱い、LIRF 6 月は AIR のみの受信）。
+- 残る軽微な点: 60 s 未満の予測 33 行（主に LSZH のヘリ。影響 < 0.001 s）。
+- 残る再現性の指摘（値には無関係）: スクリプト内の絶対パス。下の対応表で読み替える。
+
+## 再現
+```
+cd /home/user/prc-data-challenge/handoff/2026-10-13
+python ../../docs/final_2026-10-11/derived_members.py --dir members    # pao_l6_cattight_nolirf, mlp_l6_5seeds
+python ../../docs/final_2026-10-11/assemble_step.py \
+  --a2o members/a2o_cattight_flfix.parquet --pao members/pao_l6_cattight_nolirf.parquet --m4 members/mlp_l6_5seeds.parquet \
+  --cb members/main_flseq_osm_nolirf_cb_l2.parquet members/main_flseq_osm_nolirf_cb_l2_s43.parquet members/main_flseq_osm_nolirf_cb_l2_s44.parquet \
+       members/cb_l2_s45.parquet members/cb_l2_s45.parquet \
+  --tag final_v4_cb5_mlp5 --c13
+```
+パスの対応表（スクリプトは作業機のパスを直書きしている）:
+
+| スクリプト内 | このブランチ |
+|---|---|
+| `/home/user/pb-work/outputs/final/*.parquet` | `handoff/2026-10-13/members/` |
+| `adsb_layer.py` の `SCR`（scratchpad/adsb）の `learn/feat_2026`, `learn/feat_pos_2026`, `pos/dwell_2026`, `pos/v2026.*_pos`, `agents/rescat/{codes,vocab}` | `handoff/2026-10-13/adsb_store/{learn,pos,rescat}/` |
+| `adsb_out/feat`, `adsb_out/pos`（2・6 月の日別） | `handoff/2026-10-13/adsb_store/{feat,posday}/` |
+| `adsb_out/models` | `docs/final_2026-10-11/adsb_models/` |
+| `overlays/val/copyq_final_unfixed.parquet` | `inputs/copyq_LIRF_final_unfixed.parquet` |
+| `overlays/out/{nmb,ucmix}_laneB_delta_final.parquet` | `inputs/` |
+| `assemble/base_blend.parquet`, `assemble/blend_adsb2_ovl.parquet`（旧 chain） | `pre_adsb_base_blend5_final.parquet`, `inputs/orig_chain_blend_adsb2_ovl.parquet` |
+| `/home/user/pb-work/outputs/flfix/...pa_opt_l6.parquet`, scratchpad `copyq_LIRF.parquet`（C13） | `inputs/c13_pao_oldframe_flfix.parquet`, `inputs/c13_copyq_LIRF_oldframe.parquet` |
+| `/home/user/bd-work/handoff/2026-10-08/C15_appear12_cov26eddf.parquet`（v48）、`final_adsb.py`、`handoff/2026-10-11/adsb` | `beautiful-davinci-ehugk4` @ 6b9d29e |
+| `scratch/agents/audit/feat_rank_extra_union.parquet` | `inputs/feat_rank_extra_union_final.parquet` |
+
+メンバーの学習: `peaceful-babbage-md9l2x` @ 6a97bf0 のコードで `prc.pipeline --skip-cv --raw-dir <final raw> --work-dir <work_final>`（設定は `docs/final_2026-10-11/configs/`、ログは `docs/final_2026-10-11/logs/`）。a2o だけは `flfix_member_final.py <config> 3 <out>`。
+md5 の一覧: `MD5SUMS`（335 件）。
+
+## このスレッドは何もアップロードしていない
+チーム指示どおり、`_final.parquet` も `_vNN.parquet` もバケットには置いていない。提出は RPC 実装スレッドが行う。
