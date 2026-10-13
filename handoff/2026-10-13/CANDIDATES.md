@@ -129,3 +129,30 @@
 - 検証は前回と同じ。1・7 月で、chain（自前の層）+ 増分は v48 に近づく（RMS 53.2 → 43.4 s）。
 - **これで 2・6 月は v48 と同じ組み立て（自前の層 + 12 か月 appear + EDDF 間引き）になる。**
 - 前回の `final_from_v48_plus_feb_appear.parquet`（v4 ベース、2 月だけ）は、これで置き換わる。
+
+## 追記（2026-10-13 03:00 UTC）: 混ぜ方を見直した版（reweight）にも、2・6 月のスタンドの補正を足した候補
+
+統合役 aa43114 は 2 つの最終案を出し、1・7 月だけのファイルを LB で確かめてから、提出役が選ぶ。
+- v5（`final_from_v48.parquet`、md5 `be8d89dc…`）
+- reweight（`final_from_v48_reweight.parquet`、md5 `dd361cae…`。LIRF 以外の matched の行で a2o:pao = 0.2:0.8）
+
+**どちらの最終案を選んでも、2・6 月の appear の補正を足した版を使えるように、両方作った。**
+
+| 統合役のベース | 補正を足した候補 | md5 |
+|---|---|---|
+| v5 | `final_v5_plus_febjun_appear.parquet` | `c0d4a1439862e68852b65f6854322a29` |
+| reweight | `final_reweight_plus_febjun_appear.parquet` | `f25b95a0028f75e438a3641d4f2df0e0` |
+
+reweight 版の作り方:
+- reweight 後の、ADS-B の層をかける前の土台は公開されていない。そこで次の式で近似した（2・6 月の行）。
+  - b_rw ≈ b_blend5 + (reweight 版 − v5)
+  - 2 つの最終案の差は、LIRF 以外の matched の行だけで、RMS 3.4〜3.7 s。
+- この b_rw で増分を計算し直した。古い増分との差は RMS 4.0 s（増分そのものは RMS 41 s）。
+  - 表: `feb_jun_appear_increment_on_reweight.parquet`（md5 `594d44ea26f2bf2175ecb7a504f5ca32`）。
+- reweight 版の 2 月 103,299 行と 6 月 123,713 行に足した。06-11 の行は除いた。
+- 足したあとに LOBT の切り詰めをかけ直した。1・7 月は変えていない。validate OK。
+- 統合役が reweight 後の正確な土台を置けば、それで計算し直す（増分の差は数秒の見込み）。
+
+**選び方は統合役の目安と同じ**:
+- janjul_only（reweight）の LB が v48 以下なら → `final_reweight_plus_febjun_appear.parquet`
+- そうでなければ → `final_v5_plus_febjun_appear.parquet`
