@@ -175,3 +175,15 @@ reweight 版の作り方:
 | reweight + LTFM | `final_reweight_ltfm_plus_febjun_appear.parquet` | `5e09da0c180e1c14166eac1e4f13ea6f` |
 
 選び方: 統合役が LB で確かめた結果に合わせて、どの案を使うかを決める。その案の右の列のファイルを提出に使う。
+
+## 追記（2026-10-13 06:20 UTC）: v5 系の候補は取り下げ（ユーザー指示）
+- v5 系はもう使われていないので、次の 3 ファイルをブランチから消した。
+  - `final_v5_plus_febjun_appear.parquet`
+  - `final_from_v48_plus_feb_appear.parquet`
+  - `feb_jun_appear_increment_on_blend5.parquet`
+- 残っている候補は次の 2 つ。今の統合役の最新は reweight + LTFM（1cf2bc2）。
+
+| 統合役の案 | 補正を足した候補 | md5 |
+|---|---|---|
+| reweight + LTFM（最新） | `final_reweight_ltfm_plus_febjun_appear.parquet` | `5e09da0c180e1c14166eac1e4f13ea6f` |
+| reweight | `final_reweight_plus_febjun_appear.parquet` | `f25b95a0028f75e438a3641d4f2df0e0` |
