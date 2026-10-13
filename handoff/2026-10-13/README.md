@@ -182,3 +182,10 @@
 - ファイル: `final_from_v48_cb3_appear_cat_a2o_c13.parquet`（md5 43770572cbc1cf221bb43244396cf1f7、validate OK）、
   1・7 月だけ: `janjul_only_final_from_v48_cb3_appear_cat_a2o_c13.parquet`（a68add6555a5ea00e1fd6ffefe24f882）。
 - pao の cat_tight 学習を 18:23 UTC に開始（約 1.5 時間）。終わったら a2o + pao の版を作り、独立した点検のあとで推奨を更新する。
+
+## 追加（2026-10-13 19:10 UTC）: a2o + pao を cat_tight にした候補（独立した点検を実行中）
+- `final_from_v48_cb3_appear_cat_c13.parquet`（md5 34c398af5639e62362ffe4e85b526d2c、validate OK）、1・7 月だけ: `janjul_only_final_from_v48_cb3_appear_cat_c13.parquet`（6db820cec35652e54a1103775039b15d）。
+- 中身: v48 ＋ CatBoost 3 seeds ＋ 2・6 月の appear 増分 ＋ a2o/pao の cat_tight ＋ C13 正確版。作り方は `assemble_step.py --a2o a2o_cattight_flfix --pao pao_l6_cattight --c13`。
+- pao 単体の変化（本番 pao 比）: 空港ごとの RMS 20〜30 s、LIRF は 53 s。推奨ファイル比の変化: 各月 RMS 4.9〜5.6 s。
+- 上の a2o だけの中間版（`..._cat_a2o_c13`）は、この版に置き換えたので削除した。
+- 4 観点（形式・1・7 月が v48 相当のまま・2・6 月の組み立て・再現性）の点検が通れば、`final_recommended.parquet` をこの版にする。
