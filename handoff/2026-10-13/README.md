@@ -96,3 +96,11 @@
   - 重みを 0.05 にしても、悪化する向きは変わらない。
 - **現在の推奨は `final_from_v48_reweight.parquet`**（md5 dd361caed874a6e39cc8b7e508d9aa79）。
 - 外部知見の「reweight+LTFM の上に作った最終候補」も、LTFM 抜きの reweight 版の上に作り直す必要がある。
+
+## 取り下げ（2026-10-13 11:00 UTC）: 混ぜ方の見直し（a2o:pao = 0.2:0.8）
+- 色々調査の 2025 年 2・6 月の検証で不合格だった。
+  - LIRF 以外の matched の行で、内側の平均同士を比べると +2.18 s [+0.64, +3.95]。2 月は +4.30 s。
+  - 2・6 月では pao の方が a2o より弱い。
+- そのため `final_from_v48_reweight.parquet` と `janjul_only_v48_reweight.parquet` は削除した。
+- **現在の推奨は `final_from_v48.parquet`**（md5 be8d89dcf79bd59a6f43d80193c95685）。混ぜ方は v48 と同じ。
+- 進行中: CatBoost（c2）を 1 seed から 3 seeds の平均にする。この改善は `final_from_v48` の上に作る。
