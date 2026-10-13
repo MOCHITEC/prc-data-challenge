@@ -102,12 +102,28 @@ d = d.with_columns(p.alias("p"))
 # 3. exact C13 on Jan/Jul matched rows
 if a.c13:
     assert a.a2o, "--c13 needs --a2o with pred_fix and pred_orig"
+    # v47's a2o slot carried s * d_pao / 8 with s = 1 - 0.4 q (LIRF copy overlay scaling), d_pao from the old-frame pao
+    # flfix run. Exact: s * d_a2o / 8. Correction e = s * (d_a2o_new - d_pao_old) / 8 on the old Jan/Jul matched ids.
     x = pl.read_parquet(a.a2o).select("MVT_ID_mvt", (pl.col("pred_fix") - pl.col("pred_orig")).alias("d_a2o"))
-    old = pl.read_parquet(A + "c13_a2o_slot_applied.parquet").select("MVT_ID_mvt", pl.col("a2o_slot").alias("d_applied"))
-    d = d.join(x, on="MVT_ID_mvt", how="left", maintain_order="left").join(old, on="MVT_ID_mvt", how="left", maintain_order="left")
-    corr = pl.when(jj & mat & pl.col("d_a2o").is_not_null() & pl.col("d_applied").is_not_null()).then((pl.col("d_a2o") - pl.col("d_applied")) / 8).otherwise(0.0)
-    d = d.with_columns(corr.alias("c13"))
-    print(f"C13: rows {int((d['c13'] != 0).sum())}, rms {float((d['c13'] ** 2).mean()) ** .5:.2f}, mean {float(d['c13'].mean()):+.3f}", flush=True)
+    pao_old = pl.read_parquet("/home/user/pb-work/outputs/flfix/main_flseq_osm_nolirf_l2_pa_opt_l6.parquet").select(
+        "MVT_ID_mvt", (pl.col("pred_fix") - pl.col("pred_orig")).alias("d_pao"))
+    q = pl.read_parquet("/tmp/claude-0/-home-user-prc-data-challenge/7ae154e2-3baf-5cb4-beae-354c18126ab1/scratchpad/adsb/flfix/copyq_LIRF.parquet")
+    qcol = next(c for c in q.columns if c != "MVT_ID_mvt")
+    q = q.select("MVT_ID_mvt", pl.col(qcol).cast(pl.Float64).alias("q_orig"))
+    d = d.join(x, on="MVT_ID_mvt", how="left", maintain_order="left").join(pao_old, on="MVT_ID_mvt", how="inner" if False else "left", maintain_order="left") \
+         .join(q, on="MVT_ID_mvt", how="left", maintain_order="left")
+    s = pl.when(pl.col("ADEP_mvt") == "LIRF").then(1.0 - 0.4 * pl.col("q_orig").fill_null(0.0)).otherwise(1.0)
+    ok13 = jj & mat & pl.col("d_a2o").is_not_null() & pl.col("d_pao").is_not_null()
+    d = d.with_columns(pl.when(ok13).then(s * (pl.col("d_a2o") - pl.col("d_pao")) / 8).otherwise(0.0).alias("c13"))
+    n13 = int(d.select(ok13.sum()).item())
+    e2 = float((d["c13"] ** 2).sum()) / 344841
+    emax = float(d["c13"].abs().max())
+    da2 = d.filter(ok13)["d_a2o"]
+    print(f"C13: rows {n13} (expect 339551), sum e^2/344841 {e2:.2f} (gate < 5), max|e| {emax:.1f} (gate < 150), "
+          f"sum d_a2o^2/344841 {float((da2 ** 2).sum()) / 344841:.1f} (expect 40-300), mean d_a2o {float(da2.mean()):+.2f} (gate |.| < 3)", flush=True)
+    if not (n13 == 339551 and e2 < 5 and emax < 150 and abs(float(da2.mean())) < 3):
+        print("C13 gates FAILED -> correction dropped", flush=True)
+        d = d.with_columns(pl.lit(0.0).alias("c13"))
     d = d.with_columns((pl.col("p") + pl.col("c13")).alias("p"))
 
 # 4. LOBT clip on matched rows, floor, round
