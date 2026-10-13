@@ -72,3 +72,19 @@
 ### 判断の目安
 - janjul_only の LB が v48（234.4099）以下なら、`final_from_v48_reweight` を使う。
 - そうでなければ `final_from_v48` を使う。
+
+## 追加（2026-10-13 03:50 UTC）: cmix の LTFM 拡張を足した版
+- **変更**: a2o を `copy_mix_airports: [LIRF, LTFM]` で学習し直した（L6 あり、3 seeds、final のデータ）。設定は `pb-work/configs/main_flseq_osm_nolirf_l2_opt_l6_cmix_ltfm.yaml`。
+  - a2o で変わるのは LTFM の matched の行だけ（87,446 行、a2o 単体での変化の RMS 57 s）。
+- **作り方**: `final_from_v48_reweight` の LTFM の matched の行に、0.05 ×（a2o_ltfm − a2o）を足し、LOBT の切り詰めをかけ直した。
+  - 0.05 は、混ぜ方を見直したあとの非 LIRF の行での a2o の重み（0.25 × 0.2）。
+  - LTFM は ADS-B の補正が c = 0 なので、ADS-B の層を作り直す必要はない。
+  - 4 か月とも final の特徴量で作った差を足している。1・7 月は v48 の上に足した形。
+- **変化**: 69,093 行が動き、動いた行での変化の RMS は 3.3 s。
+- **根拠**（色々調査、copy_plan.md）: a2o 単体で、全体 −0.25 s、LTFM matched で −2.26 s。すべての fold で改善した。
+  - blend の中では重みが 0.05 なので、見込みは −0.01〜−0.04 s 程度。
+
+| ファイル | md5 |
+|---|---|
+| `final_from_v48_reweight_ltfm.parquet`（4 か月、validate OK） | 155f479aa27a8b7a8f6ed5bf8355c7bf |
+| `janjul_only_v48_reweight_ltfm.parquet`（1・7 月だけ、LB で確かめる用） | 45e7b291b8415b81368b3c0a94f0cc1a |
