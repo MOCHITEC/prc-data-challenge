@@ -39,3 +39,12 @@ Follows `origin/claude/model-b-and-arrival-features:docs/final_phase_2026-10-11/
 - **Self-test on the 2025 OOFs:** a2o, pao, p2o and m4, with c2 stood in by p2o.
   - 664,050 matched rows; 614,592 moved; RMS change 3.75 s.
   - Matched RMSE 204.165 → 203.997, about −0.13 s whole frame. This matches the leave-one-fold-out estimate.
+
+## 最終データ上の差分ファイル（このコンテナ内のみ。バケットには置いていない）
+| ファイル | 内容 | 基準 | md5 |
+|---|---|---|---|
+| outputs/final_pb/delta_ltfm_a2o_w8.parquet | (a2o_ltfm − a2o) / 8。LTFM の照合あり行 87,420 行だけが動く。最終全体で RMS 2.6 秒 | 本番 a2o（main_flseq_osm_nolirf_l2_opt_l6_cmix、3 seeds）を最終データで予測したもの | bdf3a13acf3b9ec53733079f17ca02fe |
+| outputs/final_pb/delta_inner_split.parquet | 0.3·(pao − a2o) / 4。LIRF 以外の照合あり行 601,583 行。月ごとの RMS は 3.4〜4.6 秒 | 同じ a2o と pao_l6 の最終データ予測（どちらも共通特徴量の union 修正なし版） | 90909b0dbdaf860cd12310f3b21625ab |
+
+- **使い方**：ブレンド後、ADS-B 層を作る前の予測に足す。ベースが変わるので、ADS-B 層は作り直すこと。
+- **注意**：統合スレッドの最終メンバーには union 修正（fl_/seq_）が入っているが、こちらの予測には入っていない。差分の大きさは目安として使い、正式に入れる場合は統合側のメンバーで作り直すのが望ましい。
