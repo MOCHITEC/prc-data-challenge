@@ -162,3 +162,14 @@
   - 対策「+1×δ を matched の 1・7 月の行に足す（= anchor を final の MVT に合わせ直す）」は期待値 −0.03 s（幅 −0.05〜+0.05 s）。+2×δ は推奨しない（隠れた正解の生成法の推測になる）。
   - **注意**: この変種を旧 LB（1・7 月）で確かめると、正解がずらされている場合は逆に約 +0.10 s 悪く見える。LB で判断できない。
 - 作り方: `docs/final_2026-10-11/add_delta_janjul.py <in> <out>`（最終の推奨ファイルから作る。ファイルは最後に置く）。推奨には入れない。
+
+## Feb+Jun screen の結果（2026-10-13 17:00 UTC）— `docs/final_2026-10-11/tune/fj_screen.md`
+2025 年の 2 月・6 月を held-out にした fold（学習は残り 11 か月、ES は 12 月）、anchored LightGBM（model A）、単一 seed 42、matched RMSE。
+
+| 設定 | 2 月 d | 6 月 d | 2+6 月 pooled d | 判定 |
+|---|---|---|---|---|
+| cat_tight（cat_smooth 50 / cat_l2 50 / min_data_per_group 200） | −0.55 | −0.82 | **−0.70** | 合格（1・7 月の 3 seeds でも −0.86 / −1.05） |
+| ff_025（feature_fraction 0.25） | +0.68 | −0.91 | −0.20 | 2 月が悪化（seed のばらつき 0.13 s を超える）→ **使わない** |
+
+- **決定**: a2o と pao を cat_tight で学習し直す（ff_025 は使わない。`..._ff025_c13` の候補は取り下げ）。a2o の学習を 17:01 UTC に開始（約 1.3 時間）、続けて pao（約 1.5 時間）。
+- 検討役の見積り: blend での LB 改善は a2o で −0.09 s、a2o + pao で −0.13 s 程度。p2o（plain target）には適用しない（proxy が特徴量なので挙動が変わる。blend での上積みはほぼ 0 と見積り）。
