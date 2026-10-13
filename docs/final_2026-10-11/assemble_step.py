@@ -94,8 +94,9 @@ d = d.with_columns((pl.col("inc_out") - pl.col("b_new").round(0)).alias("inc"))
 
 jj = pl.col("m").is_in([1, 7])
 jun11 = (pl.col("m") == 6) & (pl.col("dd") == 11)
+# 2026-06-11: the A12 store has no appear rows for that day (audit 2026-10-13), so it is treated like every other
+# Feb/Jun day: own ADS-B layer (adsb_out/feat+pos for 06-11 copied from beautiful-davinci handoff) + increment.
 p = (pl.when(jj).then(pl.col("v48") + (pl.col("new") - pl.col("orig")))
-       .when(jun11).then(pl.col("a12") + (pl.col("b_new") - pl.col("b0")))
        .otherwise(pl.col("new") + pl.col("inc")))
 d = d.with_columns(p.alias("p"))
 

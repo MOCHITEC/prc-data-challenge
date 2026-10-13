@@ -1,0 +1,10 @@
+/home/user/pb-work/src/prc/pipeline.py:34: UserWarning: Extension type 'arrow.r.vctrs' is not registered; loading as its storage type.
+
+To avoid this warning, register the extension type or set environment variable 'POLARS_UNKNOWN_EXTENSION_TYPE_BEHAVIOR' to 'load_as_storage' or 'load_as_extension'.
+
+In Polars 2.0, the default behavior will change to 'load_as_extension'.
+  train = pl.concat([pl.read_parquet(p) for p in train_files], how="diagonal")
+features: train 2,085,047 rows, ranking 670,790 rows (121s)
+submission gate warning: max prediction 112573 exceeds 10800s; check outliers
+submission gate warning: rounded to int32 for the template dtype (max shift 0.500s)
+submission written: outputs/final/main_flseq_osm_nolirf_l2_opt_l6_cmix.parquet ({'train_rows': 2085047, 'dropped_unlabelled': 0, 'lever_cols': ['fw_apt15_mean', 'fw_apt15_n', 'fw_apt30_mean', 'fw_apt30_n', 'fw_rwy15_mean', 'fw_rwy15_n', 'fw_rwy30_mean', 'fw_rwy30_n', 'ret_overdue_eobt', 'ret_overdue_sched', 'ret_overdue_eobt_rwy', 'ret_dly15'], 'fold_feature_cols': ['osm_stand_rwy_km'], 'es_holdout_encodings': False, 'matched_params': {'num_leaves': 357, 'min_data_in_leaf': 11, 'feature_fraction': 0.4178, 'bagging_fraction': 0.6457, 'lambda_l2': 8.928, 'learning_rate': 0.03462}, 'rounds_matched': 1747, 'copy_mix': {'LIRF': {'train_rows': 159216, 'train_copy_share': 0.20465279871369713, 'target_rows': 51527, 'target_mean_p': 0.20222868374395014}}, 'n_features_unmatched': 108, 'rounds_unmatched': 43, 'sched_reparam_train_rows': 1488, 'sched_reparam_target_rows': 619, 'lobt_bound_slack': 3606.0, 'lobt_bound_rows': 111, 'lobt_bound_up': 106, 'lobt_bound_down': 5, 'lobt_bound_max_move': 3163.840027312852, 'parity_max_gap': 0.01567987622490427})

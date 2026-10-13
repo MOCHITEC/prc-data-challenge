@@ -189,3 +189,30 @@
 - pao 単体の変化（本番 pao 比）: 空港ごとの RMS 20〜30 s、LIRF は 53 s。推奨ファイル比の変化: 各月 RMS 4.9〜5.6 s。
 - 上の a2o だけの中間版（`..._cat_a2o_c13`）は、この版に置き換えたので削除した。
 - 4 観点（形式・1・7 月が v48 相当のまま・2・6 月の組み立て・再現性）の点検が通れば、`final_recommended.parquet` をこの版にする。
+
+## 2026-10-13 20:15 UTC: 候補 v2（点検の指摘を反映。独立点検の 2 回目を実行中）
+**ファイル**: `final_from_v48_cb3_appear_cat_c13_v2.parquet`（md5 ce79384d26bc0a87ddba43f19df719fa、validate OK）
+1・7 月だけ: `janjul_only_final_from_v48_cb3_appear_cat_c13_v2.parquet`（4eb9c497dd175dad23a9fb069b1f21c1）。
+1 回目の点検（4 観点）で見つかった 2 点を直した。19:10 の版（`..._cat_c13`）はこの版に置き換えて削除した。
+1. **2026-06-11 の行に ADS-B の層が入っていなかった**（外部知見の A12 store は 06-11 の appear 行が 78 行しかなく、A12 の層は実質 0 だった）。
+   → 外部知見が自前の `adsb_layer.py feat` で作った 06-11 の特徴量（`beautiful-davinci:handoff/2026-10-13/june_adsb_for_adsb_layer/feat/feat_2026-06-11.parquet`、md5 3574ba0d…）を `adsb_out/feat/` に入れ、06-11 もほかの日と同じ chain にした（AIR 2,850 行 RMS 17 s、G12A 78 行 RMS 60 s、残り 3,171 行は補正なし）。06-11 の 3,909 行が変わった（RMS 12 s）。
+2. **pao の cat_tight は LIRF では本番 pao のまま**にした（LIRF の pao の変化が RMS 53 s と他空港の 2 倍以上で、per-airport モデルの LIRF での検証が無いため）。LIRF の 43,725 行が変わった（RMS 7.5 s）。
+点検 1 回目の結論: 形式は合格。1・7 月は v48 相当（unmatched 5,290 行は v48 と同一、matched の変化 RMS 9.2 s、平均 −0.04 s）。2・6 月の各層は 1 回ずつ入っている（appear 増分の二重計上なし）。LTFM は ADS-B 補正なし。
+
+### 中身（順番どおり）
+1. **メンバー**（final の raw、`pb-work` 6a97bf0 のコード、特徴量キャッシュ `work_final` の matched 行は union 版の fl_/seq_ 列に置換 = `inputs/feat_rank_extra_union_final.parquet`、`analysis/local_audit_fix2026.py`）:
+   - a2o = `configs/a2o_l6_cmix_cattight.yaml`（l2_opt + L6 + cmix(LIRF) + cat_smooth 50 / cat_l2 50 / min_data_per_group 200）、3 seeds。
+     学習は `docs/final_2026-10-11/flfix_member_final.py`（`prc.train.predict_fold` を使い、union 版と元の rank 行の両方を予測）:
+     `cd /home/user/pb-work && SCRATCH=/home/user/prc-final/scratch PYTHONPATH=src python flfix_member_final.py configs/a2o_l6_cmix_cattight.yaml 3 outputs/final/a2o_cattight_flfix.parquet`（pred_fix を使う）。
+   - pao = `configs/pao_l6_cattight.yaml`、3 seeds、`prc.pipeline --skip-cv --raw-dir data/raw_final --work-dir data/work_final`。LIRF の行だけ本番 pao（`main_flseq_osm_nolirf_l2_pa_opt_l6.yaml`、3 seeds）。
+   - p2o = `main_flseq_osm_nolirf_plainy_l2_opt_l6.yaml`（3 seeds）、m4 = `main_flseq_osm_nolirf_l2_mlp_l6.yaml`（3 seeds）、c2 = `main_flseq_osm_nolirf_cb_l2.yaml` seed 42 + `cb_l2_s43` + `cb_l2_s44` の平均。
+   - blend（matched）: ((a2o + pao)/2 + p2o + c2 + m4)/4。unmatched: model B（a2o の run の分）。ログは `docs/final_2026-10-11/logs/`。
+2. **自前の ADS-B の層**: `docs/final_2026-10-11/adsb_layer.py apply --base <blend> --out ...`（モデル: `docs/final_2026-10-11/adsb_models/`、行ごとの出力: `inputs/adsb_layer_detail_v2.parquet`（b, comp, c, new））。
+3. **overlay**: `apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`（lane-B の差分 = `inputs/{nmb,ucmix}_laneB_delta_final.parquet`、LIRF copy q = `inputs/copyq_LIRF_final_fixed.parquet`）。
+4. **appear 増分**（2・6 月の行）: 外部知見の `final_adsb.py <blend> <out> --months 02,06 --increment`（`beautiful-davinci` 6b9d29e、`handoff/2026-10-11/adsb`）。
+   増分 = 出力 − round(blend)。3 の出力に足す（出力は `inputs/appear_increment_out_v2.parquet`）。
+5. **1・7 月**: v48（`beautiful-davinci:handoff/2026-10-08/C15_appear12_cov26eddf.parquet`）+ (3 の新 chain − 3 の旧 chain [本番メンバー・CatBoost 1 seed])
+   + C13 の正確版 e = s·(Δa2o − Δpao_old)/8（LIRF は s = 1 − 0.4q; `inputs/c13_pao_oldframe_flfix.parquet`、`inputs/c13_copyq_LIRF_oldframe.parquet`）。
+6. 最後に全 matched 行へ LOBT の切り詰め（±3606 s）、0 で下限、丸めて int32。
+実行: `docs/final_2026-10-11/assemble_step.py --a2o outputs/final/a2o_cattight_flfix.parquet --pao outputs/final/pao_l6_cattight_nolirf.parquet --tag final_from_v48_cb3_appear_cat_c13_v2 --c13`。
+md5 の一覧は `MD5SUMS`。

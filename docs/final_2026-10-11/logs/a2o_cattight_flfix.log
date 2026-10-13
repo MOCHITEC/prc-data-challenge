@@ -1,0 +1,3 @@
+a2o_l6_cmix_cattight: swapped 23 cols, train 2,085,047 target 1,323,426 (21s)
+done 4893s rows 661713 mean -0.24 mean|d| 1.31 sum d^2/344841 39.3
+exit 0
