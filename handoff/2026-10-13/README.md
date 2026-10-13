@@ -9,8 +9,7 @@
 
 | ファイル | md5 | 中身 |
 |---|---|---|
-| `cand_v4a_v48JanJul_oursFeb_A12Jun.parquet` | c7ffa31edc2a4de5f1837682d90e14cb | 1・7 月 = v48 のファイル（旧ランキングの時刻）。2 月 = 下の chain（自前の ADS-B 層）。6 月 = 下の chain（ADS-B 層は外部知見の A12 層）。validate OK |
-| `cand_v4b_refit4m_oursJanFebJul_A12Jun.parquet` | 91111569b2ad5eccbb8f3d795a18ae29 | 4 か月とも final_ranking の特徴量から予測し直したもの。1・2・7 月は自前の ADS-B 層、6 月は A12 層。validate OK |
+| `final_from_v48.parquet` | c7ffa31edc2a4de5f1837682d90e14cb | 1・7 月 = v48 のファイル（旧ランキングの時刻）。2 月 = 下の chain（自前の ADS-B 層）。6 月 = 下の chain（ADS-B 層は外部知見の A12 層）。validate OK |
 | `pre_adsb_base_blend5_final.parquet` | 38edd5a6a6ab0328de841936cffa907a | ADS-B の層をかける前の 5 メンバー blend（4 か月、float）。外部知見の `final_adsb.py` などに渡す土台 b |
 
 ## 作り方（chain）
@@ -42,9 +41,3 @@
   - 取り込みが終わったら、6 月も自前の層（必要なら + (c_A12 − c_P12)）にした v5 を置く予定。
 - **差の中央値 16 s は、主に final_ranking の MVT の ±12 s のずらし**と、ADS-B の層の作り直しの近似から来ている。
   - スクリプト自体は、旧ランキングのデータで v47 を全行そのまま再現することを確認済み。
-
-## 1・7 月をどちらにするか（統合役が判断）
-- **v4a（v48 のファイルを使い回す）**: LB で確かめた中身だが、時刻は旧ランキングのまま。
-  - 外部知見の推測では、正解が 2 × ずれ だけ動いていれば約 +0.2 s 損する。
-- **v4b（final の特徴量から予測し直す）**: anchor を通してずれの 1 倍分を追う。
-  - その代わり、v47 との作り直しの差（RMS 52 s）がある。こちらは LB で検証していない。
