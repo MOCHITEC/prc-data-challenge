@@ -88,3 +88,11 @@
 |---|---|
 | `final_from_v48_reweight_ltfm.parquet`（4 か月、validate OK） | 155f479aa27a8b7a8f6ed5bf8355c7bf |
 | `janjul_only_v48_reweight_ltfm.parquet`（1・7 月だけ、LB で確かめる用） | 45e7b291b8415b81368b3c0a94f0cc1a |
+
+## 取り下げ（2026-10-13 09:20 UTC）: cmix の LTFM 拡張
+- 色々調査の 2025 年 2・6 月の検証で不合格になった（`peaceful-babbage:docs/final_phase_2026-10-13/fj_results.md`）。
+  - LTFM の matched の行で +26.1 s [+5.7, +44.9]。2 月は +46.7 s。全体で +3.66 s の悪化（a2o の重み 1/8 での測定）。
+- そのため `final_from_v48_reweight_ltfm.parquet` と `janjul_only_v48_reweight_ltfm.parquet` は削除した。
+  - 重みを 0.05 にしても、悪化する向きは変わらない。
+- **現在の推奨は `final_from_v48_reweight.parquet`**（md5 dd361caed874a6e39cc8b7e508d9aa79）。
+- 外部知見の「reweight+LTFM の上に作った最終候補」も、LTFM 抜きの reweight 版の上に作り直す必要がある。
