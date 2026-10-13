@@ -104,3 +104,20 @@
 - そのため `final_from_v48_reweight.parquet` と `janjul_only_v48_reweight.parquet` は削除した。
 - **現在の推奨は `final_from_v48.parquet`**（md5 be8d89dcf79bd59a6f43d80193c95685）。混ぜ方は v48 と同じ。
 - 進行中: CatBoost（c2）を 1 seed から 3 seeds の平均にする。この改善は `final_from_v48` の上に作る。
+
+## 追加（2026-10-13 12:20 UTC）: CatBoost を 3 seeds の平均にした版
+- **変更**: c2（cb_l2）を seed 42・43・44 の 3 本の平均にした。ほかは `final_from_v48` と同じ（混ぜ方も同じ）。
+  - 設定は `pb-work/configs/local_pb/main_flseq_osm_nolirf_cb_l2_s{43,44}.yaml`（final のデータで学習）。
+- **根拠**: seed を変えると、c2 単体で matched の行の差が RMS 57 s ある（42 と 43 の比較）。
+  - blend での重みは 1/4。平均を 3 本にすると、この分散がおよそ 1/3 になる。
+  - 見込みは約 −0.14 s。seed 平均なので、月によって良し悪しが逆転する心配はない。
+- **作り方**:
+  - 2・6 月: 新しい blend → 自前の ADS-B の層 → overlay → LOBT の切り詰め、で作り直した。
+    - 2026-06-11 の行は、A12 の層の値に blend の差を足した。
+  - 1・7 月: v48 に「final の特徴量で作った chain の、新旧の差」を足した。
+- **変化の RMS**: 1 月 9.5 s、2 月 6.8 s、6 月 6.5 s、7 月 6.8 s。
+
+| ファイル | md5 |
+|---|---|
+| `final_from_v48_cb3.parquet`（4 か月、validate OK）← **現在の推奨** | 6bbcb6c831d131acbd33ebb647f7d6f2 |
+| `janjul_only_v48_cb3.parquet`（1・7 月だけ、LB で確かめる用） | b1e8203df971f331f5ea570ae040eb6e |
