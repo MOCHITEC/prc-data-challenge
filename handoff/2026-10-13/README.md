@@ -247,3 +247,9 @@ md5 の一覧は `MD5SUMS`。
 
 ## 進行中（間に合えば差し替える）
 - CatBoost を seed 45・46 まで足して 5 seeds 平均にする版（見込み −0.02 s 程度）。できたら同じ点検をして `final_recommended.parquet` を上書きし、この README に追記する。差し替えなければ上の md5 のままが最終。
+
+## 追加（2026-10-13 21:45 UTC）: v3 = v2 ＋ CatBoost を 5 seeds 平均に（点検待ち。推奨はまだ v2）
+- `final_v3_cb5.parquet`（md5 838d5f411b383ae9b6c1d626fa1bf04e、validate OK）、1・7 月だけ: `janjul_only_final_v3_cb5.parquet`（0354f63ef337b3074dc75a64a4eae204）。
+- c2 = (seed42 + seed43 + seed44 + 2 × mean(seed45, seed46))/5（`members/cb_l2_s45.parquet` は seed 45・46 の平均、`configs/local_pb/cb_l2_s45.yaml`）。
+- CatBoost 単体: mean5 − mean3 の RMS 14.4 s（matched）。推奨ファイル比の変化: 各月 RMS 3.5〜4.6 s。見込み −0.02 s 程度（seed 平均なので方向のリスクなし）。
+- MLP の seed 45・46 も学習中（22:50 UTC ごろ）。両方入れた版を最終点検にかけ、通れば `final_recommended.parquet` を差し替える。
