@@ -82,6 +82,38 @@ def download_all(bucket: str | None = None, dest: Path | None = None, cfg: OsnCo
     return out
 
 
+FINAL_COMPETITION_FILES = ("final_submitting.parquet", "final_ranking.parquet", "ranking.parquet")
+
+
+def download_files(
+    names: tuple[str, ...] | list[str] = FINAL_COMPETITION_FILES,
+    bucket: str | None = None,
+    dest: Path | None = None,
+    cfg: OsnConfig | None = None,
+) -> list[Path]:
+    """Download the named objects of the competition bucket into dest. Read-only: GET only, no PUT.
+
+    Re-downloads a file whose local size differs from the bucket's; skips one whose size matches."""
+    cfg = cfg or OsnConfig.from_env()
+    bucket = bucket or cfg.competition_bucket
+    if not bucket:
+        raise RuntimeError("no competition bucket: pass bucket= or set OSN_COMPETITION_BUCKET (prc-2026-datasets)")
+    dest = dest or data_dir() / "raw" / "final"
+    dest.mkdir(parents=True, exist_ok=True)
+    c = client(cfg)
+    out: list[Path] = []
+    for name in names:
+        st = c.stat_object(bucket, name)
+        target = dest / name
+        if target.exists() and target.stat().st_size == st.size:
+            log.info("skip %s (exists, %d bytes)", name, st.size)
+        else:
+            log.info("download %s/%s (%d bytes)", bucket, name, st.size)
+            c.fget_object(bucket, name, str(target))
+        out.append(target)
+    return out
+
+
 # stat_object answers these codes for "no such object"; every other error (403, 503, network) is not "absent".
 _ABSENT_CODES = ("NoSuchKey", "NoSuchObject", "NotFound")
 
