@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import os
+
 import numpy as np
 import polars as pl
 
@@ -43,6 +45,13 @@ def month_block_folds(months_present: list[int]) -> list[Fold]:
             before = tuple(x for x in ms if x < min(sel))
             if before:
                 folds.append(Fold(f"{name}_fwd", sel, before))
+    # Final phase (docs/final_phase_2026-10-13): the final set adds Feb and Jun 2026. PRC_FEBJUN_FOLDS=1 adds
+    # leave-one-month-out folds for Feb and Jun 2025. Off by default, so every existing fold list is unchanged.
+    if os.environ.get("PRC_FEBJUN_FOLDS") == "1":
+        for month, name in ((2, "feb"), (6, "jun")):
+            sel = tuple(x for x in ms if x % 100 == month)
+            if sel and len(sel) < len(ms):
+                folds.append(Fold(name, sel, tuple(x for x in ms if x not in sel)))
     fwd = tuple(x for x in ms if x % 100 >= 11)
     if fwd and len(fwd) < len(ms):
         folds.append(Fold("forward", fwd, tuple(x for x in ms if x not in fwd)))
