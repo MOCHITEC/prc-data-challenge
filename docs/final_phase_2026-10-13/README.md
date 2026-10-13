@@ -21,7 +21,7 @@ Follows `origin/claude/model-b-and-arrival-features:docs/final_phase_2026-10-11/
 | NM-blind w = 0.25 | yes (lane B) | `nmblind_weight: 0.25` | docs/research_2026-10-06_nmblind | done |
 | ucmix, LIRF unmatched | yes (lane B) | `ucmix_airports: [LIRF]` | docs/research_2026-10-07_ucmix | done |
 | **cmix LTFM extension** | **no** | a2o with `copy_mix_airports: [LIRF, LTFM]` (configs/main_flseq_osm_nolirf_l2_opt_cmix_ltfm.yaml) on top of L6, 3 seeds | copy_plan.md, LTFM result: −0.25 s whole frame [−0.39, −0.12]; LTFM matched −2.26 [−3.25, −1.13]; all folds improve | about −0.03 to −0.1 s after the a2o weight |
-| **Blend inner split, non-LIRF matched rows** | **no** | matched blend outside LIRF: 0.5·(0.2·a2o + 0.8·pao) + 0.25·(p2o + c2 + m4)·(4/3)… simplest form: change only the inner a2o:pao split from 0.5:0.5 to 0.2:0.8 on non-LIRF matched rows; LIRF unchanged | docs/research_2026-10-08_blend: inner split alone −0.12 s (no c2), all folds; full non-LIRF reweight −0.22 [−0.30, −0.14] | −0.1 to −0.2 s. Re-measure with the c2 OOF first. |
+| **Blend inner split, non-LIRF matched rows** | **no** | on non-LIRF matched rows, with c2: 0.4·(0.2·a2o + 0.8·pao) + 0.2·(p2o + c2 + m4). Simplest form: change only the inner a2o:pao split from 0.5:0.5 to 0.2:0.8 on non-LIRF matched rows; LIRF unchanged | docs/research_2026-10-08_blend: inner split alone −0.12 s (no c2), all folds; full non-LIRF reweight −0.22 [−0.30, −0.14] | −0.1 to −0.2 s. Re-measure with the c2 OOF first. |
 
 - Both open levers act before the ADS-B layer.
 - Per the team instruction, a candidate built on a changed base must rebuild the ADS-B residual and appear layers on that same base.
