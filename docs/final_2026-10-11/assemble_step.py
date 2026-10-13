@@ -108,8 +108,7 @@ if a.c13:
     pao_old = pl.read_parquet("/home/user/pb-work/outputs/flfix/main_flseq_osm_nolirf_l2_pa_opt_l6.parquet").select(
         "MVT_ID_mvt", (pl.col("pred_fix") - pl.col("pred_orig")).alias("d_pao"))
     q = pl.read_parquet("/tmp/claude-0/-home-user-prc-data-challenge/7ae154e2-3baf-5cb4-beae-354c18126ab1/scratchpad/adsb/flfix/copyq_LIRF.parquet")
-    qcol = next(c for c in q.columns if c != "MVT_ID_mvt")
-    q = q.select("MVT_ID_mvt", pl.col(qcol).cast(pl.Float64).alias("q_orig"))
+    q = q.select("MVT_ID_mvt", pl.col("q_orig").cast(pl.Float64))
     d = d.join(x, on="MVT_ID_mvt", how="left", maintain_order="left").join(pao_old, on="MVT_ID_mvt", how="inner" if False else "left", maintain_order="left") \
          .join(q, on="MVT_ID_mvt", how="left", maintain_order="left")
     s = pl.when(pl.col("ADEP_mvt") == "LIRF").then(1.0 - 0.4 * pl.col("q_orig").fill_null(0.0)).otherwise(1.0)
