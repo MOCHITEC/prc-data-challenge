@@ -24,6 +24,7 @@ from prc.train import PROXY, TrainConfig, predict_fold
 
 # (experiment id, digest of [model A params, model B params]) of every recipe in configs/ at 548538c.
 BEFORE = {
+    "main_flseq_osm_nolirf_l2_opt_l6_cmix_ltfm.yaml": ("5291cdb173", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_l6_dd.yaml": ("cc501d0804", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_ucday.yaml": ("6ccbb291ff", "9f53bbe724"),
     "main_flseq_osm_nolirf_l2_opt_ucmix.yaml": ("b581da8fb2", "9f53bbe724"),
