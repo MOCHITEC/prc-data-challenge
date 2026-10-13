@@ -138,3 +138,27 @@
 |---|---|
 | `final_from_v48_cb3_appear.parquet`（4 か月、validate OK）← **推奨** | 6aa805f44a6171e5a2a79263d952baae |
 | `janjul_only_v48_cb3_appear.parquet`（1・7 月だけ。`janjul_only_v48_cb3` と同一） | b1e8203df971f331f5ea570ae040eb6e |
+
+## 追加（2026-10-13 16:00 UTC）: 候補（まだ推奨ではない）— a2o の feature_fraction 0.25 ＋ 計算ずれ修正の正確版
+- `final_from_v48_cb3_appear_ff025_c13.parquet`（md5 9b09a040bd02af493704e1899b1bc67f、validate OK）、1・7 月だけ: `janjul_only_final_from_v48_cb3_appear_ff025_c13.parquet`（014e303b430e74df8c7cef1660bb6f70）。
+- 変更 1: a2o を feature_fraction 0.25 で学習し直した（3 seeds、final のデータ、`configs/a2o_l6_cmix_ff025.yaml`）。
+  - 根拠: 調整ワーカーの 2025 年 1・7 月 fold の検証（3 seeds 平均）で、matched −0.61 s（1 月 −0.79、7 月 −0.43）。
+  - ただし検討役の見積りでは、blend の中では約 −0.03 s にしかならない（CatBoost が同じ誤差を別方向から拾っているため）。
+  - 2・6 月の検証はこれから（下の「Feb+Jun screen」）。
+- 変更 2: v47 の C13（学習時・予測時の計算ずれ修正）で、a2o の分を pao の差分で代用していたのを、a2o 自身の差分に置き換えた。
+  - e = s·(Δa2o_new − Δpao_old)/8、LIRF では s = 1 − 0.4q。対象は 1・7 月の matched 339,551 行。Σe²/N 1.2 s²、max|e| 82 s。見込みは −0.005 s 程度（衛生的な修正）。
+- 作り方: `docs/final_2026-10-11/assemble_step.py --a2o <a2o flfix parquet> --tag ... --c13`（1・7 月 = v48 + (新 chain − 旧 chain) + e、2・6 月 = 新 chain + appear 増分、最後に LOBT の切り詰め）。
+- 変化（推奨ファイル比）: 1 月 RMS 4.2 s、2 月 3.7、6 月 3.7、7 月 3.2。
+
+## 進行中（16:00 UTC）: Feb+Jun screen と cat_tight
+- 調整ワーカーの検証で、LightGBM の **cat_smooth 50 / cat_l2 50 / min_data_per_group 200（cat_tight）** が最良だった:
+  3 seeds 平均で matched −0.96 s（1 月 −0.86、7 月 −1.05）。3 seeds すべてで両 fold とも改善。
+- 今日、2・6 月の検証で 2 件の案が落ちたので、cat_tight / ff_025 も 2025 年 2・6 月の held-out fold で検証してから使う（実行中、約 1 時間）。
+- 通れば a2o と pao を cat_tight で学習し直し、推奨ファイルを更新する（見込み: blend で −0.1 s 前後）。
+
+## 提出役への判断材料: 1・7 月の時刻のずらし（+1×δ）
+- final_ranking の 1・7 月の MVT は旧 ranking から −12〜+12 s ずれている（sd 4.9 s、92 % の行が動く）。到着便の公開ラベルは毎回ずらした時刻で再計算されている。
+- 検討役の結論: 出発便の正解も「ずらした時刻で再生成」の可能性が高め（p ≈ 0.7）。その場合、v48 の 1・7 月をそのまま使うと matched 行あたり +48 s² の損。
+  - 対策「+1×δ を matched の 1・7 月の行に足す（= anchor を final の MVT に合わせ直す）」は期待値 −0.03 s（幅 −0.05〜+0.05 s）。+2×δ は推奨しない（隠れた正解の生成法の推測になる）。
+  - **注意**: この変種を旧 LB（1・7 月）で確かめると、正解がずらされている場合は逆に約 +0.10 s 悪く見える。LB で判断できない。
+- 作り方: `docs/final_2026-10-11/add_delta_janjul.py <in> <out>`（最終の推奨ファイルから作る。ファイルは最後に置く）。推奨には入れない。
