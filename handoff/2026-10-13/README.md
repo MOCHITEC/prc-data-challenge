@@ -173,3 +173,12 @@
 
 - **決定**: a2o と pao を cat_tight で学習し直す（ff_025 は使わない。`..._ff025_c13` の候補は取り下げ）。a2o の学習を 17:01 UTC に開始（約 1.3 時間）、続けて pao（約 1.5 時間）。
 - 検討役の見積り: blend での LB 改善は a2o で −0.09 s、a2o + pao で −0.13 s 程度。p2o（plain target）には適用しない（proxy が特徴量なので挙動が変わる。blend での上積みはほぼ 0 と見積り）。
+
+## 追加（2026-10-13 18:35 UTC）: a2o を cat_tight にした候補（pao はまだ。中間版）
+- a2o を cat_tight（cat_smooth 50 / cat_l2 50 / min_data_per_group 200、ほかは本番と同じ、3 seeds、final のデータ）で学習し直し、
+  計算ずれ修正の正確版（C13、Σe²/N 1.2 s²、max|e| 82 s）も入れた。ff_025 は使っていない。
+- a2o 単体の変化（本番 a2o 比）: 空港ごとの RMS 20〜28 s（seed の違いを含む）。
+- 推奨ファイル比の変化: 1 月 RMS 4.2 s、2 月 3.7、6 月 3.7、7 月 3.1。
+- ファイル: `final_from_v48_cb3_appear_cat_a2o_c13.parquet`（md5 43770572cbc1cf221bb43244396cf1f7、validate OK）、
+  1・7 月だけ: `janjul_only_final_from_v48_cb3_appear_cat_a2o_c13.parquet`（a68add6555a5ea00e1fd6ffefe24f882）。
+- pao の cat_tight 学習を 18:23 UTC に開始（約 1.5 時間）。終わったら a2o + pao の版を作り、独立した点検のあとで推奨を更新する。
