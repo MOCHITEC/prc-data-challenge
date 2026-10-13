@@ -48,3 +48,27 @@
   - 2026-06-11 の行だけは、A12 の層（外部知見の 4 か月版。この日のデータもある）のままにした。
 - 1・2・7 月は変わっていない。6 月は 142,281 行が変わり、変化の RMS は 44.6 s。
 - validate OK。md5 は be8d89dcf79bd59a6f43d80193c95685。
+
+## 追加（2026-10-13 02:35 UTC）: 混ぜ方の見直しを入れた版
+色々調査スレッドの提案（`peaceful-babbage:docs/final_phase_2026-10-13`）を入れた。
+- **変更**: LIRF 以外の matched の行で、内側の a2o:pao を 0.5:0.5 から 0.2:0.8 にした。LIRF と unmatched の行は変えていない。
+- **根拠**: 2025 年の OOF で、交差検証（fold を 1 つずつ外して評価）の見込みは −0.12〜−0.13 s。
+  - すべての fold で改善した。
+  - c2 は p2o で代用して測っている。
+
+### 作り方
+- **2・6 月**: 新しい blend（`pre_adsb` と同じメンバー）→ 自前の ADS-B の層 → overlay → LOBT の切り詰め、の順に作り直した。
+  - 2026-06-11 の行は、A12 の層の値に blend の差を足した。
+- **1・7 月**: v48 に「final の特徴量で作った chain の、新旧の差」を足した。
+  - 動いたのは非 LIRF の matched の行で、変化の RMS は約 4 s。
+
+### ファイル
+
+| ファイル | md5 | 中身 |
+|---|---|---|
+| `final_from_v48_reweight.parquet` | dd361caed874a6e39cc8b7e508d9aa79 | 4 か月分。validate OK |
+| `janjul_only_v48_reweight.parquet` | 1332ed10d393f247a361c55dc7517a23 | 1・7 月だけ（344,841 行、旧 submitting の形）。v48 より LB が下がらないかを確かめる用。提出するかは提出役が判断する |
+
+### 判断の目安
+- janjul_only の LB が v48（234.4099）以下なら、`final_from_v48_reweight` を使う。
+- そうでなければ `final_from_v48` を使う。
