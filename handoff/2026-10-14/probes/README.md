@@ -31,6 +31,15 @@ python -I docs/final_phase_gate/probe_fix.py <v48.parquet> <対照の点数> <P1
   除氷行は外れが大きいことがわかっている。
 - 試験の結果どおりに直すだけなので、仮説が外れていても悪化はしない（直す量が小さくなるだけ）。
 
+## 提出回数に上限がある場合の優先順位（効果の見込みが大きい順）
+1. P3 `v48_LTFM_01_deice_shift-100.parquet`（LTFM 1 月の除氷行。見込み最大、旧ボードで最大 −0.7 s 程度）
+2. `oldboard/v48_plus_gate_q15.parquet`（q15 の採否。試せないと q15 は不採用になり −0.2 s 前後を手放す）
+3. P4 `v48_OTHER5_01_deice_shift-100.parquet`（5 空港の 1 月の除氷行）
+4. `oldboard/v48_plus_gate.parquet`（門の採否。試せない場合は門は採用のまま）
+5. P1 `v48_LTFM_01_shift-40.parquet`（LTFM 1 月の残りの行）
+6. 対照 `v48_control.parquet`（正解の差し替えがなければ不要。点数が 234.4099 から変わっていないかの確認）
+7. P2 `v48_LTFM_07_shift-40.parquet`（LTFM 7 月）
+
 ## しくみ
 - 1 つのセルの n 行をすべて S 秒ずらすと、旧ボードの MSE の変化は正確に (n/N)·(S² − 2·S·r̄) になる（N = 344,841、
   result.json の used_pairs と一致）。r̄ = そのセルの平均の残差（正解 − v48）。2 つの RMSE から r̄ が逆算できる。
