@@ -22,7 +22,7 @@ measured in notes or CV and did not reach any leaderboard submission or the fina
 | EUROCONTROL ansperformance daily airport files (pre-departure delay, ATFM slot adherence, arrival ATFM delay) | EUROCONTROL disclaimer, as OPDI | leak and feature screening | research only; "All_Pre-Departure_Delay" ruled out as a label leak | `docs/research_2026-10-01/extdata/context/*.py`, `docs/research_2026-10-01/extdata/README.md` |
 | X-Plane Scenery Gateway (stand coordinates) | not verified (notes say "GPLv2 or later, original text not checked") | probe of stand-coordinate coverage | research only | `docs/research_2026-10-01/extdata/offblock/xp.py` |
 | ADS-B Exchange free samples (first day of each month) | terms forbid redistribution (per notes) | probe of LTFM ground coverage | research only, rejected | `docs/research_2026-10-01/extdata/offblock/adsbx_probe.py` |
-| IANA time-zone database (through Python `zoneinfo`) | public domain | Europe/Rome UTC offset for the LIRF time-zone class | final chain | `docs/final_2026-10-11/apply_overlays.py`, `analysis/local_lirf_artefacts_apply.py` |
+| IANA time-zone database (through polars' time-zone support) | public domain | Europe/Rome UTC offset for the LIRF time-zone class | final chain | `docs/final_2026-10-11/apply_overlays.py`, `analysis/local_lirf_artefacts_apply.py` |
 
 Not data inputs:
 - the organisers' leaderboard API, `https://datacomp.opensky-network.org/api/competitions/<id>/leaderboard`. It is
