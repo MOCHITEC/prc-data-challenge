@@ -140,6 +140,9 @@ _HASH_OPTIONAL: dict = {
     "fe_month_scope": False,
     "fe_opdi": False,
     "opdi_target_null_day_share": 0.0,
+    "fe_opdi_exit": False,
+    "opdi_exit_train_null_day_share": 0.0,
+    "opdi_exit_target_null_day_share": 0.0,
     "fe_fl_rate_window": "",
     "season_weight": 0.0,
     "matched_target_clip": 0.0,
@@ -410,6 +413,14 @@ class TrainConfig:
     # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
     # way the January 2026 OPDI file has no flights on 10 of its 31 days.
     opdi_target_null_day_share: float = 0.0
+    # OPDI stand-exit events as an observed off-block (docs/opdi_events_2026-10-05/). LICENCE FLAG as fe_opdi. The
+    # columns (OPDI_EXIT_COLS) come from data/work/opdi_exitpark.parquet, built by
+    # docs/opdi_events_2026-10-05/link_events.py. OPDI has no events for whole days of the ranking months
+    # (2026-01-02..10), so the train-side share blanks whole days in training (salted CRC32 of the date) to teach the
+    # model that a missing observation is not informative; the target-side share is the stress test, as for fe_opdi.
+    fe_opdi_exit: bool = False
+    opdi_exit_train_null_day_share: float = 0.0
+    opdi_exit_target_null_day_share: float = 0.0
     # Measurement of the window mismatch in `fl_nm_rate_other` (docs/gm_research_2026-10-01/plan_time_consistency.md
     # §C): the ranking frame is two months (Jan + Jul) and the training frame twelve, so the same rate is taken over
     # ~30 other flights at prediction time and ~209 in training. "target" recomputes it on the TARGET side over
@@ -1084,12 +1095,44 @@ def seq_window_features(tr: pl.DataFrame, tg: pl.DataFrame, mode: str, info: dic
     return tr, tg
 
 
-def day_null_mask(df: pl.DataFrame, share: float) -> np.ndarray:
-    """True on rows whose take-off date (UTC) falls in the `share` of days picked by CRC32 of 'YYYY-MM-DD'."""
+def day_null_mask(df: pl.DataFrame, share: float, salt: str = "") -> np.ndarray:
+    """True on rows whose take-off date (UTC) falls in the `share` of days picked by CRC32 of 'YYYY-MM-DD' (+ salt)."""
     import zlib
 
     days = df["MVT_TIME_UTC_mvt"].dt.strftime("%Y-%m-%d").fill_null("").to_list()
-    return np.array([zlib.crc32(d.encode()) / 2**32 < share for d in days], dtype=bool)
+    return np.array([zlib.crc32((d + salt).encode()) / 2**32 < share for d in days], dtype=bool)
+
+
+OPDI_EXIT_COLS = (
+    "opdi_exit_est_s",
+    "opdi_exit_minus_aobt3_s",
+    "opdi_exit_stand_match",
+    "opdi_exit_n",
+    "opdi_exit_in_use_s",
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _opdi_exit_table() -> pl.DataFrame:
+    path = data_dir_work() / "opdi_exitpark.parquet"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} is missing: run docs/opdi_events_2026-10-05/link_events.py first")
+    t = pl.read_parquet(path)
+    missing = set(OPDI_EXIT_COLS) - set(t.columns)
+    if missing:
+        raise AssertionError(f"{path} lacks {sorted(missing)}")
+    return t.select("MVT_ID_mvt", *OPDI_EXIT_COLS)
+
+
+def opdi_exit_features(df: pl.DataFrame, null_day_share: float = 0.0, salt: str = "") -> pl.DataFrame:
+    """Attach the OPDI stand-exit columns by MVT_ID_mvt; blank whole days when null_day_share > 0."""
+    out = df.join(_opdi_exit_table(), on="MVT_ID_mvt", how="left", maintain_order="left")
+    if out.height != df.height:
+        raise AssertionError("opdi_exit_features changed the row count")
+    if null_day_share > 0:
+        blank = pl.Series("_blank", day_null_mask(out, null_day_share, salt))
+        out = out.with_columns([pl.when(blank).then(None).otherwise(pl.col(c)).alias(c) for c in OPDI_EXIT_COLS])
+    return out
 
 
 def opdi_features(df: pl.DataFrame, null_day_share: float = 0.0) -> pl.DataFrame:
@@ -1186,6 +1229,9 @@ def add_fold_features(
         tr, tg = osm_distance_features(tr, na), osm_distance_features(tg, na)
     if cfg.fe_opdi:
         tr, tg = opdi_features(tr), opdi_features(tg, cfg.opdi_target_null_day_share)
+    if cfg.fe_opdi_exit:
+        tr = opdi_exit_features(tr, cfg.opdi_exit_train_null_day_share, salt="train")
+        tg = opdi_exit_features(tg, cfg.opdi_exit_target_null_day_share)
     if cfg.fe_fl_rate_window:
         tr, tg = fl_rate_window_features(tr, tg, cfg.fe_fl_rate_window, info)
     if cfg.fe_seq_window:
@@ -1997,6 +2043,7 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         or cfg.fe_weather_v2
         or cfg.fe_osm_dist
         or cfg.fe_opdi
+        or cfg.fe_opdi_exit
         or cfg.fe_fl_rate_window
         or cfg.fe_seq_window
     ):
@@ -2555,7 +2602,7 @@ def run_cv(
     exp_id = f"{cfg.name}-{cfg.hash()}"
     cache_dir = None if fold_cache is None else Path(fold_cache) / exp_id
     months = year_month_key(feats)
-    folds: list[Fold] = month_block_folds(months.unique().to_list())
+    folds: list[Fold] = month_block_folds(months.unique().to_list(), named=cfg.folds or ())
     if cfg.folds:
         wanted = set(cfg.folds)
         folds = [f for f in folds if f.name in wanted]

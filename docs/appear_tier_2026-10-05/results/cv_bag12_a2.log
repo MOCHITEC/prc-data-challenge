@@ -1,0 +1,28 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+  test 2025-01 P12 seed+0: best_iter 941
+  test 2025-01 P12 seed+1: best_iter 878
+  test 2025-01 P12 seed+2: best_iter 801
+  test 2025-01 A12 seed+0: best_iter 812
+  test 2025-01 A12 seed+1: best_iter 959
+  test 2025-01 A12 seed+2: best_iter 799
+  test 2025-07 P12 seed+0: best_iter 972
+  test 2025-07 P12 seed+1: best_iter 898
+  test 2025-07 P12 seed+2: best_iter 876
+  test 2025-07 A12 seed+0: best_iter 908
+  test 2025-07 A12 seed+1: best_iter 1039
+  test 2025-07 A12 seed+2: best_iter 896
+  bag vs single         Jan+Jul  +0.070  [-0.008, +0.138]
+  bag vs single         2025-01  +0.062  [-0.026, +0.136]
+  bag vs single         2025-07  +0.077  [-0.061, +0.200]
+  bagfull vs single     Jan+Jul  -0.145  [-0.244, -0.066]
+  bagfull vs single     2025-01  -0.096  [-0.207, -0.041]
+  bagfull vs single     2025-07  -0.193  [-0.345, -0.057]
+  single s1 vs s0       Jan+Jul  -0.000  [-0.131, +0.117]
+  single s1 vs s0       2025-01  -0.012  [-0.104, +0.068]
+  single s1 vs s0       2025-07  +0.011  [-0.233, +0.223]
+  single s2 vs s0       Jan+Jul  -0.097  [-0.255, +0.038]
+  single s2 vs s0       2025-01  -0.024  [-0.147, +0.059]
+  single s2 vs s0       2025-07  -0.167  [-0.456, +0.094]
+
+DECISION (plan_bag12.md section 2): bag vs single +0.070 [-0.008, +0.138] -> REJECT
+=== bag12 rc 0

@@ -253,7 +253,11 @@ def our_departures(day: str):
     import polars as pl
 
     y, m, _ = day.split("-")
-    src = REPO_DIR + ("data/raw/ranking.parquet" if y == "2026" else
+    # Feb and Jun 2026 exist only in the final-phase file (Jan+Feb+Jun+Jul 2026, released 2026-10-08). With
+    # PRC_FINAL=1 every 2026 month is read from it (its Jan/Jul MVT times are dithered by up to +-12 s).
+    final = y == "2026" and (m in ("02", "06") or os.environ.get("PRC_FINAL") == "1")
+    src = REPO_DIR + ("data/raw/final_ranking.parquet" if final else
+                      "data/raw/ranking.parquet" if y == "2026" else
                       f"data/raw/training_{y}-{m}-01_{y if m != '12' else int(y) + 1}-"
                       f"{int(m) % 12 + 1:02d}-01.parquet")
     d0 = pl.lit(day).str.to_datetime(time_zone="UTC")
@@ -591,7 +595,11 @@ def report(J, y):
         f = L.filter(pl.col(EST[name]).is_not_null())
         print(f"late NM [{name}]", {"adsb": acc(f, "e_" + name), "aobt3": acc(f, "e_aobt3")})
     # ------------------------------------------------------------- what it would do for the target
-    oof = pl.read_parquet(REPO_DIR + "experiments/oof_main_gap-62dd7c6e88.parquet")
+    oof_path = REPO_DIR + "experiments/oof_main_gap-62dd7c6e88.parquet"
+    if not os.path.exists(oof_path):  # informational only; the joined file is already written
+        print(f"\n[target] skipped: {oof_path} not on this machine")
+        return
+    oof = pl.read_parquet(oof_path)
     for name in ["move", "push"]:
         Y = J.filter(pl.col(EST[name]).is_not_null() & pl.col("t_aobt3").is_not_null()).join(
             oof, on="MVT_ID_mvt", how="inner").with_columns(

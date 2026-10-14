@@ -1,0 +1,59 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+b' flwin: RMS(alt - b) on test appear rows 24.2 s, w 0.951, RMS(b' - b) 23.0 s
+b' tcdrop: RMS(alt - b) on test appear rows 24.3 s, w 1.000, RMS(b' - b) 24.3 s
+  test 2025-01 P12: best_iter 832
+  test 2025-01 A12: best_iter 839
+  test 2025-01 P4: best_iter 412
+  test 2025-01 A4: best_iter 467
+  test 2025-07 P12: best_iter 957
+  test 2025-07 A12: best_iter 896
+  test 2025-07 P4: best_iter 537
+  test 2025-07 A4: best_iter 505
+  [none  ] old    vs C0  Jan+Jul  -0.937  [-1.266, -0.661]
+  [none  ] old    vs C0  2025-01  -0.701  [-1.061, -0.574]
+  [none  ] old    vs C0  2025-07  -1.170  [-1.652, -0.647]
+  [none  ] req    vs C0  Jan+Jul  -0.937  [-1.266, -0.661]
+  [none  ] req    vs C0  2025-01  -0.701  [-1.061, -0.574]
+  [none  ] req    vs C0  2025-07  -1.170  [-1.652, -0.647]
+  [none  ] swap   vs C0  Jan+Jul  -0.937  [-1.266, -0.661]
+  [none  ] swap   vs C0  2025-01  -0.701  [-1.061, -0.574]
+  [none  ] swap   vs C0  2025-07  -1.170  [-1.652, -0.647]
+  [none  ] full   vs C0  Jan+Jul  -0.937  [-1.266, -0.661]
+  [none  ] full   vs C0  2025-01  -0.701  [-1.061, -0.574]
+  [none  ] full   vs C0  2025-07  -1.170  [-1.652, -0.647]
+  [none  ] C0full vs C0  Jan+Jul  +0.000  [+0.000, +0.000]
+  [none  ] C0full vs C0  2025-01  +0.000  [+0.000, +0.000]
+  [none  ] C0full vs C0  2025-07  +0.000  [+0.000, +0.000]
+  [flwin ] old    vs C0  Jan+Jul  -0.927  [-1.254, -0.655]
+  [flwin ] old    vs C0  2025-01  -0.679  [-1.015, -0.560]
+  [flwin ] old    vs C0  2025-07  -1.170  [-1.650, -0.657]
+  [flwin ] req    vs C0  Jan+Jul  -0.829  [-1.153, -0.554]
+  [flwin ] req    vs C0  2025-01  -0.594  [-0.872, -0.489]
+  [flwin ] req    vs C0  2025-07  -1.060  [-1.539, -0.551]
+  [flwin ] swap   vs C0  Jan+Jul  -0.944  [-1.283, -0.667]
+  [flwin ] swap   vs C0  2025-01  -0.692  [-1.043, -0.565]
+  [flwin ] swap   vs C0  2025-07  -1.192  [-1.668, -0.688]
+  [flwin ] full   vs C0  Jan+Jul  -1.151  [-1.526, -0.853]
+  [flwin ] full   vs C0  2025-01  -0.879  [-1.364, -0.695]
+  [flwin ] full   vs C0  2025-07  -1.419  [-1.900, -0.898]
+  [flwin ] C0full vs C0  Jan+Jul  -0.202  [-0.304, -0.123]
+  [flwin ] C0full vs C0  2025-01  -0.187  [-0.358, -0.103]
+  [flwin ] C0full vs C0  2025-07  -0.217  [-0.349, -0.090]
+  [tcdrop] old    vs C0  Jan+Jul  -0.936  [-1.264, -0.666]
+  [tcdrop] old    vs C0  2025-01  -0.696  [-1.048, -0.573]
+  [tcdrop] old    vs C0  2025-07  -1.172  [-1.656, -0.658]
+  [tcdrop] req    vs C0  Jan+Jul  -0.835  [-1.155, -0.574]
+  [tcdrop] req    vs C0  2025-01  -0.607  [-0.884, -0.504]
+  [tcdrop] req    vs C0  2025-07  -1.059  [-1.526, -0.568]
+  [tcdrop] swap   vs C0  Jan+Jul  -0.938  [-1.273, -0.665]
+  [tcdrop] swap   vs C0  2025-01  -0.702  [-1.052, -0.576]
+  [tcdrop] swap   vs C0  2025-07  -1.170  [-1.644, -0.676]
+  [tcdrop] full   vs C0  Jan+Jul  -1.245  [-1.639, -0.930]
+  [tcdrop] full   vs C0  2025-01  -0.956  [-1.492, -0.760]
+  [tcdrop] full   vs C0  2025-07  -1.530  [-2.026, -0.997]
+  [tcdrop] C0full vs C0  Jan+Jul  -0.290  [-0.420, -0.195]
+  [tcdrop] C0full vs C0  2025-01  -0.260  [-0.482, -0.153]
+  [tcdrop] C0full vs C0  2025-07  -0.321  [-0.482, -0.173]
+
+DECISION (plan_rebase_c12.md section 2): S rejected (old vs C0 -0.927); construction -> None
+=== stale rc 0

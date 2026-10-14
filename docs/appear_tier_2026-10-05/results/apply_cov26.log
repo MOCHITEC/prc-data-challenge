@@ -1,0 +1,5 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+A12thin: 1,719,311 rows, 660 rounds
+EDDF rows 34,902, with appear columns 32,807; delta RMS 21.72 s, mean -3.80, sum d^2/N(344,841) 44.9
+wrote /tmp/claude-0/-home-user-prc-data-challenge/b411042e-f283-5ee9-9c9e-ffb2443b6ce1/scratchpad/subs/cov26_eddf_delta.parquet: 31,774 rows
+=== applycov rc 0

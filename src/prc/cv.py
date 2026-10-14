@@ -25,11 +25,14 @@ def year_month_key(df: pl.DataFrame, col: str = "MVT_TIME_UTC_mvt") -> pl.Series
     return (df[col].dt.year() * 100 + df[col].dt.month()).alias("ym")
 
 
-def month_block_folds(months_present: list[int]) -> list[Fold]:
+def month_block_folds(months_present: list[int], named: tuple[str, ...] | list[str] = ()) -> list[Fold]:
     """Folds over year*100+month keys.
 
     January and July are held out separately because they match the test months' season; the trailing months
-    (>= November) form a third fold that measures forward generalisation."""
+    (>= November) form a third fold that measures forward generalisation.
+
+    `named` is the config's `folds` list. The opt-in folds `aso` and `fmj` are built only when it names them, so
+    a config without `folds:` gets the same default fold list as before they existed (integration 2026-10-14)."""
     ms = sorted(set(months_present))
     if len(ms) < 2:
         raise ValueError(f"need at least two distinct months to cross-validate, got {ms}")
@@ -52,6 +55,16 @@ def month_block_folds(months_present: list[int]) -> list[Fold]:
             sel = tuple(x for x in ms if x % 100 == month)
             if sel and len(sel) < len(ms):
                 folds.append(Fold(name, sel, tuple(x for x in ms if x not in sel)))
+    # local (finding 2 extension): Aug-Oct held out together, trained on the other nine months; only built when a
+    # config names it in `folds`, so production fold lists are unchanged.
+    wanted = set(named or ())
+    aso = tuple(x for x in ms if x % 100 in (8, 9, 10))
+    if "aso" in wanted and aso and len(aso) < len(ms):
+        folds.append(Fold("aso", aso, tuple(x for x in ms if x not in aso)))
+    # local (finding 2c): Feb-Jun held out together, trained on the other seven months; only built when named.
+    fmj = tuple(x for x in ms if x % 100 in (2, 3, 4, 5, 6))
+    if "fmj" in wanted and fmj and len(fmj) < len(ms):
+        folds.append(Fold("fmj", fmj, tuple(x for x in ms if x not in fmj)))
     fwd = tuple(x for x in ms if x % 100 >= 11)
     if fwd and len(fwd) < len(ms):
         folds.append(Fold("forward", fwd, tuple(x for x in ms if x not in fwd)))

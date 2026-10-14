@@ -45,7 +45,7 @@ GATE_RSS_MB = 2_500
 
 
 def fold_list(cfg, months) -> list:
-    folds = month_block_folds(months.unique().to_list())
+    folds = month_block_folds(months.unique().to_list(), named=cfg.folds or ())
     if cfg.folds:
         folds = [f for f in folds if f.name in set(cfg.folds)]
     return folds

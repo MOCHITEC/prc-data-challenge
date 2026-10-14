@@ -1,0 +1,33 @@
+DECISION (pre-registered): learned CI low > 0: True; paired (learned - rule) CI low > 0: True -> ADOPT
+--
+top 20 features by gain (summed over folds):
+--
+APPEAR (appear): rows with the columns 82,339 of 344,419; own stand 70,804; first seen moving 25,728; first seen at own stand 23,689
+  vs plain                   all rows n=344,419  RMSE diff -0.638 s  day-CI95 [-0.984, -0.389]
+  vs plain          first seen moving n= 25,728  RMSE diff -6.613 s  day-CI95 [-8.381, -4.694]
+  vs plain    first seen at own stand n= 23,689  RMSE diff -8.988 s  day-CI95 [-10.894, -7.262]
+  vs plain                       EDDF n= 36,830  RMSE diff -1.296 s  day-CI95 [-1.991, -0.723]
+  vs plain                       EDDM n= 27,091  RMSE diff -1.648 s  day-CI95 [-3.358, -0.367]
+  vs plain                       EGLL n= 40,210  RMSE diff -2.705 s  day-CI95 [-4.215, -1.493]
+  vs plain                       EHAM n= 40,949  RMSE diff -2.457 s  day-CI95 [-3.993, -1.271]
+  vs plain                       LEBL n= 28,986  RMSE diff -0.233 s  day-CI95 [-0.452, -0.018]
+  vs plain                       LEMD n= 35,328  RMSE diff -0.053 s  day-CI95 [-0.114, +0.000]
+  vs plain                       LFPG n= 39,612  RMSE diff +0.008 s  day-CI95 [-0.229, +0.114]
+  vs plain                       LIRF n= 26,528  RMSE diff -0.051 s  day-CI95 [-0.185, +0.098]
+  vs plain                       LSZH n= 22,346  RMSE diff -1.984 s  day-CI95 [-3.321, -0.919]
+  vs plain                       LTFM n= 46,539  RMSE diff +0.000 s  day-CI95 [+0.000, +0.000]
+  vs shuffle                 all rows n=344,419  RMSE diff -0.696 s  day-CI95 [-1.046, -0.442]
+  vs shuffle        first seen moving n= 25,728  RMSE diff -7.148 s  day-CI95 [-8.879, -5.182]
+  vs shuffle  first seen at own stand n= 23,689  RMSE diff -9.935 s  day-CI95 [-12.520, -7.820]
+  vs shuffle                     EDDF n= 36,830  RMSE diff -1.249 s  day-CI95 [-1.807, -0.784]
+  vs shuffle                     EDDM n= 27,091  RMSE diff -1.650 s  day-CI95 [-3.304, -0.448]
+  vs shuffle                     EGLL n= 40,210  RMSE diff -2.986 s  day-CI95 [-4.478, -1.747]
+  vs shuffle                     EHAM n= 40,949  RMSE diff -2.717 s  day-CI95 [-4.377, -1.430]
+  vs shuffle                     LEBL n= 28,986  RMSE diff -0.319 s  day-CI95 [-0.542, -0.126]
+  vs shuffle                     LEMD n= 35,328  RMSE diff -0.058 s  day-CI95 [-0.119, -0.005]
+  vs shuffle                     LFPG n= 39,612  RMSE diff -0.033 s  day-CI95 [-0.351, +0.142]
+  vs shuffle                     LIRF n= 26,528  RMSE diff -0.033 s  day-CI95 [-0.243, +0.180]
+  vs shuffle                     LSZH n= 22,346  RMSE diff -2.166 s  day-CI95 [-3.514, -1.050]
+  vs shuffle                     LTFM n= 46,539  RMSE diff +0.000 s  day-CI95 [+0.000, +0.000]
+DECISION (docs/appear_tier_2026-10-05/plan.md): vs plain True, vs shuffle True -> ADOPT
+(dry run: January 2025 only, 31 days of ADS-B; July rows had no ADS-B. NOT the pre-registered decision.)

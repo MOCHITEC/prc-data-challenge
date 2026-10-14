@@ -1,0 +1,47 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+model P12: 1,719,320 ADS-B rows (12 months), 718 rounds
+model A12: 1,719,320 ADS-B rows (12 months), 660 rounds
+2026 ADS-B feature rows (not LTFM) 285,661; with appear columns 248,334
+APPEAR parity EDDF: 2025 fit (at own stand, exit) (0.185, 0.315); 2026 (0.074, 0.133)
+APPEAR parity EDDM: 2025 fit (at own stand, exit) (0.545, 0.684); 2026 (0.673, 0.828)
+APPEAR parity EGLL: 2025 fit (at own stand, exit) (0.125, 0.156); 2026 (0.448, 0.655)
+APPEAR parity EHAM: 2025 fit (at own stand, exit) (0.542, 0.726); 2026 (0.628, 0.842)
+APPEAR parity LEBL: 2025 fit (at own stand, exit) (0.285, 0.373); 2026 (0.307, 0.404)
+APPEAR parity LEMD: 2025 fit (at own stand, exit) (0.145, 0.246); 2026 (0.206, 0.321)
+APPEAR parity LFPG: 2025 fit (at own stand, exit) (0.001, 0.001); 2026 (0.003, 0.003)
+APPEAR parity LIRF: 2025 fit (at own stand, exit) (0.053, 0.094); 2026 (0.055, 0.095)
+APPEAR parity LSZH: 2025 fit (at own stand, exit) (0.343, 0.446); 2026 (0.359, 0.493)
+[P4] fixed point step 0: max |db| 1283.0
+[P4] fixed point step 1: max |db| 639.4
+[P4] fixed point step 2: max |db| 556.5
+[P12] fixed point step 0: max |db| 1613.8
+[P12] fixed point step 1: max |db| 895.8
+[P12] fixed point step 2: max |db| 851.7
+delta with b from c_P4 vs c_P12: RMS 15.67 s, max |.| 664.8 s; RMS delta 25.90 s
+wrote outputs/v39_appear12_on_v39.parquet: rows changed 241,113, sum delta^2 / N = 483, max |delta| 662, mean delta -0.54; delta table outputs/appear12_delta.parquet
+shape: (18, 7)
+┌──────────┬─────┬───────┬─────────┬──────┬─────────┬───────┐
+│ ADEP_mvt ┆ m   ┆ len   ┆ changed ┆ mean ┆ mean|d| ┆ d^2/N │
+│ ---      ┆ --- ┆ ---   ┆ ---     ┆ ---  ┆ ---     ┆ ---   │
+│ str      ┆ i8  ┆ u32   ┆ u32     ┆ f64  ┆ f64     ┆ f64   │
+╞══════════╪═════╪═══════╪═════════╪══════╪═════════╪═══════╡
+│ EDDF     ┆ 1   ┆ 15051 ┆ 13806   ┆ -2.2 ┆ 18.6    ┆ 46.0  │
+│ EDDF     ┆ 7   ┆ 19851 ┆ 18263   ┆ -4.5 ┆ 15.5    ┆ 28.0  │
+│ EDDM     ┆ 1   ┆ 10693 ┆ 10247   ┆ 0.1  ┆ 13.8    ┆ 23.0  │
+│ EDDM     ┆ 7   ┆ 14606 ┆ 13861   ┆ -1.1 ┆ 9.5     ┆ 13.0  │
+│ EGLL     ┆ 1   ┆ 18696 ┆ 17745   ┆ 0.6  ┆ 21.0    ┆ 55.0  │
+│ EGLL     ┆ 7   ┆ 20093 ┆ 19701   ┆ 0.2  ┆ 19.2    ┆ 47.0  │
+│ EHAM     ┆ 1   ┆ 15144 ┆ 14496   ┆ -0.3 ┆ 12.2    ┆ 24.0  │
+│ EHAM     ┆ 7   ┆ 21105 ┆ 20119   ┆ 0.3  ┆ 9.4     ┆ 14.0  │
+│ LEBL     ┆ 1   ┆ 11826 ┆ 11310   ┆ -0.1 ┆ 12.1    ┆ 12.0  │
+│ LEBL     ┆ 7   ┆ 17378 ┆ 16800   ┆ 0.5  ┆ 15.1    ┆ 27.0  │
+│ LEMD     ┆ 1   ┆ 16104 ┆ 15672   ┆ -2.1 ┆ 14.5    ┆ 22.0  │
+│ LEMD     ┆ 7   ┆ 19364 ┆ 16439   ┆ -3.7 ┆ 15.2    ┆ 33.0  │
+│ LFPG     ┆ 1   ┆ 17541 ┆ 9915    ┆ 0.1  ┆ 11.2    ┆ 31.0  │
+│ LFPG     ┆ 7   ┆ 20986 ┆ 11894   ┆ 0.0  ┆ 8.3     ┆ 16.0  │
+│ LIRF     ┆ 1   ┆ 10676 ┆ 9533    ┆ 1.1  ┆ 23.4    ┆ 53.0  │
+│ LIRF     ┆ 7   ┆ 14451 ┆ 49      ┆ 0.0  ┆ 0.1     ┆ 0.0   │
+│ LSZH     ┆ 1   ┆ 9517  ┆ 9181    ┆ 0.3  ┆ 16.0    ┆ 24.0  │
+│ LSZH     ┆ 7   ┆ 12579 ┆ 12082   ┆ 1.0  ┆ 12.8    ┆ 15.0  │
+└──────────┴─────┴───────┴─────────┴──────┴─────────┴───────┘
+=== delta12 rc 0

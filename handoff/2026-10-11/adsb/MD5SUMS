@@ -1,0 +1,8 @@
+5e9c88a435643c26a42fceaae9ff4797  ./README.md
+8b7597b3ba9783c1d951cf79e706f90e  ./learn/appear_fill_2026.parquet
+46b91f67d1e38a30a16dd4d6886c7531  ./learn/appear_fill_2026fj.parquet
+a4539e6e69aca0b108625170b1ca33f6  ./learn/feat_2026.parquet
+33326d045d92d90e249376bd50dc4109  ./learn/feat_2026fj.parquet
+d3664181393b3ca0fc5b7c78919a0858  ./learn/final_model_a2_delta_m12_v2_A.txt
+d97ff1dc77072ea8e0096615245ec41e  ./learn/final_model_a2_delta_m12_v2_A_thinEDDF.txt
+a73a3c635395e2501ae557933e30d0c1  ./learn/final_model_a2_delta_m12_v2_P.txt

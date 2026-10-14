@@ -1,0 +1,10 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+  test 2025-01 normal-trained: best_iter 812
+  test 2025-01 thin-trained: best_iter 827
+  test 2025-07 normal-trained: best_iter 908
+  test 2025-07 thin-trained: best_iter 803
+  EDDF n=36,830  RMSE b 184.14  thin-trained on dense 130.67  thin-trained on thinned 139.02  normal-trained on dense 129.68
+  d = dense - thinned (thin-trained) -8.346 [-9.812, -6.972]; thin-trained vs normal-trained on dense +0.993 [+0.365, +1.752]
+
+DECISION (plan_cov26.md section 5): NO-GO
+=== cov26c rc 0

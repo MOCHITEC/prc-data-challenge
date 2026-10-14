@@ -1,0 +1,67 @@
+labelled rows 344419 {'jul': 190713, 'jan': 153706} | null y 0 null b 0 | days 62 | lane A 339046
+labelled rows 344419 {'jul': 190713, 'jan': 153706} | null y 0 null b 0 | days 62 | lane A 339046
+  test 2025-11 P12: fit 1235028 es 347962 best_iter 565
+  test 2025-11 A12: fit 1235028 es 347962 best_iter 564
+  test 2025-11 Af12: fit 1235028 es 347962 best_iter 578
+  test 2025-11 P4: fit 324640 es 96342 best_iter 541
+  test 2025-11 A4: fit 324640 es 96342 best_iter 605
+  test 2025-12 P12: fit 1241589 es 342757 best_iter 797
+  test 2025-12 A12: fit 1241589 es 342757 best_iter 818
+  test 2025-12 Af12: fit 1241589 es 342757 best_iter 705
+  test 2025-12 P4: fit 329992 es 92346 best_iter 354
+  test 2025-12 A4: fit 329992 es 92346 best_iter 362
+  final_12 vs final_mix        pooled n=328,009  -1.455  [-1.678, -1.250]
+  final_12 vs final_mix       2025-11 n=162,332  -1.332  [-1.642, -1.050]
+  final_12 vs final_mix       2025-12 n=165,677  -1.585  [-1.918, -1.296]
+  final_12 vs final_mix          EDDF n= 35,446  -1.823  [-2.560, -1.155]
+  final_12 vs final_mix          EDDM n= 24,597  -5.241  [-6.604, -3.823]
+  final_12 vs final_mix          EGLL n= 39,423  -2.100  [-2.809, -1.479]
+  final_12 vs final_mix          EHAM n= 38,690  -1.354  [-1.748, -0.961]
+  final_12 vs final_mix          LEBL n= 27,167  -1.764  [-2.470, -1.155]
+  final_12 vs final_mix          LEMD n= 35,404  -3.959  [-4.679, -3.230]
+  final_12 vs final_mix          LFPG n= 38,424  -0.637  [-1.313, -0.005]
+  final_12 vs final_mix          LIRF n= 23,396  -1.999  [-2.885, -1.332]
+  final_12 vs final_mix          LSZH n= 20,663  -1.707  [-2.370, -1.087]
+  final_12 vs final_mix          LTFM n= 44,799  +0.000  [+0.000, +0.000]
+  final_12 vs P12              pooled n=328,009  -2.907  [-3.487, -2.426]
+  final_12 vs P12             2025-11 n=162,332  -2.797  [-3.501, -2.196]
+  final_12 vs P12             2025-12 n=165,677  -3.024  [-4.037, -2.280]
+  final_12 vs P12                EDDF n= 35,446  -8.177  [-10.034, -6.596]
+  final_12 vs P12                EDDM n= 24,597  -15.057  [-20.298, -9.955]
+  final_12 vs P12                EGLL n= 39,423  -6.201  [-7.724, -4.726]
+  final_12 vs P12                EHAM n= 38,690  -2.153  [-2.983, -1.361]
+  final_12 vs P12                LEBL n= 27,167  -3.016  [-4.591, -1.642]
+  final_12 vs P12                LEMD n= 35,404  -3.189  [-4.097, -2.365]
+  final_12 vs P12                LFPG n= 38,424  -1.567  [-2.476, -0.698]
+  final_12 vs P12                LIRF n= 23,396  -1.061  [-1.958, -0.288]
+  final_12 vs P12                LSZH n= 20,663  -6.800  [-8.841, -5.001]
+  final_12 vs P12                LTFM n= 44,799  +0.000  [+0.000, +0.000]
+  final_mix vs P12             pooled n=328,009  -1.452  [-1.870, -1.107]
+  final_mix vs P12            2025-11 n=162,332  -1.465  [-1.976, -1.060]
+  final_mix vs P12            2025-12 n=165,677  -1.440  [-2.167, -0.898]
+  final_mix vs P12               EDDF n= 35,446  -6.354  [-8.209, -4.936]
+  final_mix vs P12               EDDM n= 24,597  -9.817  [-13.867, -5.822]
+  final_mix vs P12               EGLL n= 39,423  -4.102  [-5.290, -2.907]
+  final_mix vs P12               EHAM n= 38,690  -0.799  [-1.617, +0.057]
+  final_mix vs P12               LEBL n= 27,167  -1.253  [-2.333, -0.230]
+  final_mix vs P12               LEMD n= 35,404  +0.770  [-0.240, +1.709]
+  final_mix vs P12               LFPG n= 38,424  -0.930  [-1.395, -0.502]
+  final_mix vs P12               LIRF n= 23,396  +0.937  [+0.170, +1.802]
+  final_mix vs P12               LSZH n= 20,663  -5.093  [-6.768, -3.608]
+  final_mix vs P12               LTFM n= 44,799  +0.000  [+0.000, +0.000]
+  final_12f12 vs final_12      pooled n=328,009  -0.049  [-0.128, +0.031]
+  final_12f12 vs final_12     2025-11 n=162,332  -0.050  [-0.162, +0.054]
+  final_12f12 vs final_12     2025-12 n=165,677  -0.048  [-0.165, +0.075]
+  final_12f12 vs final_12        EDDF n= 35,446  -0.669  [-1.280, -0.098]
+  final_12f12 vs final_12        EDDM n= 24,597  +0.332  [-0.210, +0.827]
+  final_12f12 vs final_12        EGLL n= 39,423  -0.044  [-0.279, +0.189]
+  final_12f12 vs final_12        EHAM n= 38,690  +0.100  [-0.081, +0.286]
+  final_12f12 vs final_12        LEBL n= 27,167  -0.257  [-0.755, +0.110]
+  final_12f12 vs final_12        LEMD n= 35,404  +0.024  [-0.159, +0.203]
+  final_12f12 vs final_12        LFPG n= 38,424  -0.056  [-0.327, +0.194]
+  final_12f12 vs final_12        LIRF n= 23,396  +0.018  [-0.355, +0.402]
+  final_12f12 vs final_12        LSZH n= 20,663  -0.172  [-0.460, +0.100]
+  final_12f12 vs final_12        LTFM n= 44,799  +0.000  [+0.000, +0.000]
+
+DIAGNOSIS (plan_lmo12.md section 5): final_12 vs final_mix on 2025-11+2025-12 -1.455 [-1.678, -1.250] -> H rejected
+=== lmo1112 rc 0

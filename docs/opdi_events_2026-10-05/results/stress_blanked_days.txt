@@ -1,0 +1,13 @@
+                              blanked days: n=284,679  base   244.31  stress   244.87  diff +0.55 [-0.26, +1.42]
+                                other days: n=387,749  base   292.21  stress   292.10  diff -0.11 [-0.74, +0.53]
+criterion 3b: PASS
+
+reporting only (post-hoc):
+                     blanked days, matched: n=281,392  base   206.76  stress   207.05  diff +0.28 [+0.09, +0.45]
+                   blanked days, unmatched: n=  3,287  base  1228.70  stress  1234.13  diff +5.43 [-8.06, +19.96]
+    blanked days, matched, lost their exit: n= 17,816  base   165.51  stress   169.01  diff +3.50 [+2.45, +4.41]
+      blanked days, matched, never had one: n=263,576  base   209.26  stress   209.37  diff +0.11 [-0.06, +0.30]
+                blanked days, LSZH matched: n= 17,855  base   161.74  stress   166.13  diff +4.39 [+3.18, +5.53]
+blanked days, LSZH matched, lost their exit: n= 12,671  base   165.08  stress   169.92  diff +4.84 [+3.42, +6.07]
+                       other days, matched: n=382,658  base   215.21  stress   213.99  diff -1.22 [-1.41, -1.03]
+            other days, matched, with exit: n= 22,708  base   175.75  stress   145.55  diff -30.20 [-31.76, -28.68]
