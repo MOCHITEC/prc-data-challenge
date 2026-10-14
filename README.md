@@ -105,6 +105,10 @@ is reachable only through the commit above.
    The file first appears as `cand_v4a_v48JanJul_oursFeb_A12Jun.parquet` (0220c69) and was renamed in 558c736.
    `docs/final_2026-10-11/assemble_step.py` (8777c62, later) implements the same combination for the later
    variants.
+   - `scripts/final/assemble_final_v48.py` rebuilds this step from the committed chain files
+     (`handoff/2026-10-13/inputs/orig_chain_blend_adsb2_ovl.parquet`, `blend_A12_ovl.parquet`) and v48. It writes
+     both committed versions byte for byte: `--june-layer a12` gives `c7ffa31e…` (558c736), the default gives
+     `be8d89dc…` (25f6246). The members, blend, ADS-B layers and overlays are taken from those files, not rebuilt.
 7. **Gate:** `python -m prc.validate_final <file> --template final_submitting.parquet --ranking
    final_ranking.parquet --expect-md5 <md5>`. It passed on 10-13; the output is in the runbook §5.
 
