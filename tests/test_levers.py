@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from prc.features import build_departure_features
-from prc.levers import L1_COLS, L2_COLS, L3_COLS, LEVER_COLS, _in_system, attach_levers
+from prc.levers import L1_COLS, L2_COLS, L3_COLS, L6_COLS, LEVER_COLS, _in_system, attach_levers
 from prc.pipeline import train_config_from_spec
 from prc.synth import generate_month
 from prc.train import PROXY, TrainConfig, predict_fold, unmatched_columns, visible_numeric_columns
@@ -268,7 +268,7 @@ def test_attach_refuses_a_second_attach_and_keeps_the_frame():
     raw = _raw()
     f = raw.filter(pl.col("PHASE_mvt") == "DEP").select("MVT_ID_mvt", "ADEP_mvt")
     a, _ = attach_levers(f, f, raw, raw, True, True, True)
-    assert a.columns == f.columns + list(LEVER_COLS)
+    assert a.columns == f.columns + list(L1_COLS + L2_COLS + L3_COLS)
     assert a.select(f.columns).equals(f)
     with pytest.raises(ValueError, match="already has"):
         attach_levers(a, a, raw, raw, True, False, False)
@@ -288,7 +288,7 @@ def frames():
         )
     )
     feats = build_departure_features(raw)
-    with_l, _ = attach_levers(feats, feats, raw, raw, True, True, True)
+    with_l, _ = attach_levers(feats, feats, raw, raw, True, True, True, l5=True)
     m = feats["MVT_TIME_UTC_mvt"].dt.month()
     return feats, with_l, m
 
@@ -299,7 +299,7 @@ def _cfg(**kw):
 
 def test_the_synthetic_frame_has_lever_values(frames):
     _, with_l, _ = frames
-    for c in LEVER_COLS:
+    for c in [c for c in LEVER_COLS if c not in L6_COLS]:  # the fixture does not ask for L6
         assert with_l[c].is_not_null().sum() > 0, c
 
 

@@ -1,0 +1,20 @@
+forward validation rows 328,009; unseen-stand rows 65,242 (19.9%)
+## unseen stands: n=65,242  RMSE base_u 222.03 -> drop_u 215.54
+  K=0: -6.49 [-7.52, -5.47]  K=20: -7.33 [-8.17, -6.56]  K=200: -6.99 [-7.54, -6.43]
+## unseen, matched: n=64,659  RMSE base_u 211.67 -> drop_u 204.97
+  K=0: -6.70 [-7.40, -6.01]  K=20: -7.00 [-7.71, -6.37]  K=200: -6.86 [-7.39, -6.37]
+## seen stands: n=262,767  RMSE base_u 221.89 -> drop_u 221.90
+  K=0: +0.00 [-0.98, +0.98]  K=20: -0.14 [-0.72, +0.34]  K=200: +0.04 [-0.18, +0.28]
+verdict 1 (unseen, K=200 CI excludes 0 on the improving side): PASS
+verdict 2 (unseen, K=0 diff <= 0): PASS
+## unseen stands by airport (RMSE base_u -> drop_u)
+  EDDF: n= 5,650    206.7 ->   202.4  (-4.37)
+  EDDM: n= 6,255    198.2 ->   191.5  (-6.72)
+  EGLL: n= 7,359    227.9 ->   215.6  (-12.28)
+  EHAM: n= 7,228    174.8 ->   167.7  (-7.15)
+  LEBL: n= 6,898    184.1 ->   176.4  (-7.74)
+  LEMD: n= 7,335    190.4 ->   183.8  (-6.63)
+  LFPG: n= 8,067    286.6 ->   285.4  (-1.19)
+  LIRF: n= 2,139    342.7 ->   344.9  (+2.20)
+  LSZH: n= 4,535    201.4 ->   181.8  (-19.58)
+  LTFM: n= 9,776    232.5 ->   226.4  (-6.07)

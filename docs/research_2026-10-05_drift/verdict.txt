@@ -1,0 +1,14 @@
+A = ns_base-2c65506a2d
+B = ms_scope-4a3e399ba3
+       0    217.51    217.86    +0.35    [  -0.30,  +1.19]  0.172
+      20    202.63    202.62    -0.02    [  -0.34,  +0.32]  0.516
+     200    193.02    192.92    -0.10    [  -0.28,  +0.08]  0.856
+    2000    173.34    173.26    -0.08    [  -0.19,  +0.02]  0.936
+month-level bootstrap (2 months): +0.35 s [+0.10, +0.60]  P(B better) = 0.000
+   matched: n=325,004  A=   197.1  B=   197.0
+ unmatched: n=  3,005  A=   981.7  B=   992.1
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: +0.35 s [-0.30, +1.19]
+            all rows: folds forward=+0.35 | airports better 6/10 | airport-day CI (610 blocks) +0.35 [-0.32, +1.09]
+   worst 200 removed: folds forward=-0.10 | airports better 5/10 | airport-day CI (610 blocks) -0.10 [-0.32, +0.12]
+STRICT VERDICT: REJECT - the curve verdict already rejects

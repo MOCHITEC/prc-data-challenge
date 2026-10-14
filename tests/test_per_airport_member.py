@@ -24,6 +24,52 @@ from prc.train import PROXY, TrainConfig, predict_fold, run_cv
 # (experiment id, digest of [model A lgb_params, model B lgb_params]) of every recipe in configs/, computed by the
 # code at f3ab74f, before airport_specialist_only and fold_cache existed.
 BEFORE = {
+    "main_flseq_osm_nolirf_l2_opt_l6_cmix_ltfm.yaml": ("5291cdb173", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_l6_dd.yaml": ("cc501d0804", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_ucday.yaml": ("6ccbb291ff", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_ucmix.yaml": ("b581da8fb2", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_stamp_lirf.yaml": ("b667d433c1", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_cmix_ltfm.yaml": ("2c83177796", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_cmix_lebl.yaml": ("8ea5dd5990", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_stamp.yaml": ("84be677e9d", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_nmb.yaml": ("97a0e31e57", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_mlp_l6.yaml": ("a10f4edb0d", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_car.yaml": ("574127d012", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_l6_cmix.yaml": ("1e01a07623", "9f53bbe724"),
+    "main_flseq_osm_nolirf_plainy_l2_opt_l6.yaml": ("1f94f51232", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_pa_opt_l6.yaml": ("523fcc4e8c", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_gm.yaml": ("67f49a5d62", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_cmix.yaml": ("d9b7e7a288", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_opt_l6.yaml": ("177174f530", "9f53bbe724"),
+    # new-stand / month-scope / L6 recipes on claude/peaceful-babbage-md9l2x (2026-10-05)
+    "ms_scope.yaml": ("4a3e399ba3", "9f53bbe724"),
+    "ns_base.yaml": ("2c65506a2d", "9f53bbe724"),
+    "ns_base_u.yaml": ("2d1a8167a5", "9f53bbe724"),
+    "ns_drop.yaml": ("693275dd32", "9f53bbe724"),
+    "ns_drop_u.yaml": ("f58349b6af", "9f53bbe724"),
+    "ret_base.yaml": ("338abfb11c", "9f53bbe724"),
+    "ret_l6.yaml": ("65265584c7", "9f53bbe724"),
+    # recipes that exist only on claude/peaceful-babbage-md9l2x (ids checked: L5 = e1ee6f181e as logged)
+    "clip1800.yaml": ("935169f2ee", "9f53bbe724"),
+    "clip1800_fl.yaml": ("f55e2764d5", "9f53bbe724"),
+    "flwin_both.yaml": ("33ed7358b9", "9f53bbe724"),
+    "flwin_target.yaml": ("91b712363d", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l5.yaml": ("e1ee6f181e", "9f53bbe724"),
+    "mb_b255.yaml": ("2b5e598a0b", "864be36cf6"),
+    "mb_ctl.yaml": ("272df160d4", "9f53bbe724"),
+    "mb_md5.yaml": ("f88e5ddbb0", "0f3ae1444a"),
+    "mb_seed.yaml": ("ac32d9cd1f", "5a707d5e9a"),
+    "opdi_noise2.yaml": ("b78076cdfc", "9f53bbe724"),
+    "opdi_opdi.yaml": ("01270d4efc", "9f53bbe724"),
+    "opdi_stress.yaml": ("6c7b50c739", "9f53bbe724"),
+    "osm_full_base.yaml": ("2113efe1f1", "9f53bbe724"),
+    "osm_full_dist.yaml": ("20f84df7d1", "9f53bbe724"),
+    "osm_full_noise1.yaml": ("d86a669f35", "9f53bbe724"),
+    "seqwin_both.yaml": ("0ff38bd918", "9f53bbe724"),
+    "seqwin_target.yaml": ("69503b3795", "9f53bbe724"),
+    "sw1.yaml": ("c0d223319b", "9f53bbe724"),
+    "tc_ctrl.yaml": ("c217ddd030", "9f53bbe724"),
+    "tc_drop.yaml": ("86a3693e18", "9f53bbe724"),
     "abl_no_categoricals.yaml": ("2d339105bd", "864be36cf6"),
     "abl_no_encodings.yaml": ("c9761a913d", "864be36cf6"),
     "abl_vanilla_params.yaml": ("66aa584f56", "f95eb3b33e"),
@@ -187,7 +233,9 @@ def test_every_existing_recipe_keeps_its_id_and_its_lgb_params():
     for name, (want_id, want_params) in BEFORE.items():
         c = train_config_from_spec(_load(name))
         assert (c.hash(), _digest(c)) == (want_id, want_params), name
-        assert not c.airport_specialist_only, name
+        # *_pa_opt_* arms (docs/research_2026-10-05_measure) are PA members by design.
+        if "_pa_opt" not in name:
+            assert not c.airport_specialist_only, name
 
 
 def test_the_default_and_the_p11_grouped_paths_predict_byte_for_byte_as_before():

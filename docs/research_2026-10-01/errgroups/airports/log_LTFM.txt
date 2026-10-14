@@ -1,0 +1,6 @@
+LTFM S0 trained on 223438
+S1 regime gain ranks: [(21, 'rg_day_own_share', np.float64(0.42)), (24, 'rg_own_share_pm30', np.float64(0.35)), (28, 'rg_arr_on_own_pm30', np.float64(0.3)), (32, 'rg_own_share_fut30', np.float64(0.23)), (41, 'rg_own_share_past30', np.float64(0.17)), (44, 'rg_share_change', np.float64(0.15)), (47, 'rg_arr_share_on_own', np.float64(0.11)), (55, 'rg_min_until_cfgchg', np.float64(0.09)), (56, 'rg_min_since_cfgchg', np.float64(0.09)), (74, 'rg_day_n_dep_rwy', np.float64(0.04)), (78, 'rg_n_arr_rwy_pm30', np.float64(0.03)), (81, 'rg_n_dep_rwy_pm30', np.float64(0.02))]
+LTFM S1 trained on 223438
+LTFM SN trained on 223438
+LTFM S0p trained on 173069
+LTFM S0w trained on 223438

@@ -1,0 +1,14 @@
+A = main_flseq_osm_nolirf_l2_mlp-2b9a3b9348
+B = main_flseq_osm_nolirf_l2_mlp_l6-a10f4edb0d
+       0    275.32    274.66    -0.65    [  -0.94,  -0.37]  1.000
+      20    231.12    230.34    -0.78    [  -1.11,  -0.44]  1.000
+     200    217.43    216.65    -0.78    [  -1.11,  -0.45]  1.000
+    2000    193.27    192.27    -0.99    [  -1.19,  -0.77]  1.000
+month-level bootstrap (4 months): -0.65 s [-1.44, +0.17]  P(B better) = 0.890
+   matched: n=664,050  A=   213.5  B=   212.7
+ unmatched: n=  8,378  A=  1571.6  B=  1571.6
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): ADOPT - adopt (-0.65 s, still -0.78 s at 200 rows dropped)
+            all rows: folds forward=-0.16  jan=-0.16  jul=-1.76 | airports better 10/10 | airport-day CI (1230 blocks) -0.65 [-1.10, -0.13]
+   worst 200 removed: folds forward=-0.18  jan=-0.34  jul=-1.94 | airports better 10/10 | airport-day CI (1230 blocks) -0.78 [-1.32, -0.12]
+STRICT VERDICT: ADOPT - adopt (every fold, most airports and the airport-day CI agree, with and without the tail)

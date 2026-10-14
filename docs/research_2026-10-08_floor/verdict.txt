@@ -1,0 +1,28 @@
+/tmp/claude-0/-home-user-prc-data-challenge/bd99a3bf-146d-5c0a-be6a-11279605ec47/scratchpad/floor/level.py:11: UserWarning: Sortedness of columns cannot be checked when 'by' groups provided
+  out = q.join_asof(m, on='t', by='ADEP_mvt', strategy='backward', tolerance='30m')
+frame n 672428 rmse 270.77
+
+k=0.8 (PRIMARY): gated 467 moved 65; dSSE 6.511e+06; whole +0.018 s
+   EDDM 2 rmse moved rows 549.0 -> 475.0
+   EGLL 22 rmse moved rows 305.0 -> 302.0
+   EHAM 13 rmse moved rows 725.0 -> 1051.0
+   LFPG 21 rmse moved rows 487.0 -> 504.0
+   LSZH 1 rmse moved rows 414.0 -> 745.0
+   LTFM 6 rmse moved rows 1364.0 -> 1266.0
+   fold jan moved 26 +0.012 s
+   fold jul moved 14 -0.006 s
+   fold forward moved 25 +0.042 s
+   moved-rows airport-day CI 75.0 [  0.5 173.4]
+
+k=0.95 (info): gated 467 moved 196; dSSE 2.292e+07; whole +0.063 s
+   EDDF 2 rmse moved rows 1166.0 -> 1332.0
+   EDDM 2 rmse moved rows 549.0 -> 294.0
+   EGLL 112 rmse moved rows 436.0 -> 473.0
+   EHAM 19 rmse moved rows 695.0 -> 1140.0
+   LFPG 48 rmse moved rows 541.0 -> 621.0
+   LSZH 2 rmse moved rows 461.0 -> 828.0
+   LTFM 11 rmse moved rows 1110.0 -> 1013.0
+   fold jan moved 60 +0.086 s
+   fold jul moved 69 +0.005 s
+   fold forward moved 67 +0.095 s
+   moved-rows airport-day CI 96.0 [ 36.3 164.9]

@@ -26,6 +26,19 @@ docs/competitor_research_2026-09-21/results/public-code-deep-dive-2026-09-30.md 
         qp_arr_taxiing_at_push  arrivals at this airport with landing <= a_i < in-block (0 < in-block -
                                 landing < 7,200 s)
 
+  L5  tx_*                      (fe_tx_nm, model A only). Same-period context from OTHER departures at the same airport,
+      measured in docs/research_2026-10-01/errgroups/longtaxi/ (README there, §"tx_mma"). w = window around this
+      row's take-off t (self excluded where the window contains t):
+        tx_mma_{c30,c60,c120,f60,p60}_ratio  mean of clip(MVT - AOBT_3, -600, 5400) over the window (centred +-30/60/120
+                                             min, forward (t, t+60m], backward [t-60m, t)) divided by the airport's
+                                             training-side mean of MVT - AOBT_3 (rows in [0, 7200] s)
+        tx_mma_{...}_n                        number of departures with AOBT_3 in that window
+        tx_unm_{c60,c120}                     share of departures in +-60/120 min with no AOBT_3 (no NM record)
+        tx_late3h_{c60,c120}                  share with MVT - SCHED > 3 h
+        tx_tko_c60, tx_tko_c60_rel            take-offs in +-30 min, and that count over the training-side median
+                                              hourly count for the airport x local hour
+      Both normal tables come from the TRAINING frame's departures only (label-free: MVT, AOBT_3, SCHED).
+
 Parity. Only columns that survive in ranking.parquet are read: departures' MVT_TIME, AOBT_3, EOBT_1, ARVT_1,
 runway and route; arrivals' landing and in-block times. No departure BLOCK_TIME or TAXITIME is read. Each frame's
 context (L2, L3) comes from its own rows, as for prc.features.context_features.
@@ -56,7 +69,28 @@ L3_COLS = (
     "qp_rwy_push_pre20",
     "qp_arr_taxiing_at_push",
 )
-LEVER_COLS = L1_COLS + L2_COLS + L3_COLS
+TX_MMA_WINDOWS = (
+    ("c30", -1800.0, 1800.0),
+    ("c60", -3600.0, 3600.0),
+    ("c120", -7200.0, 7200.0),
+    ("f60", 1.0, 3600.0),
+    ("p60", -3600.0, -1.0),
+)
+TX_SHARE_WINDOWS = (("c60", -3600.0, 3600.0), ("c120", -7200.0, 7200.0))
+TX_MMA_CLIP = (-600.0, 5400.0)
+TX_LATE_S = 10800.0
+L5_COLS = (
+    tuple(f"tx_mma_{w}_{s}" for w, _, _ in TX_MMA_WINDOWS for s in ("ratio", "n"))
+    + tuple(f"tx_{k}_{w}" for k in ("unm", "late3h") for w, _, _ in TX_SHARE_WINDOWS)
+    + ("tx_tko_c60", "tx_tko_c60_rel")
+)
+# L6 (fe_retention, model A only; docs/research_2026-10-05_measure/congestion.md): gate retention at the
+# flight's own NM off-block, i.e. departures at the same airport (or runway) whose planned off-block has passed
+# but whose AOBT_3 has not, plus the mean NM delay of the pushes in the previous 15 min. Label-free.
+RET_MAX_S = 7200.0
+RET_DLY_CLIP = (-3600.0, 14400.0)
+L6_COLS = ("ret_overdue_eobt", "ret_overdue_sched", "ret_overdue_eobt_rwy", "ret_dly15")
+LEVER_COLS = L1_COLS + L2_COLS + L3_COLS + L5_COLS + L6_COLS
 
 
 def _ep(s: pl.Series) -> np.ndarray:
@@ -72,7 +106,17 @@ def _departures(raw: pl.DataFrame) -> pl.DataFrame:
         pl.col("RUNWAY_mvt").cast(pl.Utf8),
         "MVT_TIME_UTC_mvt",
         "AOBT_3_flt",
+        # L5 only. The hand-built L1-L3 test frames have no schedule column; there it is null (L5 is not asked for).
+        (
+            pl.col("SCHED_TIME_UTC_mvt")
+            if "SCHED_TIME_UTC_mvt" in raw.columns
+            else pl.lit(None, dtype=pl.Datetime("us", "UTC"))
+        ).alias("SCHED_TIME_UTC_mvt"),
         (pl.col("ARVT_1_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().cast(pl.Float64).alias("_plan"),
+        # L6 only; absent in the hand-built L1-L3 test frames.
+        (pl.col("EOBT_1_flt") if "EOBT_1_flt" in raw.columns else pl.lit(None, dtype=pl.Datetime("us", "UTC"))).alias(
+            "EOBT_1_flt"
+        ),
     )
 
 
@@ -224,6 +268,150 @@ def _lever_frame(dep: pl.DataFrame, arr: pl.DataFrame, want_l2: bool, want_l3: b
     return frame.with_columns([pl.col(c).cast(pl.Float32).fill_nan(None) for c in names])
 
 
+# ---------- L5 ----------
+
+
+def _window_sum(
+    ev_t: np.ndarray, ev_v: np.ndarray, q: np.ndarray, lo: float, hi: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sum and count of the finite `ev_v` whose time is in [q + lo, q + hi], per query q."""
+    ok = np.isfinite(ev_t)
+    order = np.argsort(ev_t[ok], kind="stable")
+    t, v = ev_t[ok][order], ev_v[ok][order]
+    fin = np.isfinite(v)
+    cs = np.concatenate([[0.0], np.cumsum(np.where(fin, v, 0.0))])
+    cn = np.concatenate([[0.0], np.cumsum(fin)])
+    a = np.searchsorted(t, q + lo, side="left")
+    b = np.searchsorted(t, q + hi, side="right")
+    return cs[b] - cs[a], cn[b] - cn[a]
+
+
+def _local_hour(dep: pl.DataFrame) -> np.ndarray:
+    from .features import AIRPORT_TZ
+
+    out = np.full(dep.height, -1, dtype=np.int64)
+    apt = dep["ADEP_mvt"].to_numpy()
+    for ap, tz in AIRPORT_TZ.items():
+        i = np.flatnonzero(apt == ap)
+        if len(i):
+            h = dep["MVT_TIME_UTC_mvt"].gather(i).dt.convert_time_zone(tz).dt.hour().fill_null(-1)
+            out[i] = h.to_numpy()
+    return out
+
+
+def tx_normal_tables(dep_train: pl.DataFrame) -> tuple[dict[str, float], dict[tuple[str, int], float]]:
+    """Training-side normals: airport mean of MVT - AOBT_3 (rows in [0, 7200] s) and the airport x local-hour median
+    of hourly take-off counts. Label-free (MVT, AOBT_3 only)."""
+    d = dep_train.with_columns(
+        (pl.col("MVT_TIME_UTC_mvt") - pl.col("AOBT_3_flt")).dt.total_seconds().cast(pl.Float64).alias("_mma"),
+        pl.Series("_lh", _local_hour(dep_train)),
+    )
+    mma = dict(d.filter(pl.col("_mma").is_between(0, 7200)).group_by("ADEP_mvt").agg(pl.col("_mma").mean()).iter_rows())
+    hourly = (
+        d.drop_nulls("MVT_TIME_UTC_mvt")
+        .with_columns(pl.col("MVT_TIME_UTC_mvt").dt.truncate("1h").alias("_hb"))
+        .group_by("ADEP_mvt", "_hb", "_lh")
+        .agg(pl.len().alias("_c"))
+        .group_by("ADEP_mvt", "_lh")
+        .agg(pl.col("_c").median())
+    )
+    hour = {(a, int(h)): float(c) for a, h, c in hourly.iter_rows()}
+    return mma, hour
+
+
+def _tx_frame(dep: pl.DataFrame, mma_norm: dict[str, float], hour_norm: dict[tuple[str, int], float]) -> pl.DataFrame:
+    """L5 columns for every departure in `dep`, from the other departures of the same airport in `dep`."""
+    n = dep.height
+    cols = {c: np.full(n, np.nan) for c in L5_COLS}
+    apt = dep["ADEP_mvt"].to_numpy()
+    t_all = _ep(dep["MVT_TIME_UTC_mvt"])
+    mma = t_all - _ep(dep["AOBT_3_flt"])
+    mma_c = np.clip(mma, *TX_MMA_CLIP)  # NaN stays NaN
+    unm = np.where(np.isfinite(t_all), np.isnan(mma).astype(np.float64), np.nan)
+    late = np.where(
+        np.isfinite(t_all - _ep(dep["SCHED_TIME_UTC_mvt"])),
+        ((t_all - _ep(dep["SCHED_TIME_UTC_mvt"])) > TX_LATE_S).astype(np.float64),
+        np.nan,
+    )
+    lh = _local_hour(dep)
+    for ap in sorted({x for x in apt if x is not None}):
+        ia = np.flatnonzero(apt == ap)
+        t = t_all[ia]
+        ok_t = np.isfinite(t)
+        norm = mma_norm.get(ap, np.nan)
+        for name, vals in (("mma", mma_c[ia]), ("unm", unm[ia]), ("late3h", late[ia])):
+            wins = TX_MMA_WINDOWS if name == "mma" else TX_SHARE_WINDOWS
+            self_v = np.isfinite(vals)
+            for tag, lo, hi in wins:
+                s_, k = _window_sum(t, vals, np.where(ok_t, t, np.nan), lo, hi)
+                if lo <= 0 <= hi:  # the row itself is inside its own window
+                    s_ = s_ - np.where(self_v, vals, 0.0)
+                    k = k - self_v
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    m = np.where(k > 0, s_ / np.where(k > 0, k, 1.0), np.nan)
+                m[~ok_t] = np.nan
+                k = np.where(ok_t, k, np.nan)
+                if name == "mma":
+                    cols[f"tx_mma_{tag}_ratio"][ia] = m / norm
+                    cols[f"tx_mma_{tag}_n"][ia] = k
+                else:
+                    cols[f"tx_{name}_{tag}"][ia] = m
+        _, k = _window_sum(t, np.ones_like(t), np.where(ok_t, t, np.nan), -1800.0, 1800.0)
+        tko = np.where(ok_t, k - 1.0, np.nan)
+        cols["tx_tko_c60"][ia] = tko
+        hn = np.array([hour_norm.get((ap, int(h)), np.nan) for h in lh[ia]])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cols["tx_tko_c60_rel"][ia] = tko / hn
+    frame = pl.DataFrame({"MVT_ID_mvt": dep["MVT_ID_mvt"], **{c: cols[c] for c in L5_COLS}})
+    return frame.with_columns([pl.col(c).cast(pl.Float32).fill_nan(None) for c in L5_COLS])
+
+
+def _overdue(plan: np.ndarray, push: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """#{j: plan_j <= q < push_j} over pairs with 0 < push_j - plan_j < RET_MAX_S, as #{plan_j <= q} - #{push_j <= q}.
+    A flight counted at its own push q cancels out of both terms."""
+    ok = np.isfinite(plan) & np.isfinite(push) & (push > plan) & (push - plan < RET_MAX_S)
+    pl_, pu = np.sort(plan[ok]), np.sort(push[ok])
+    out = np.full(len(q), np.nan)
+    m = np.isfinite(q)
+    out[m] = np.searchsorted(pl_, q[m], "right") - np.searchsorted(pu, q[m], "right")
+    return out
+
+
+def _retention_frame(dep: pl.DataFrame) -> pl.DataFrame:
+    """L6_COLS per departure, from the departures of its own frame at the same airport (runway for *_rwy)."""
+    n = dep.height
+    cols = {c: np.full(n, np.nan) for c in L6_COLS}
+    apt = dep["ADEP_mvt"].to_numpy()
+    rwy = dep["RUNWAY_mvt"].to_numpy()
+    a_all, e_all, s_all = _ep(dep["AOBT_3_flt"]), _ep(dep["EOBT_1_flt"]), _ep(dep["SCHED_TIME_UTC_mvt"])
+    dly_all = np.clip(a_all - s_all, *RET_DLY_CLIP)
+    for ap in sorted({x for x in apt if x is not None}):
+        ia = np.flatnonzero(apt == ap)
+        a, e, s, dly = a_all[ia], e_all[ia], s_all[ia], dly_all[ia]
+        cols["ret_overdue_eobt"][ia] = _overdue(e, a, a)
+        cols["ret_overdue_sched"][ia] = _overdue(s, a, a)
+        # mean NM delay of pushes in [q - 15 min, q), the flight itself excluded by the open right end
+        ok = np.isfinite(a) & np.isfinite(dly)
+        order = np.argsort(a[ok])
+        at, dv = a[ok][order], dly[ok][order]
+        cs = np.concatenate([[0.0], np.cumsum(dv)])
+        m = np.isfinite(a)
+        lo = np.searchsorted(at, a[m] - 900.0, "left")
+        hi = np.searchsorted(at, a[m], "left")
+        cnt = hi - lo
+        mean = np.full(m.sum(), np.nan)
+        mean[cnt > 0] = (cs[hi] - cs[lo])[cnt > 0] / cnt[cnt > 0]
+        out = np.full(len(ia), np.nan)
+        out[m] = mean
+        cols["ret_dly15"][ia] = out
+        r = rwy[ia]
+        for rw in sorted({x for x in r if x is not None}):
+            ir = np.flatnonzero(r == rw)
+            cols["ret_overdue_eobt_rwy"][ia[ir]] = _overdue(e[ir], a[ir], a[ir])
+    frame = pl.DataFrame({"MVT_ID_mvt": dep["MVT_ID_mvt"], **{c: cols[c] for c in L6_COLS}})
+    return frame.with_columns([pl.col(c).cast(pl.Float32).fill_nan(None) for c in L6_COLS])
+
+
 def attach_levers(
     f_tr: pl.DataFrame,
     f_rk: pl.DataFrame,
@@ -232,15 +420,18 @@ def attach_levers(
     l1: bool,
     l2: bool,
     l3: bool,
+    l5: bool = False,
+    l6: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """The two feature frames with the requested lever columns appended (in LEVER_COLS order), each frame's
     context taken from its own raw rows and L1's median table fitted on both frames' departures together."""
-    if not (l1 or l2 or l3):
+    if not (l1 or l2 or l3 or l5 or l6):
         return f_tr, f_rk
     d_tr, d_rk = _departures(raw_tr), _departures(raw_rk)
     fine = coarse = None
     if l1:
         fine, coarse = plan_median_tables([d_tr, d_rk])
+    tx_norms = tx_normal_tables(d_tr) if l5 else None
     out = []
     for feats, dep, raw in ((f_tr, d_tr, raw_tr), (f_rk, d_rk, raw_rk)):
         if feats["MVT_ID_mvt"].n_unique() != feats.height:
@@ -254,6 +445,10 @@ def attach_levers(
         if l2 or l3:
             arr = raw.filter(pl.col("PHASE_mvt") == "ARR").select("ADES_mvt", "MVT_TIME_UTC_mvt", "BLOCK_TIME_UTC_mvt")
             parts.append(_lever_frame(dep, arr, l2, l3))
+        if l5:
+            parts.append(_tx_frame(dep, *tx_norms))
+        if l6:
+            parts.append(_retention_frame(dep))
         g = feats.select("MVT_ID_mvt")
         for p in parts:
             g = g.join(p, on="MVT_ID_mvt", how="left", maintain_order="left")

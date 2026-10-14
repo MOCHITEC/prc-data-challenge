@@ -1,0 +1,15 @@
+matched + LIRF unmatched bit-identical: True
+non-LIRF unmatched n=7841: 1273.8 -> 1266.1  -7.73 [-20.41,-4.10]
+  jan: n=1375 2797.7 -> 2796.1 (-1.56)
+  jul: n=3601 565.7 -> 553.4 (-12.26)
+  forward: n=2865 531.4 -> 500.1 (-31.29)
+  EDDF: n=787 (-8.8)
+  EDDM: n=402 (-27.5)
+  EGLL: n=647 (-19.4)
+  EHAM: n=1353 (-14.1)
+  LEBL: n=652 (-32.1)
+  LEMD: n=416 (-18.3)
+  LFPG: n=1565 (-3.6)
+  LSZH: n=722 (-23.5)
+  LTFM: n=1297 (-18.4)
+whole frame -0.4222794105002663

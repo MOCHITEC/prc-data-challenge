@@ -1,0 +1,78 @@
+# L6 gate retention (fe_retention) — pre-registration (2026-10-05)
+
+## Background
+In `congestion.md`, the overdue counts gave −411 s² [−586, −259] on top of a rich control that already contains
+the existing neighbour / runway-sequence / L2 / L3 columns. The 1 ↔ 7 month swap gave −425. Adversarial AUC ≤ 0.541.
+
+## Change
+L6, `src/prc/levers.py:_retention_frame`, model A only, default off, existing ids unchanged:
+- `ret_overdue_eobt`: departures at the same airport with EOBT_1 ≤ q < AOBT_3, where q is the flight's own AOBT_3
+  (pairs with 0 < AOBT_3 − EOBT_1 < 2 h).
+- `ret_overdue_sched`: the same with SCHED in place of EOBT_1.
+- `ret_overdue_eobt_rwy`: `ret_overdue_eobt` restricted to the same runway.
+- `ret_dly15`: mean of AOBT_3 − SCHED over pushes in [q − 15 min, q).
+
+## Arms (forward fold; production lineage includes L2)
+| arm | config |
+|---|---|
+| ret_base | main_flseq_osm_nolirf_l2 + folds [forward] |
+| ret_l6 | ret_base + fe_retention: true |
+
+## Verdict (unchanged after the runs start)
+- **ADOPT** if `prc.compare ret_base ret_l6` returns ADOPT under the team rule: the full-row CI and the K=200 CI
+  both exclude 0 on the improving side.
+- Report next to it: STRICT VERDICT, the body/tail split (y ≤ 3600), and per-airport results.
+- If adopted, re-run all folds on the production members and re-verify with `make compare`.
+
+## Result (2026-10-05, `l6_verdict.txt`)
+- **ADOPT.** ret_base-338abfb11c → ret_l6-65265584c7.
+  - Full rows −0.76 s [−0.95, −0.56]; K=200 −0.91 s [−1.10, −0.70].
+- **STRICT VERDICT is also ADOPT.** 9 of 10 airports improve after the K-drop; the airport-day CI is −0.91 [−1.18, −0.67].
+- Matched rows 196.6 → 195.8; unmatched rows unchanged (L6 is model A only).
+- This is larger than the residual-harness estimate (−0.8 s before any haircut). After the expected CV→LB haircut,
+  the LB expectation is about −0.3 to −0.6 s.
+- **Next step:** turn on `fe_retention` in the production members and re-verify on all folds.
+
+## Production step — pre-registered before the runs (2026-10-05)
+- **Pair**: `main_flseq_osm_nolirf_l2_opt` (a2o, the anchored LGB member of the v35 blend) vs `main_flseq_osm_nolirf_l2_opt_l6` (+ `fe_retention: true`). All folds.
+- **Verdict**: `prc.compare` ADOPT (full and K=200 CIs exclude 0 on the improving side). STRICT VERDICT reported next to it.
+- **If ADOPT**: the same flag goes into the other LGB members (pao, p2o), so the blend is not diluted the way L5 was (1/8 weight). Each member is re-run and checked with `prc.compare`. The blend delta is then built and checked the same way.
+
+## Production step result (a2o, all folds; `l6_prod_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_opt-7244b3004f → main_flseq_osm_nolirf_l2_opt_l6-177174f530.
+  - Full rows −0.73 s [−0.91, −0.58]; K=200 −0.92 s [−1.09, −0.79].
+- **STRICT ADOPT.** Every fold improves (forward −0.55, jan −0.26, jul −1.44; after the K-drop −0.60 / −0.48 / −1.69).
+  8 of 10 airports improve. The airport-day CI is −0.73 [−0.96, −0.54].
+- **Next**: the same flag for pao (main_flseq_osm_nolirf_l2_pa_opt) and p2o (main_flseq_osm_nolirf_plainy_l2_opt).
+  Each is run against its own base, all folds, under the same rule.
+
+## pao result (all folds; `l6_pao_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_pa_opt-8d54effc06 → main_flseq_osm_nolirf_l2_pa_opt_l6-523fcc4e8c.
+  - Full rows −0.76 s [−0.94, −0.60]; K=200 −0.97 s [−1.11, −0.82].
+- **STRICT ADOPT.** Every fold improves (forward −0.55, jan −0.23, jul −1.57). 8 of 10 airports improve.
+
+## p2o result (all folds; `l6_p2o_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_plainy_l2_opt-dd8b8e2c7c → main_flseq_osm_nolirf_plainy_l2_opt_l6-1f94f51232.
+  - Full rows −0.83 s [−1.03, −0.66]; K=200 −1.06 s [−1.21, −0.91].
+- **STRICT ADOPT.** Every fold improves (forward −0.56, jan −0.58, jul −1.46). 8 of 10 airports improve.
+
+## Blend-level check (`l6_blend_check.txt`)
+This is the LGB part of the v35 matched blend, ((0.5·a2o + 0.5·pao) + p2o) / 2.
+- **+L6:** −0.82 [−1.06, −0.62]; jan −0.42 / jul −1.53 / forward −0.60.
+- **+L6 + cmix:** −1.18 [−1.44, −0.93]. This uses an approximate additive cmix delta on a2o.
+- CatBoost and MLP are unchanged. The LGB part is half of the full blend, so the blend-level effect is roughly half
+  of this, about −0.4 to −0.6 s, unless L6 is also added to CB/MLP.
+
+## MLP member — pre-registered before the runs (2026-10-06)
+- **Why:** the user will submit once the accumulated expected gain reaches 2–3 s. L6 now sits in the LGB half of the
+  blend only. CatBoost and the MLP member make up the other half.
+- **Arms (all folds):** `main_flseq_osm_nolirf_l2_mlp` (m4) vs `main_flseq_osm_nolirf_l2_mlp_l6`.
+- **Verdict:** the same as for the LGB members. `prc.compare` must ADOPT; STRICT is reported alongside.
+- **CatBoost** is deferred: its retune was stopped by the memory guard on another branch.
+
+## MLP result (all folds; `l6_mlp_verdict.txt`)
+- **ADOPT.** main_flseq_osm_nolirf_l2_mlp-2b9a3b9348 → main_flseq_osm_nolirf_l2_mlp_l6-a10f4edb0d.
+  - Full rows −0.65 s [−0.94, −0.37]; K=200 −0.78 s [−1.11, −0.45].
+- **STRICT ADOPT.** Every fold improves (forward −0.16, jan −0.16, jul −1.76) and 10 of 10 airports improve.
+- The month-level bootstrap (4 months) spans 0 ([−1.44, +0.17]); it is reported for information only. The airport-day CI is −0.65 [−1.10, −0.13].
+- **Blend:** m4 has weight 1/4 in the v35–v40 matched blend, so this adds roughly another −0.15 to −0.2 s on top of the LGB part.

@@ -1,0 +1,61 @@
+shape: (52, 5)
+┌──────────┬─────────────────┬────────────────┬─────────────────┬────────┐
+│ ADEP_mvt ┆ mvt_minus_sched ┆ mvt_minus_lobt ┆ mvt_minus_eobt1 ┆ p32    │
+│ ---      ┆ ---             ┆ ---            ┆ ---             ┆ ---    │
+│ str      ┆ f64             ┆ f64            ┆ f64             ┆ i32    │
+╞══════════╪═════════════════╪════════════════╪═════════════════╪════════╡
+│ LIRF     ┆ 29455.0         ┆ null           ┆ null            ┆ 29682  │
+│ LFPG     ┆ 29757.0         ┆ null           ┆ null            ┆ 1613   │
+│ LEBL     ┆ 30891.0         ┆ null           ┆ null            ┆ 838    │
+│ EHAM     ┆ 31184.0         ┆ null           ┆ null            ┆ 2396   │
+│ LIRF     ┆ 31983.0         ┆ null           ┆ null            ┆ 32421  │
+│ EHAM     ┆ 32085.0         ┆ null           ┆ null            ┆ 1213   │
+│ EHAM     ┆ 32228.0         ┆ null           ┆ null            ┆ 2481   │
+│ LIRF     ┆ 33055.0         ┆ null           ┆ null            ┆ 33363  │
+│ LIRF     ┆ 33057.0         ┆ null           ┆ null            ┆ 32130  │
+│ EHAM     ┆ 33716.0         ┆ null           ┆ null            ┆ 2375   │
+│ EHAM     ┆ 33717.0         ┆ null           ┆ null            ┆ 1145   │
+│ EHAM     ┆ 34396.0         ┆ null           ┆ null            ┆ 1072   │
+│ EHAM     ┆ 34532.0         ┆ null           ┆ null            ┆ 2405   │
+│ EHAM     ┆ 34729.0         ┆ null           ┆ null            ┆ 659    │
+│ EHAM     ┆ 34994.0         ┆ null           ┆ null            ┆ 2621   │
+│ LEBL     ┆ 35383.0         ┆ null           ┆ null            ┆ 788    │
+│ EGLL     ┆ 35466.0         ┆ null           ┆ null            ┆ 1278   │
+│ LIRF     ┆ 36062.0         ┆ null           ┆ null            ┆ 35674  │
+│ LSZH     ┆ 36187.0         ┆ null           ┆ null            ┆ 711    │
+│ EHAM     ┆ 36923.0         ┆ null           ┆ null            ┆ 761    │
+│ LIRF     ┆ 37379.0         ┆ null           ┆ null            ┆ 38272  │
+│ LIRF     ┆ 39060.0         ┆ null           ┆ null            ┆ 36622  │
+│ LIRF     ┆ 39365.0         ┆ null           ┆ null            ┆ 39956  │
+│ LIRF     ┆ 40504.0         ┆ null           ┆ null            ┆ 41768  │
+│ LIRF     ┆ 40615.0         ┆ null           ┆ null            ┆ 40307  │
+│ LIRF     ┆ 41395.0         ┆ null           ┆ null            ┆ 41492  │
+│ EDDM     ┆ 42059.0         ┆ null           ┆ null            ┆ 964    │
+│ EDDF     ┆ 43926.0         ┆ null           ┆ null            ┆ 2028   │
+│ LIRF     ┆ 47337.0         ┆ null           ┆ null            ┆ 49309  │
+│ LIRF     ┆ 47705.0         ┆ null           ┆ null            ┆ 49007  │
+│ LIRF     ┆ 48539.0         ┆ null           ┆ null            ┆ 47324  │
+│ LIRF     ┆ 48776.0         ┆ null           ┆ null            ┆ 48909  │
+│ LIRF     ┆ 48841.0         ┆ null           ┆ null            ┆ 47738  │
+│ EHAM     ┆ 51378.0         ┆ null           ┆ null            ┆ 1607   │
+│ LFPG     ┆ 52555.0         ┆ null           ┆ null            ┆ 2103   │
+│ EDDF     ┆ 52774.0         ┆ null           ┆ null            ┆ 2433   │
+│ LIRF     ┆ 53520.0         ┆ null           ┆ null            ┆ 55640  │
+│ LIRF     ┆ 56520.0         ┆ null           ┆ null            ┆ 57025  │
+│ EHAM     ┆ 56719.0         ┆ null           ┆ null            ┆ 2987   │
+│ EHAM     ┆ 58585.0         ┆ null           ┆ null            ┆ 1378   │
+│ LIRF     ┆ 60656.0         ┆ null           ┆ null            ┆ 62343  │
+│ LIRF     ┆ 61322.0         ┆ null           ┆ null            ┆ 63058  │
+│ EHAM     ┆ 61871.0         ┆ null           ┆ null            ┆ 1493   │
+│ EHAM     ┆ 63610.0         ┆ null           ┆ null            ┆ 1578   │
+│ LFPG     ┆ 69540.0         ┆ null           ┆ null            ┆ 1190   │
+│ EDDF     ┆ 72574.0         ┆ null           ┆ null            ┆ 1954   │
+│ EHAM     ┆ 81495.0         ┆ null           ┆ null            ┆ 2838   │
+│ EHAM     ┆ 81993.0         ┆ null           ┆ null            ┆ 1724   │
+│ EHAM     ┆ 85535.0         ┆ null           ┆ null            ┆ 2970   │
+│ LIRF     ┆ 87484.0         ┆ null           ┆ null            ┆ 89051  │
+│ EDDF     ┆ 96310.0         ┆ null           ┆ null            ┆ 1871   │
+│ LIRF     ┆ 111654.0        ┆ null           ┆ null            ┆ 113641 │
+└──────────┴─────────────────┴────────────────┴─────────────────┴────────┘
+rows 52 swing per row (s2 of LB MSE) median 4799.764020229613  sum 396718.13376019674
+predictions > 7200 s overall: 118  unmatched: 94

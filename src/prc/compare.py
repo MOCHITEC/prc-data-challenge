@@ -140,6 +140,113 @@ def verdict(curve: list[dict], sign_check_level: int = SIGN_CHECK_LEVEL) -> tupl
     return True, f"adopt ({full['diff']:+.2f} s, still {robust['diff']:+.2f} s at {sign_check_level} rows dropped)"
 
 
+HOLDOUT_SHARE = 0.2  # airport-days kept out of development comparisons (see `holdout_mask`)
+STRICT_AIRPORT_SHARE = 0.7  # share of airports that must improve, after the K-drop, for the strict verdict
+
+
+def fold_of_month(ym: np.ndarray) -> np.ndarray:
+    """The pooled OOF fold each row was scored in: jan, jul, or forward (Nov-Dec), from its year*100+month key."""
+    m = ym % 100
+    return np.where(m == 1, "jan", np.where(m == 7, "jul", "forward"))
+
+
+def holdout_mask(airport: np.ndarray, day: np.ndarray, share: float = HOLDOUT_SHARE) -> np.ndarray:
+    """True for rows on a frozen set of airport-days, chosen by a stable CRC32 of "ADEP|YYYY-MM-DD".
+
+    Why: every adoption so far was decided on the same OOF rows, and choosing the best of many comparisons on
+    one set overstates the winner (feature L5: CV -0.32 s, LB +0.12 s). Rows on these days are left out of the
+    development comparison (`--holdout exclude`) and scored once, for the accumulated set of adoptions, with
+    `--holdout only`. Whole airport-days rather than rows, because rows within a day share weather and queues."""
+    import zlib
+
+    keys = np.char.add(np.char.add(airport.astype(str), "|"), day.astype(str))
+    uniq, inv = np.unique(keys, return_inverse=True)
+    pick = np.array([zlib.crc32(k.encode()) % 1000 < share * 1000 for k in uniq])
+    return pick[inv]
+
+
+def block_bootstrap_rmse_diff(
+    y: np.ndarray, p_a: np.ndarray, p_b: np.ndarray, block: np.ndarray, n_boot: int = 1000, seed: int = 0
+) -> dict:
+    """RMSE(B) - RMSE(A), resampling whole blocks (airport-days) with replacement. Negative = B better.
+
+    The month bootstrap has 4 months to draw from in the pooled OOF, which is too few for a CI that means much;
+    airport-days give ~1,200 blocks that are still internally correlated units."""
+    uniq, inv = np.unique(block, return_inverse=True)
+    nb = len(uniq)
+    sa = np.bincount(inv, (y - p_a) ** 2, nb)
+    sb = np.bincount(inv, (y - p_b) ** 2, nb)
+    cnt = np.bincount(inv, minlength=nb).astype(float)
+    rng = np.random.default_rng(seed)
+    w = rng.multinomial(nb, np.full(nb, 1.0 / nb), size=n_boot).astype(float)
+    n = w @ cnt
+    diffs = np.sqrt((w @ sb) / n) - np.sqrt((w @ sa) / n)
+    lo, hi = np.percentile(diffs, [2.5, 97.5])
+    return {
+        "diff_rmse": float(np.sqrt(sb.sum() / cnt.sum()) - np.sqrt(sa.sum() / cnt.sum())),
+        "ci95": [float(lo), float(hi)],
+        "b_better_prob": float((diffs < 0).mean()),
+        "n_blocks": nb,
+    }
+
+
+def strict_report(
+    y: np.ndarray,
+    p_a: np.ndarray,
+    p_b: np.ndarray,
+    fold: np.ndarray,
+    airport: np.ndarray,
+    block: np.ndarray,
+    k: int = SIGN_CHECK_LEVEL,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> dict:
+    """The consistency checks the curve does not make: does B win in every fold, at most airports, and with a CI
+    that resamples airport-days - each both on all rows and with the worst K rows removed."""
+    keep = np.ones(len(y), bool)
+    keep[dropped_rows(y, p_a, p_b, k)] = False
+    out = {"k": k}
+    for name, sel in (("all", np.ones(len(y), bool)), ("dropk", keep)):
+        folds = {}
+        for f in np.unique(fold[sel]):
+            m = sel & (fold == f)
+            folds[str(f)] = rmse(y[m], p_b[m]) - rmse(y[m], p_a[m])
+        airports = {}
+        for g in np.unique(airport[sel]):
+            m = sel & (airport == g)
+            airports[str(g)] = rmse(y[m], p_b[m]) - rmse(y[m], p_a[m])
+        out[name] = {
+            "folds": folds,
+            "airports": airports,
+            "n_airports_better": sum(v < 0 for v in airports.values()),
+            "block": block_bootstrap_rmse_diff(y[sel], p_a[sel], p_b[sel], block[sel], n_boot=n_boot, seed=seed),
+        }
+    return out
+
+
+def strict_verdict(base_ok: bool, rep: dict, airport_share: float = STRICT_AIRPORT_SHARE) -> tuple[bool, str]:
+    """Adopt only if the curve verdict adopts AND, on all rows and after the K-drop alike: every fold improves,
+    at least `airport_share` of airports improve, and the airport-day bootstrap CI excludes zero.
+
+    Reported next to the curve verdict, not instead of it. What it guards against is the selection effect of
+    many comparisons on one set: a real change should not need one fold or two airports to carry it."""
+    if not base_ok:
+        return False, "the curve verdict already rejects"
+    for name in ("all", "dropk"):
+        r = rep[name]
+        tag = "all rows" if name == "all" else f"worst {rep['k']} removed"
+        worse = [f for f, v in r["folds"].items() if v >= 0]
+        if worse:
+            return False, f"fold(s) {', '.join(worse)} do not improve ({tag})"
+        n_air = len(r["airports"])
+        if r["n_airports_better"] < airport_share * n_air:
+            return False, f"only {r['n_airports_better']}/{n_air} airports improve ({tag})"
+        ci = r["block"]["ci95"]
+        if ci[1] >= 0:
+            return False, f"airport-day bootstrap CI [{ci[0]:+.2f}, {ci[1]:+.2f}] includes zero ({tag})"
+    return True, "adopt (every fold, most airports and the airport-day CI agree, with and without the tail)"
+
+
 def group_diff(
     y: np.ndarray,
     p_a: np.ndarray,
@@ -345,9 +452,23 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=f"truncate the list of rows the K={SIGN_CHECK_LEVEL} drop removes (default: list all of them)",
     )
+    ap.add_argument(
+        "--holdout",
+        choices=("include", "exclude", "only"),
+        default="include",
+        help=f"frozen {HOLDOUT_SHARE:.0%} of airport-days: 'exclude' for development comparisons, 'only' to score "
+        "the accumulated adoptions on them once; 'include' (default) keeps the old behaviour",
+    )
     a = ap.parse_args(argv)
 
     d = load_pair(a.exp_a, a.exp_b, a.work_dir, a.exp_dir)
+    day = d["MVT_TIME_UTC_mvt"].dt.date().cast(pl.Utf8).to_numpy()
+    hold = holdout_mask(d["ADEP_mvt"].to_numpy(), day)
+    if a.holdout != "include":
+        d = d.filter(pl.Series(hold if a.holdout == "only" else ~hold))
+        print(
+            f"holdout={a.holdout}: {len(d):,} rows on {'held-out' if a.holdout == 'only' else 'development'} airport-days"
+        )
     y = d[LABEL].to_numpy().astype(float)
     p_a, p_b = d["p_a"].to_numpy(), d["p_b"].to_numpy()
     se = (y - p_b) ** 2
@@ -388,6 +509,30 @@ def main(argv: list[str] | None = None) -> int:
 
     ok, why = verdict(curve)  # unchanged: the curve is still the only input to adopt/reject
     print(f"\nVERDICT (from the curve only, rule unchanged): {'ADOPT' if ok else 'REJECT'} - {why}")
+
+    airports = d["ADEP_mvt"].to_numpy()
+    day = d["MVT_TIME_UTC_mvt"].dt.date().cast(pl.Utf8).to_numpy()
+    srep = strict_report(
+        y,
+        p_a,
+        p_b,
+        fold_of_month(year_month_key(d).to_numpy()),
+        airports,
+        np.char.add(airports.astype(str), day.astype(str)),
+        n_boot=max(a.n_boot, 1000),
+    )
+    print("\nstrict checks (reporting next to the verdict above):")
+    for name in ("all", "dropk"):
+        r = srep[name]
+        tag = "all rows" if name == "all" else f"worst {srep['k']} removed"
+        folds = "  ".join(f"{f}={v:+.2f}" for f, v in r["folds"].items())
+        b = r["block"]
+        print(
+            f"  {tag:>18}: folds {folds} | airports better {r['n_airports_better']}/{len(r['airports'])} | "
+            f"airport-day CI ({b['n_blocks']} blocks) {b['diff_rmse']:+.2f} [{b['ci95'][0]:+.2f}, {b['ci95'][1]:+.2f}]"
+        )
+    sok, swhy = strict_verdict(ok, srep)
+    print(f"STRICT VERDICT: {'ADOPT' if sok else 'REJECT'} - {swhy}")
     return 0
 
 

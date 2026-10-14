@@ -1,0 +1,14 @@
+A = ret_base-338abfb11c
+B = ret_l6-65265584c7
+       0    217.13    216.37    -0.76    [  -0.95,  -0.56]  1.000
+      20    202.18    201.40    -0.77    [  -0.96,  -0.55]  1.000
+     200    192.60    191.69    -0.91    [  -1.10,  -0.70]  1.000
+    2000    172.99    172.16    -0.82    [  -0.96,  -0.67]  1.000
+month-level bootstrap (2 months): -0.76 s [-0.86, -0.65]  P(B better) = 1.000
+   matched: n=325,004  A=   196.6  B=   195.8
+ unmatched: n=  3,005  A=   981.7  B=   981.7
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): ADOPT - adopt (-0.76 s, still -0.91 s at 200 rows dropped)
+            all rows: folds forward=-0.76 | airports better 8/10 | airport-day CI (610 blocks) -0.76 [-1.02, -0.52]
+   worst 200 removed: folds forward=-0.91 | airports better 9/10 | airport-day CI (610 blocks) -0.91 [-1.18, -0.67]
+STRICT VERDICT: ADOPT - adopt (every fold, most airports and the airport-day CI agree, with and without the tail)

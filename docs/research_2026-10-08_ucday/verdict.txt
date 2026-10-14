@@ -1,0 +1,7 @@
+ucday-6ccbb291ff vs ucmix-b581da8fb2
+1. only LIRF unmatched change: True
+2. LIRF unmatched 537 7.64 [-28.64  50.3 ]
+3. jan 60 42.02
+3. jul 337 16.94
+3. forward 140 -29.28
+4. whole 0.084

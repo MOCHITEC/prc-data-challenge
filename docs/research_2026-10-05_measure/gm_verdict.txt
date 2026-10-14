@@ -1,0 +1,6 @@
+matched rows bit-identical: True
+LIRF unmatched jan: n=60 4348.0 -> 4232.1 (-115.9)
+LIRF unmatched jul: n=337 3753.3 -> 3752.3 (-1.0)
+LIRF unmatched forward: n=140 3861.3 -> 3879.5 (+18.3)
+LIRF unmatched pooled -10.3 [-57.8, 31.9]
+whole-frame RMSE diff -0.11652286802370782

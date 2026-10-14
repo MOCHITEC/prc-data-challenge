@@ -46,7 +46,7 @@ import polars as pl
 from .arrival_fill import ARR_FILL_COLS
 from .cv import Fold, metrics, month_block_folds, per_airport, year_month_key
 from .features import CANDIDATE_COLS, CATEGORICALS, numeric_feature_columns
-from .levers import L1_COLS, L2_COLS, L3_COLS, LEVER_COLS
+from .levers import L1_COLS, L2_COLS, L3_COLS, L5_COLS, L6_COLS, LEVER_COLS
 
 LABEL = "TAXITIME_SEC_mvt"
 PROXY = "mvt_minus_aobt3"
@@ -134,12 +134,45 @@ _HASH_OPTIONAL: dict = {
     "fe_arr_fill": False,
     "fe_arr_fill_permute": False,
     "sim_unseen_stands": 0.0,
+    # stand-dropout (docs/research_2026-10-05_newstand/plan.md): off, every existing id is unchanged.
+    "stand_dropout": 0.0,
+    # month-scope (docs/research_2026-10-05_drift/plan.md): off, every existing id is unchanged.
+    "fe_month_scope": False,
+    "fe_opdi": False,
+    "opdi_target_null_day_share": 0.0,
+    "fe_fl_rate_window": "",
+    "season_weight": 0.0,
+    "matched_target_clip": 0.0,
+    "fe_seq_window": "",
     "matched_target": "anchored",
     # The public-code levers (prc.levers; feature-levers-L1-L4.md). Off, every existing id is unchanged.
     "fe_plan_nm_taxi": False,
     "fe_fwd_nm": False,
     "fe_fwd_nm_unmatched": False,
     "fe_push_queue": False,
+    # L5 (prc.levers; docs/research_2026-10-01/README.md). Off, every existing id is unchanged.
+    "fe_tx_nm": False,
+    # L6 (docs/research_2026-10-05_measure/congestion.md): off, every existing id is unchanged.
+    "fe_retention": False,
+    # copy-mixture (docs/research_2026-10-05_measure/copy_plan.md): empty, every existing id is unchanged.
+    "copy_mix_airports": [],
+    # G-model blend (docs/research_2026-10-05_measure/gmodel_plan.md): empty, every existing id is unchanged.
+    "gmodel_airports": [],
+    "gmodel_lambda": 0.25,
+    # carrier echo (docs/research_2026-10-05_measure/carrier_plan.md): off, every existing id is unchanged.
+    "fe_carrier_echo": False,
+    # NM-blind blend (docs/research_2026-10-06_nmblind/plan.md): 0, every existing id is unchanged.
+    "nmblind_weight": 0.0,
+    # stamp hierarchy (docs/research_2026-10-06_stamp/plan.md): off, every existing id is unchanged.
+    "fe_stamp_hier": False,
+    "stamp_airports": [],
+    # unmatched copy mixture (docs/research_2026-10-07_ucmix/plan.md): empty, every existing id is unchanged.
+    "ucmix_airports": [],
+    "ucmix_max_s": 28800.0,
+    "ucmix_weight": 0.5,
+    "ucmix_day_feats": False,
+    # within-day demeaned context (docs/research_2026-10-08_daydemean/plan.md): off, every existing id is unchanged.
+    "fe_day_demean": False,
     # linear-tree.md: off, every existing id is unchanged.
     "linear_tree_matched_only": False,
     # per-airport-member.md: off, every existing id is unchanged.
@@ -364,6 +397,36 @@ class TrainConfig:
     # Measurement only: drop every training row whose (airport, stand) falls in this share of stands, chosen by a
     # stable CRC32 of "ADEP|STAND", so those stands are unseen by the model exactly as a stand new in 2026 is.
     sim_unseen_stands: float = 0.0
+    # New-stand token (docs/research_2026-10-05_newstand/plan.md): this share of training rows, chosen by a stable
+    # CRC32 of MVT_ID, gets STAND_mvt = NEW_STAND and its stand-keyed encodings blanked to their fallback, so the
+    # model learns one path for "stand unknown"; every target row whose (airport, stand) the training side never
+    # saw is sent down it. Applied after the fold features, so the OSM distance still comes from the real stand.
+    stand_dropout: float = 0.0
+    # Recompute fl_nm_rate_other and stand_rwy_share within the calendar month in both frames (prc.scope), so a
+    # 12-month training frame and a 2-month ranking frame give them the same resolution.
+    fe_month_scope: bool = False
+    # OPDI airframe turnaround (docs/opdi_2026-09-30/plan.md). LICENCE FLAG, see src/prc/opdi.py.
+    fe_opdi: bool = False
+    # Measurement only: blank the OPDI columns on the TARGET side for whole days chosen by CRC32 of the date, the
+    # way the January 2026 OPDI file has no flights on 10 of its 31 days.
+    opdi_target_null_day_share: float = 0.0
+    # Measurement of the window mismatch in `fl_nm_rate_other` (docs/gm_research_2026-10-01/plan_time_consistency.md
+    # §C): the ranking frame is two months (Jan + Jul) and the training frame twelve, so the same rate is taken over
+    # ~30 other flights at prediction time and ~209 in training. "target" recomputes it on the TARGET side over
+    # the ranking's window shape (same year, months m and m +- 6); "both" does it on both sides. "" leaves it as is.
+    fe_fl_rate_window: str = ""
+    # GM #5 (docs/gm_research_2026-10-01/plan_season_weight.md): training rows within one calendar month of a
+    # month the fold predicts get weight 1 + season_weight in both lanes' fits (the inner holdout stays unweighted).
+    # 0.0 = off, and then no weight is passed at all.
+    season_weight: float = 0.0
+    # GM #3 (docs/gm_research_2026-10-01/plan_clipped_member.md): model A's anchored training target g is clipped
+    # to +- this many seconds, so the member predicts the body and leaves the tail to a stacker. 0.0 = off.
+    matched_target_clip: float = 0.0
+    # The same window mismatch for the seq_* family (per-runway headway percentiles, bursts, neighbours) and
+    # fl_nm_rate_other together (plan_time_consistency.md §D): the values recomputed over each 2025 month pair
+    # {m, m + 6} by docs/gm_research_2026-10-01/build_seq_windows.py replace the cached ones on the target side
+    # ("target") or both ("both"). Rows the window cache does not have (the ranking frame) keep theirs.
+    fe_seq_window: str = ""
     # Model A's target (docs/competitor_research_2026-09-21/results/plainy-blend.md). "anchored" (the default, and
     # the only value any archived recipe used) fits g = LABEL - PROXY and predicts PROXY + g. "plain" fits LABEL
     # itself, with PROXY still in the feature list (it is the last column either way), and predicts the model's
@@ -383,6 +446,50 @@ class TrainConfig:
     fe_fwd_nm: bool = False
     fe_fwd_nm_unmatched: bool = False
     fe_push_queue: bool = False
+    #   fe_tx_nm             L5, the sixteen same-period tx_* context columns (docs/research_2026-10-01), model A only
+    fe_tx_nm: bool = False
+    #   fe_retention         L6, the four ret_* gate-retention columns at the own AOBT_3, model A only
+    fe_retention: bool = False
+    # Two-stage schedule-copy mixture on matched rows at these airports (docs/research_2026-10-05_measure/
+    # copy_plan.md): a classifier gives p = P(|BLOCK - SCHED| <= 60 s), model A is refit on that airport's
+    # non-copy rows, and the prediction is p*(MVT - SCHED) + (1-p)*that refit. p is 0 where SCHED lies outside the
+    # LOBT window. Empty (the default): model A is exactly what it was.
+    copy_mix_airports: list = field(default_factory=list)
+    # G-model blend into model B at these airports (docs/research_2026-10-05_measure/gmodel_plan.md): G = BLOCK -
+    # SCHED = (MVT - SCHED) - y is fitted on ALL of the airport's training departures (matched rows included) with
+    # model B's columns, and on that airport's unmatched target rows pred = (1 - lambda)*B + lambda*(ms - G_hat).
+    gmodel_airports: list = field(default_factory=list)
+    gmodel_lambda: float = 0.25
+    # Carrier x airport schedule-echo rate for model B (docs/research_2026-10-05_measure/carrier_plan.md): the
+    # smoothed share of departures with |y - (MVT - SCHED)| <= 60 s per (airport, carrier from the flight number),
+    # fitted on the training side with nested leave-month-out for training rows. Model A never sees it.
+    fe_carrier_echo: bool = False
+    # NM-blind blend for model B (docs/research_2026-10-06_nmblind/plan.md): a LightGBM fitted on ALL labelled
+    # departures with 0 < y <= 7200 s and model B's columns (no NM clock), blended at this weight into model B on the
+    # unmatched target rows outside the reparameterised airports (LIRF). 0 (the default): model B is what it was.
+    nmblind_weight: float = 0.0
+    # Hierarchical schedule-stamp rates for model B (docs/research_2026-10-06_stamp/plan.md): the share of
+    # departures with |y - (MVT - SCHED)| <= 60 s per airport x carrier, x carrier x destination and x flight number,
+    # each shrunk toward its parent level, nested leave-month-out on the training side. Model A never sees them.
+    fe_stamp_hier: bool = False
+    # Restrict the stamp columns to these airports (null elsewhere). Empty: every airport.
+    stamp_airports: list = field(default_factory=list)
+    # Gated copy mixture on model B's unmatched target rows at these airports (docs/research_2026-10-07_ucmix/
+    # plan.md): p = P(|y - (MVT - SCHED)| <= 60 s) from a classifier fitted on ALL of the airport's labelled
+    # departures (both lanes, a lane flag added), a non-copy regressor on its non-copy rows with 0 < y <= 7200 s,
+    # and pred = (1 - w)*B + w*(p*(MVT - SCHED) + (1 - p)*regressor) only where 0 < MVT - SCHED < ucmix_max_s.
+    # Empty (the default): model B is what it was.
+    ucmix_airports: list = field(default_factory=list)
+    ucmix_max_s: float = 28800.0
+    ucmix_weight: float = 0.5
+    # Label-free same-day context for the ucmix classifier and regressor (docs/research_2026-10-08_ucday/plan.md):
+    # per airport x UTC day of the frame a row belongs to, the departure count, the unmatched count and share, the
+    # unmatched rows' median MVT - SCHED and their count with MVT - SCHED in [2 h, 4 h). Off: ucmix is unchanged.
+    ucmix_day_feats: bool = False
+    # Within-day demeaned context for model A (docs/research_2026-10-08_daydemean/plan.md): for each DD_SRC column,
+    # dd_<col> = col - its mean over the airport x UTC day of the frame the row belongs to. Label-free. Model B never
+    # sees the dd_ columns. Off (the default): nothing is added.
+    fe_day_demean: bool = False
     # ---- the model family (P10). "lightgbm" is the default and the only value any archived recipe used: with it
     # `_fit` is the LightGBM fitter it has always been and `cb_params` must stay empty. "catboost" swaps the fitter
     # for `_fit_catboost`, which keeps `_fit`'s signature and its six contract items (P10 §1.3) and is handed the
@@ -621,7 +728,7 @@ LANE_A_ONLY_PREFIXES = ("agg_proxy_", "meta_prior_minus_proxy")
 _NM_CLOCK_PREFIXES = ("mvt_minus_aobt3", "aobt3", "lobt_minus", "mvt_minus_lobt", "mvt_minus_eobt1", "mvt_minus_iobt")
 # The meta prior must not read a label-derived column: those tables are fitted on every training row, including
 # the rows the prior is predicting out of fold, and would carry their labels back in.
-_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_")
+_LABEL_DERIVED_PREFIXES = ("ref_", "arh_", "apt_", "op_offset", "agg_", "car_", "stamp_")
 META_ROUNDS = 300
 META_NOISE_SEED = 20_260_924
 
@@ -635,6 +742,10 @@ def lever_columns(cfg: TrainConfig) -> list[str]:
         want |= set(L2_COLS)
     if cfg.fe_push_queue:
         want |= set(L3_COLS)
+    if cfg.fe_tx_nm:
+        want |= set(L5_COLS)
+    if cfg.fe_retention:
+        want |= set(L6_COLS)
     return [c for c in LEVER_COLS if c in want]
 
 
@@ -648,6 +759,8 @@ def unmatched_columns(num_cols: list[str]) -> list[str]:
         and c not in ARR_FILL_COLS
         and c not in L1_COLS
         and c not in L3_COLS
+        and c not in L5_COLS
+        and c not in L6_COLS
     ]
 
 
@@ -853,6 +966,145 @@ def osm_distance_features(df: pl.DataFrame, null_airports=()) -> pl.DataFrame:
     return null_osm_at_airports(add_stand_runway_distance(df, stands, ends), null_airports)
 
 
+@functools.lru_cache(maxsize=1)
+def _opdi_table() -> pl.DataFrame:
+    from .opdi import build_turnaround_cache
+
+    path = data_dir_work() / "opdi_turnaround.parquet"
+    if not path.exists():
+        build_turnaround_cache(out=path)
+    return pl.read_parquet(path)
+
+
+def data_dir_work():
+    from .config import data_dir
+
+    return data_dir() / "work"
+
+
+def season_weights(tr: pl.DataFrame, tg: pl.DataFrame, extra: float) -> pl.Series:
+    """1 + extra for training rows whose calendar month is within one month (circularly) of a month in `tg`."""
+    targets = set(tg["MVT_TIME_UTC_mvt"].dt.month().unique().drop_nulls().to_list())
+    near = {((t - 1 + d) % 12) + 1 for t in targets for d in (-1, 0, 1)}
+    m = tr["MVT_TIME_UTC_mvt"].dt.month()
+    return pl.Series("_w_season", np.where(m.is_in(sorted(near)).to_numpy(), 1.0 + extra, 1.0))
+
+
+FL_RATE_KEY_COLS = ["MVT_ID_mvt", "ADEP_mvt", "FLIGHT_mvt", "FLIGHT_ID_mvt", "MVT_TIME_UTC_mvt"]
+
+
+def fl_rate_window_rates(frame: pl.DataFrame) -> pl.DataFrame:
+    """`fl_nm_rate_other` recomputed within (airport, flight number, year, month pair), where the month pair is
+    {m, m + 6}: the shape of the ranking frame (Jan + Jul of one year). The formula is prc.features_extra's."""
+    m = pl.col("FLIGHT_ID_mvt").is_not_null().cast(pl.Float64)
+    t = pl.col("MVT_TIME_UTC_mvt")
+    grp = ["ADEP_mvt", "FLIGHT_mvt", "_y", "_pair"]
+    n_other = pl.len().over(grp) - 1
+    return (
+        frame.select(FL_RATE_KEY_COLS)
+        .with_columns(m.alias("_m"), t.dt.year().alias("_y"), ((t.dt.month() - 1) % 6).alias("_pair"))
+        .with_columns(
+            pl.when(pl.col("FLIGHT_mvt").is_not_null() & (n_other > 0))
+            .then((pl.col("_m").sum().over(grp) - pl.col("_m")) / n_other)
+            .otherwise(None)
+            .cast(pl.Float32)
+            .alias("_fl_rate_w")
+        )
+        .select("MVT_ID_mvt", "_fl_rate_w")
+    )
+
+
+def fl_rate_window_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, mode: str, info: dict
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Replace `fl_nm_rate_other` by its ranking-window version on the target side ("target") or both ("both").
+
+    The rates are taken over the union of the two frames, so a validation month keeps its six-months-apart partner
+    whichever side of the fold that partner is on (the rate reads NM match flags, not labels). On the ranking frame
+    (Jan + Jul 2026 only) the recomputed value is the cached one."""
+    if mode not in ("target", "both"):
+        raise ValueError(f"fe_fl_rate_window must be '', 'target' or 'both', got {mode!r}")
+    u = pl.concat([tr.select(FL_RATE_KEY_COLS), tg.select(FL_RATE_KEY_COLS)], how="vertical_relaxed")
+    if u["MVT_ID_mvt"].n_unique() != u.height:
+        raise AssertionError("fl_rate_window: MVT_ID_mvt is not unique across the two frames")
+    rates = fl_rate_window_rates(u)
+
+    def swap(f: pl.DataFrame, side: str) -> pl.DataFrame:
+        out = f.join(rates, on="MVT_ID_mvt", how="left", maintain_order="left")
+        if out.height != f.height:
+            raise AssertionError("fl_rate_window changed the row count")
+        old = out["fl_nm_rate_other"].cast(pl.Float64)
+        info[f"fl_rate_window_{side}_mean_abs_change"] = float(
+            (out["_fl_rate_w"].cast(pl.Float64) - old).abs().mean() or 0.0
+        )
+        return out.with_columns(pl.col("_fl_rate_w").alias("fl_nm_rate_other")).drop("_fl_rate_w")
+
+    tg = swap(tg, "target")
+    if mode == "both":
+        tr = swap(tr, "train")
+    info["fl_rate_window"] = mode
+    return tr, tg
+
+
+@functools.lru_cache(maxsize=1)
+def _seq_window_table() -> pl.DataFrame:
+    path = data_dir_work() / "seq_window.parquet"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} is missing: run docs/gm_research_2026-10-01/build_seq_windows.py first")
+    return pl.read_parquet(path)
+
+
+def seq_window_features(tr: pl.DataFrame, tg: pl.DataFrame, mode: str, info: dict) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Replace the seq_* columns and fl_nm_rate_other by their month-pair-window values (see fe_seq_window)."""
+    if mode not in ("target", "both"):
+        raise ValueError(f"fe_seq_window must be '', 'target' or 'both', got {mode!r}")
+    w = _seq_window_table()
+    cols = [c[: -len("__w")] for c in w.columns if c.endswith("__w")]
+
+    def swap(f: pl.DataFrame, side: str) -> pl.DataFrame:
+        present = [c for c in cols if c in f.columns]
+        out = f.join(
+            w.select("MVT_ID_mvt", *[f"{c}__w" for c in present]), on="MVT_ID_mvt", how="left", maintain_order="left"
+        )
+        if out.height != f.height:
+            raise AssertionError("seq_window changed the row count")
+        info[f"seq_window_{side}_rows_in_cache"] = float(out["MVT_ID_mvt"].is_in(w["MVT_ID_mvt"].implode()).mean())
+        in_cache = out["MVT_ID_mvt"].is_in(w["MVT_ID_mvt"].implode())
+        return out.with_columns(
+            [
+                pl.when(in_cache).then(pl.col(f"{c}__w")).otherwise(pl.col(c)).cast(out[c].dtype).alias(c)
+                for c in present
+            ]
+        ).drop([f"{c}__w" for c in present])
+
+    tg = swap(tg, "target")
+    if mode == "both":
+        tr = swap(tr, "train")
+    info["seq_window"] = mode
+    return tr, tg
+
+
+def day_null_mask(df: pl.DataFrame, share: float) -> np.ndarray:
+    """True on rows whose take-off date (UTC) falls in the `share` of days picked by CRC32 of 'YYYY-MM-DD'."""
+    import zlib
+
+    days = df["MVT_TIME_UTC_mvt"].dt.strftime("%Y-%m-%d").fill_null("").to_list()
+    return np.array([zlib.crc32(d.encode()) / 2**32 < share for d in days], dtype=bool)
+
+
+def opdi_features(df: pl.DataFrame, null_day_share: float = 0.0) -> pl.DataFrame:
+    """Attach the OPDI turnaround columns by MVT_ID_mvt (the cache covers every training and ranking departure)."""
+    from .opdi import OPDI_COLS
+
+    out = df.join(_opdi_table(), on="MVT_ID_mvt", how="left", maintain_order="left")
+    if out.height != df.height:
+        raise AssertionError("opdi_features changed the row count")
+    if null_day_share > 0:
+        blank = pl.Series("_blank", day_null_mask(out, null_day_share))
+        out = out.with_columns([pl.when(blank).then(None).otherwise(pl.col(c)).alias(c) for c in OPDI_COLS])
+    return out
+
+
 def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
     """True for rows whose (airport, stand) is in the held-out share, by a CRC32 that no library version changes."""
     import zlib
@@ -860,6 +1112,57 @@ def unseen_stand_mask(df: pl.DataFrame, share: float) -> np.ndarray:
     keys = (df["ADEP_mvt"].cast(pl.Utf8).fill_null("") + "|" + df["STAND_mvt"].cast(pl.Utf8).fill_null("")).to_list()
     u = np.array([zlib.crc32(k.encode()) / 2**32 for k in keys])
     return (u < share) & df["STAND_mvt"].is_not_null().to_numpy()
+
+
+NEW_STAND = "__NEW__"
+# The encodings keyed on the stand (reference_table); blanked on a dropped row exactly as on an unseen stand.
+_STAND_REF_COLS = ("ref_p10", "ref_p20", "ref_med", "ref_n")
+
+
+def apply_new_stand_token(
+    tr: pl.DataFrame, tg: pl.DataFrame, share: float, info: dict | None = None
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Training: `share` of rows (CRC32 of MVT_ID) get STAND_mvt = NEW_STAND and the stand reference blanked,
+    so `ref_p10_fb` falls back to airport x runway x hour, then airport. Target: rows whose (airport, stand) is
+    absent from the training side get NEW_STAND; their reference is already missing. Nothing reads a label."""
+    import zlib
+
+    seen = tr.select(["ADEP_mvt", "STAND_mvt"]).unique().with_columns(pl.lit(True).alias("_seen"))
+    ids = tr["MVT_ID_mvt"].cast(pl.Int64).cast(pl.Utf8).to_list()
+    u = np.array([zlib.crc32(f"newstand|{k}".encode()) / 2**32 for k in ids])
+    drop = pl.Series("_drop", (u < share) & tr["STAND_mvt"].is_not_null().to_numpy())
+    blank = [
+        pl.when(pl.col("_drop")).then(None).otherwise(pl.col(c)).alias(c) for c in _STAND_REF_COLS if c in tr.columns
+    ]
+    tr = (
+        tr.with_columns(drop)
+        .with_columns(
+            pl.when(pl.col("_drop")).then(pl.lit(NEW_STAND)).otherwise(pl.col("STAND_mvt")).alias("STAND_mvt"), *blank
+        )
+        .with_columns(
+            pl.when(pl.col("_drop"))
+            .then(pl.coalesce([pl.col("arh_med"), pl.col("apt_med")]))
+            .otherwise(pl.col("ref_p10_fb"))
+            .cast(tr.schema["ref_p10_fb"])
+            .alias("ref_p10_fb"),
+            pl.when(pl.col("_drop")).then(1).otherwise(pl.col("ref_missing")).cast(pl.Int8).alias("ref_missing"),
+        )
+        .drop("_drop")
+    )
+    tg = (
+        tg.join(seen, on=["ADEP_mvt", "STAND_mvt"], how="left", maintain_order="left")
+        .with_columns(
+            pl.when(pl.col("_seen").is_null() & pl.col("STAND_mvt").is_not_null())
+            .then(pl.lit(NEW_STAND))
+            .otherwise(pl.col("STAND_mvt"))
+            .alias("STAND_mvt")
+        )
+        .drop("_seen")
+    )
+    if info is not None:
+        info["stand_dropout_train_rows"] = int(drop.sum())
+        info["stand_new_target_rows"] = int((tg["STAND_mvt"] == NEW_STAND).sum())
+    return tr, tg
 
 
 def add_fold_features(
@@ -881,7 +1184,180 @@ def add_fold_features(
     if cfg.fe_osm_dist:
         na = cfg.fe_osm_null_airports
         tr, tg = osm_distance_features(tr, na), osm_distance_features(tg, na)
+    if cfg.fe_opdi:
+        tr, tg = opdi_features(tr), opdi_features(tg, cfg.opdi_target_null_day_share)
+    if cfg.fe_fl_rate_window:
+        tr, tg = fl_rate_window_features(tr, tg, cfg.fe_fl_rate_window, info)
+    if cfg.fe_seq_window:
+        tr, tg = seq_window_features(tr, tg, cfg.fe_seq_window, info)
     info["fold_feature_cols"] = [c for c in tr.columns if c not in before]
+    return tr, tg
+
+
+# ---------- carrier x airport schedule-echo rate (model B only) ----------
+
+CAR_COLS = ("car_echo_unm", "car_n_unm", "car_echo_all", "car_n_all")
+CAR_PRIOR_N = 20.0
+CAR_ECHO_TOL_S = 60.0
+
+
+def _carrier_expr() -> pl.Expr:
+    """ICAO prefix of FLIGHT_mvt when it is three letters then a digit, else its first two characters."""
+    f = pl.col("FLIGHT_mvt").cast(pl.Utf8)
+    three = f.str.extract(r"^([A-Z]{3})[0-9]", 1)
+    return pl.coalesce([three, f.str.slice(0, 2)]).fill_null("__NA__").alias("_car")
+
+
+def _carrier_tables(lab: pl.DataFrame) -> pl.DataFrame:
+    """Smoothed echo rates per (airport, carrier), from unmatched rows and from all rows, plus their counts."""
+    lab = lab.with_columns(
+        ((pl.col(LABEL) - pl.col(SCHED_OFFSET)).abs() <= CAR_ECHO_TOL_S).cast(pl.Float64).alias("_echo"),
+        pl.col(PROXY).is_null().alias("_unm"),
+    )
+    out = None
+    for tag, sub in (("all", lab), ("unm", lab.filter(pl.col("_unm")))):
+        prior = sub.group_by("ADEP_mvt").agg(pl.col("_echo").mean().alias("_p"))
+        t = (
+            sub.group_by(["ADEP_mvt", "_car"])
+            .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+            .join(prior, on="ADEP_mvt", how="left")
+            .select(
+                "ADEP_mvt",
+                "_car",
+                ((pl.col("_k") + CAR_PRIOR_N * pl.col("_p")) / (pl.col("_n") + CAR_PRIOR_N)).alias(f"car_echo_{tag}"),
+                pl.col("_n").cast(pl.Float64).alias(f"car_n_{tag}"),
+            )
+        )
+        out = t if out is None else out.join(t, on=["ADEP_mvt", "_car"], how="full", coalesce=True)
+    return out
+
+
+def carrier_echo_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """CAR_COLS on both frames. Target rows use a table fitted on all training rows; each training row uses a table
+    fitted on the training rows of the OTHER months, so no row sees its own label. Row order is unchanged.
+
+    Works on a slim copy (a handful of columns) and hstacks the four results, so the wide frames are never copied:
+    the first version joined on the full training frame and was OOM-killed at 2.1M rows."""
+    keep = ["ADEP_mvt", "FLIGHT_mvt", LABEL, SCHED_OFFSET, PROXY]
+    s_tr = tr.select(
+        [c for c in keep if c in tr.columns] + [pl.col("MVT_TIME_UTC_mvt").dt.month().alias("_mo")]
+    ).with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    s_tg = tg.select("ADEP_mvt", "FLIGHT_mvt").with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    need = pl.col(LABEL).is_not_null() & pl.col(SCHED_OFFSET).is_not_null()
+    lab = s_tr.filter(need)
+    out_tg = s_tg.join(_carrier_tables(lab), on=["ADEP_mvt", "_car"], how="left").sort("_row")
+    parts = []
+    for m in s_tr["_mo"].unique().to_list():
+        parts.append(
+            s_tr.filter(pl.col("_mo") == m)
+            .select("ADEP_mvt", "_car", "_row")
+            .join(_carrier_tables(lab.filter(pl.col("_mo") != m)), on=["ADEP_mvt", "_car"], how="left")
+        )
+    out_tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
+    if out_tr.height != tr.height or out_tg.height != tg.height:
+        raise AssertionError("carrier_echo_features changed a row count")
+
+    def _cols(o: pl.DataFrame) -> list[pl.Series]:
+        o = o.with_columns(pl.col("car_n_unm").fill_null(0.0), pl.col("car_n_all").fill_null(0.0))
+        return [o[c].cast(pl.Float64) for c in CAR_COLS]
+
+    tr, tg = tr.hstack(_cols(out_tr)), tg.hstack(_cols(out_tg))
+    if info is not None:
+        info["carrier_echo_target_missing"] = int(tg["car_echo_all"].null_count())
+    return tr, tg
+
+
+STAMP_COLS = ("stamp_car", "stamp_car_ades", "stamp_flt", "stamp_flt_n")
+STAMP_PRIOR_N = 20.0
+
+
+def _stamp_tables(lab: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Shrunk stamp rates: airport x carrier toward the airport, x destination toward the carrier, x flight number
+    toward carrier x destination. `lab` holds _echo, ADEP_mvt, ADES_mvt, FLIGHT_mvt, _car."""
+    k = STAMP_PRIOR_N
+    apt = lab.group_by("ADEP_mvt").agg(pl.col("_echo").mean().alias("_pa"))
+    car = (
+        lab.group_by(["ADEP_mvt", "_car"])
+        .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+        .join(apt, on="ADEP_mvt", how="left")
+        .select("ADEP_mvt", "_car", ((pl.col("_k") + k * pl.col("_pa")) / (pl.col("_n") + k)).alias("stamp_car"))
+    )
+    cad = (
+        lab.group_by(["ADEP_mvt", "_car", "ADES_mvt"])
+        .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+        .join(car, on=["ADEP_mvt", "_car"], how="left")
+        .select(
+            "ADEP_mvt",
+            "_car",
+            "ADES_mvt",
+            ((pl.col("_k") + k * pl.col("stamp_car")) / (pl.col("_n") + k)).alias("stamp_car_ades"),
+        )
+    )
+    flt = (
+        lab.group_by(["ADEP_mvt", "_car", "ADES_mvt", "FLIGHT_mvt"])
+        .agg(pl.col("_echo").sum().alias("_k"), pl.len().alias("_n"))
+        .join(cad, on=["ADEP_mvt", "_car", "ADES_mvt"], how="left")
+        .select(
+            "ADEP_mvt",
+            "_car",
+            "ADES_mvt",
+            "FLIGHT_mvt",
+            ((pl.col("_k") + k * pl.col("stamp_car_ades")) / (pl.col("_n") + k)).alias("stamp_flt"),
+            pl.col("_n").cast(pl.Float64).alias("stamp_flt_n"),
+        )
+    )
+    return car, cad, flt
+
+
+def _stamp_attach(rows: pl.DataFrame, lab: pl.DataFrame) -> pl.DataFrame:
+    car, cad, flt = _stamp_tables(lab)
+    out = (
+        rows.join(car, on=["ADEP_mvt", "_car"], how="left")
+        .join(cad, on=["ADEP_mvt", "_car", "ADES_mvt"], how="left")
+        .join(flt, on=["ADEP_mvt", "_car", "ADES_mvt", "FLIGHT_mvt"], how="left")
+    )
+    # an unseen lower level falls back to its parent, so every row with a known carrier has all three rates
+    return out.with_columns(
+        pl.coalesce(["stamp_car_ades", "stamp_car"]).alias("stamp_car_ades"),
+    ).with_columns(
+        pl.coalesce(["stamp_flt", "stamp_car_ades"]).alias("stamp_flt"),
+        pl.col("stamp_flt_n").fill_null(0.0),
+    )
+
+
+def stamp_hier_features(
+    tr: pl.DataFrame, tg: pl.DataFrame, info: dict | None = None, airports: list | tuple = ()
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """STAMP_COLS on both frames, slim copies only. Target rows use all training rows; each training row uses the
+    training rows of the other months. Row order is unchanged."""
+    keys = ["ADEP_mvt", "ADES_mvt", "FLIGHT_mvt"]
+    s_tr = tr.select(keys + [LABEL, SCHED_OFFSET, pl.col("MVT_TIME_UTC_mvt").dt.month().alias("_mo")]).with_columns(
+        _carrier_expr(), pl.int_range(pl.len()).alias("_row")
+    )
+    s_tg = tg.select(keys).with_columns(_carrier_expr(), pl.int_range(pl.len()).alias("_row"))
+    lab = s_tr.filter(pl.col(LABEL).is_not_null() & pl.col(SCHED_OFFSET).is_not_null()).with_columns(
+        ((pl.col(LABEL) - pl.col(SCHED_OFFSET)).abs() <= CAR_ECHO_TOL_S).cast(pl.Float64).alias("_echo")
+    )
+    base = ["ADEP_mvt", "ADES_mvt", "FLIGHT_mvt", "_car", "_row"]
+    out_tg = _stamp_attach(s_tg.select(base), lab).sort("_row")
+    parts = [
+        _stamp_attach(s_tr.filter(pl.col("_mo") == m).select(base), lab.filter(pl.col("_mo") != m))
+        for m in s_tr["_mo"].unique().to_list()
+    ]
+    out_tr = pl.concat(parts, how="diagonal_relaxed").sort("_row")
+    if out_tr.height != tr.height or out_tg.height != tg.height:
+        raise AssertionError("stamp_hier_features changed a row count")
+    if airports:
+        keep_tr = s_tr["ADEP_mvt"].is_in(list(airports))
+        keep_tg = s_tg["ADEP_mvt"].is_in(list(airports))
+        out_tr = out_tr.with_columns([pl.when(keep_tr).then(pl.col(c)).otherwise(None).alias(c) for c in STAMP_COLS])
+        out_tg = out_tg.with_columns([pl.when(keep_tg).then(pl.col(c)).otherwise(None).alias(c) for c in STAMP_COLS])
+    tr = tr.hstack([out_tr[c].cast(pl.Float64) for c in STAMP_COLS])
+    tg = tg.hstack([out_tg[c].cast(pl.Float64) for c in STAMP_COLS])
+    if info is not None:
+        info["stamp_target_flt_seen"] = float((tg["stamp_flt_n"] > 0).mean())
     return tr, tg
 
 
@@ -891,7 +1367,8 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
     This used to be decided inside predict_fold while feature_parity_report reimplemented part of it, and the
     two drifted: the parity gate reported on columns the model never sees. The same duplication is what let v6
     ship nine screening columns."""
-    cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month")]
+    # `_w_season` is season_weight's per-row weight, never a feature.
+    cols = [c for c in numeric_feature_columns(frame) if c not in (LABEL, "month", "_w_season")]
     hidden = set(CANDIDATE_COLS) - set(cfg.include_candidates) | set(cfg.exclude_features)
     if not cfg.fe_arr_fill:
         hidden |= set(ARR_FILL_COLS)
@@ -901,6 +1378,14 @@ def visible_numeric_columns(frame: pl.DataFrame, cfg: TrainConfig) -> list[str]:
         hidden |= set(L2_COLS)
     if not cfg.fe_push_queue:
         hidden |= set(L3_COLS)
+    if not cfg.fe_tx_nm:
+        hidden |= set(L5_COLS)
+    if not cfg.fe_retention:
+        hidden |= set(L6_COLS)
+    if not cfg.fe_carrier_echo:
+        hidden |= set(CAR_COLS)
+    if not cfg.fe_stamp_hier:
+        hidden |= set(STAMP_COLS)
     if not cfg.use_encodings:
         hidden |= set(ENCODING_COLS)
     if not cfg.use_offset_encoding:
@@ -1086,12 +1571,14 @@ def _fit(
     # filtering the frame twice (each filter copies every column of a multi-million-row frame).
     a, b = offs[0]
     y = target_expr(train)
+    w = train["_w_season"].to_numpy().astype(float) if cfg.season_weight > 0 and "_w_season" in train.columns else None
     rounds = cfg.num_rounds
     if 0 < n_hold < train.height:
         Xtrain = Xall[a:b]
         # A view into the stack when Fix 1 is on, the fancy-indexed copy it always was when it is off.
         Xhold = Xall[offs[-1][0] : offs[-1][1]] if es_block is not None else Xtrain[hold]
-        dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], categorical_feature=cat_idx, params=params)
+        w_tr = w[~hold] if w is not None else None
+        dtr = lgb.Dataset(Xtrain[~hold], label=y[~hold], weight=w_tr, categorical_feature=cat_idx, params=params)
         dva = lgb.Dataset(Xhold, label=y[hold], categorical_feature=cat_idx, reference=dtr)
         booster = lgb.train(
             params,
@@ -1105,7 +1592,7 @@ def _fit(
         rounds = int(min(cfg.num_rounds, max(10, round(best * train.height / max(1, train.height - n_hold)))))
         del dtr, dva, booster, Xtrain, Xhold  # the fancy-indexed copies are the peak of this function
 
-    dfull = lgb.Dataset(Xall[a:b], label=y, categorical_feature=cat_idx, free_raw_data=False, params=params)
+    dfull = lgb.Dataset(Xall[a:b], label=y, weight=w, categorical_feature=cat_idx, free_raw_data=False, params=params)
     # Refit under each seed and average. One seed is the default, and then this is the single fit it was before.
     acc = [np.zeros(e - s) for (s, e) in offs[1 : 1 + n_pred]]
     for k in range(max(1, cfg.n_seeds)):
@@ -1498,8 +1985,27 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     tr, tg = attach_encodings(train_f, enc), attach_encodings(target_f, enc)
     if tg.height != target_f.height or not tg["MVT_ID_mvt"].equals(target_f["MVT_ID_mvt"]):
         raise AssertionError("attach_encodings changed row count or order")
-    if cfg.fe_freq or cfg.fe_aggdiff or cfg.fe_cyclic or cfg.fe_noise_cols or cfg.fe_weather_v2 or cfg.fe_osm_dist:
+    if cfg.fe_carrier_echo:
+        tr, tg = carrier_echo_features(tr, tg, info)
+    if cfg.fe_stamp_hier:
+        tr, tg = stamp_hier_features(tr, tg, info, airports=cfg.stamp_airports)
+    if (
+        cfg.fe_freq
+        or cfg.fe_aggdiff
+        or cfg.fe_cyclic
+        or cfg.fe_noise_cols
+        or cfg.fe_weather_v2
+        or cfg.fe_osm_dist
+        or cfg.fe_opdi
+        or cfg.fe_fl_rate_window
+        or cfg.fe_seq_window
+    ):
         tr, tg = add_fold_features(tr, tg, cfg, info)
+    if cfg.stand_dropout > 0:
+        tr, tg = apply_new_stand_token(tr, tg, cfg.stand_dropout, info)
+    if cfg.fe_day_demean:
+        tr, tg = day_demean_features(tr), day_demean_features(tg)
+        info["day_demean_cols"] = [f"dd_{c}" for c in DD_SRC if c in tr.columns]
 
     # P2 Fix 1. One factory per lane so the two lanes' records stay separable in `info`; the month-keyed
     # cache lives inside each factory, and the encoder build is shared within a lane, not across them.
@@ -1509,6 +2015,11 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
     es_a = _es_encoder(train_f, cfg, es_stats_a) if cfg.es_holdout_encodings else None
     es_b = _es_encoder(train_f, cfg, es_stats_b) if cfg.es_holdout_encodings else None
 
+    if cfg.season_weight > 0:
+        if cfg.model != "lightgbm":
+            raise ValueError("season_weight is implemented for the LightGBM fitter only")
+        tr = tr.with_columns(season_weights(tr, tg, cfg.season_weight).alias("_w_season"))
+        info["season_weight_upweighted_share"] = float((tr["_w_season"] > 1).mean())
     num_cols = visible_numeric_columns(tr, cfg)
     cat_cols = (
         [c for c in CATEGORICALS if c in tr.columns and c not in set(cfg.exclude_features)]
@@ -1522,6 +2033,8 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         num_cols = visible_numeric_columns(tr, cfg)
     parts = []
     plain_a = cfg.matched_target == "plain"
+    if cfg.matched_target_clip > 0 and plain_a:
+        raise ValueError("matched_target_clip clips the anchored target g; it has no meaning with matched_target plain")
     if plain_a:
         # Only when it is not the default, so an anchored record is byte-for-byte what it was.
         info["matched_target"] = cfg.matched_target
@@ -1531,13 +2044,16 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         add_back = m_tg[PROXY].to_numpy().astype(float)
         if m_tr.height >= 200:
             # L2 is visible when either lane asks for it; model A takes it only when fe_fwd_nm is on.
-            a_hidden = set() if cfg.fe_fwd_nm else set(L2_COLS)
+            a_hidden = (set() if cfg.fe_fwd_nm else set(L2_COLS)) | set(CAR_COLS) | set(STAMP_COLS)
             cols_a = [c for c in num_cols if c != PROXY and c not in a_hidden] + [PROXY]
 
             def _target_a(f: pl.DataFrame) -> np.ndarray:
                 if plain_a:
                     return f[LABEL].to_numpy().astype(float)
-                return f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
+                g_ = f[LABEL].to_numpy().astype(float) - f[PROXY].to_numpy().astype(float)
+                if cfg.matched_target_clip > 0:
+                    g_ = np.clip(g_, -cfg.matched_target_clip, cfg.matched_target_clip)
+                return g_
 
             # With airport_models off this is the single `_fit` call it has always been; the grouped branch
             # is the only thing the flag adds, and it sets rounds_matched itself. `cfg_a` is `cfg` itself unless
@@ -1567,11 +2083,14 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             info["rounds_matched"] = 0
             info["warning_matched"] = f"only {m_tr.height} labelled matched rows; predicting the proxy alone"
             g = np.zeros(m_tg.height)
-        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": add_back + g}))
+        pred_a = add_back + g
+        if cfg.copy_mix_airports and m_tr.height >= 200:
+            pred_a = _copy_mixture(m_tr, m_tg, pred_a, _target_a, plain_a, cfg_a, cols_a, cat_cols, info)
+        parts.append(pl.DataFrame({"MVT_ID_mvt": m_tg["MVT_ID_mvt"], "pred": pred_a}))
 
     u_tr, u_tg = tr.filter(pl.col(PROXY).is_null()), tg.filter(pl.col(PROXY).is_null())
     if u_tg.height:
-        cols_b = unmatched_columns(num_cols)
+        cols_b = [c for c in unmatched_columns(num_cols) if not c.startswith("dd_")]
         if not cfg.fe_fwd_nm_unmatched:
             cols_b = [c for c in cols_b if c not in L2_COLS]
         # Model A's and model B's visible column counts have differed by one in past records without the
@@ -1596,6 +2115,12 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
             fallback = float(np.nanmedian(tr[LABEL].to_numpy().astype(float)))
             g = u_tg["ref_p10_fb"].fill_null(fallback).to_numpy().astype(float)
             info["rounds_unmatched"] = 0
+        if cfg.nmblind_weight > 0 and u_tr.height >= 200:
+            g = _nmblind_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
+        if cfg.gmodel_airports and u_tr.height >= 200:
+            g = _gmodel_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info)
+        if cfg.ucmix_airports and u_tr.height >= 200:
+            g = _ucmix_blend(tr, u_tg, g, cfg, cols_b, cat_cols, info, tg_all=tg)
         parts.append(pl.DataFrame({"MVT_ID_mvt": u_tg["MVT_ID_mvt"], "pred": g}))
 
     # Everything a silent no-op would hide. An empty record with the flag on means the holdout was never
@@ -1604,6 +2129,280 @@ def predict_fold(train_f: pl.DataFrame, target_f: pl.DataFrame, cfg: TrainConfig
         info["es_encoder_matched"] = es_stats_a
         info["es_encoder_unmatched"] = es_stats_b
     return _assemble(parts, tr, tg, target_f, info, cfg)
+
+
+NMBLIND_MAX_S = 7200.0
+
+
+def _nmblind_blend(
+    tr: pl.DataFrame,
+    u_tg: pl.DataFrame,
+    pred_b: np.ndarray,
+    cfg: TrainConfig,
+    cols_b: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_b` blended with an NM-blind model on unmatched target rows outside the reparameterised airports.
+
+    The NM-blind model sees model B's columns (no NM clock) but is fitted on every labelled departure of the
+    training side with 0 < y <= NMBLIND_MAX_S, matched rows included, so it learns the airport's ordinary taxi
+    process from 98% of the data instead of from the 1.5% that is unmatched."""
+    w = float(cfg.nmblind_weight)
+    if not (0.0 < w <= 1.0):
+        raise ValueError(f"nmblind_weight must be in (0, 1], got {w!r}")
+    skip = set(cfg.unmatched_sched_reparam_airports) if cfg.unmatched_sched_reparam else set()
+    sel = np.flatnonzero(~u_tg["ADEP_mvt"].is_in(list(skip)).to_numpy()) if skip else np.arange(u_tg.height)
+    out = pred_b.copy()
+    if sel.size == 0:
+        info["nmblind"] = {"target_rows": 0}
+        return out
+    fit_rows = tr.filter(pl.col(LABEL).is_not_null() & (pl.col(LABEL) > 0) & (pl.col(LABEL) <= NMBLIND_MAX_S))
+    cfg_b = cfg.for_unmatched()
+    (p,), rounds = _fit(fit_rows, lambda f: f[LABEL].to_numpy().astype(float), cfg_b, cols_b, cat_cols, [u_tg[sel]])
+    out[sel] = (1.0 - w) * pred_b[sel] + w * p
+    info["nmblind"] = {"train_rows": fit_rows.height, "target_rows": int(sel.size), "rounds": rounds, "weight": w}
+    return out
+
+
+def _gmodel_blend(
+    tr: pl.DataFrame,
+    u_tg: pl.DataFrame,
+    pred_b: np.ndarray,
+    cfg: TrainConfig,
+    cols_b: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_b` blended with ms - G_hat on the unmatched target rows at cfg.gmodel_airports. G_hat is fitted on the
+    training side of the fold only, on every labelled departure of the airport, with model B's columns."""
+    lam = float(cfg.gmodel_lambda)
+    if not (0.0 <= lam <= 1.0):
+        raise ValueError(f"gmodel_lambda must be in [0, 1], got {lam!r}")
+    out = pred_b.copy()
+    tg_apt = u_tg["ADEP_mvt"].to_numpy()
+    cfg_b = cfg.for_unmatched()
+    stats = {}
+    for ap in cfg.gmodel_airports:
+        tr_a = tr.filter((pl.col("ADEP_mvt") == ap) & pl.col(SCHED_OFFSET).is_not_null() & pl.col(LABEL).is_not_null())
+        sel = np.flatnonzero((tg_apt == ap) & u_tg[SCHED_OFFSET].is_not_null().to_numpy())
+        if tr_a.height < 1000 or sel.size == 0:
+            stats[ap] = {"skipped": True, "train_rows": tr_a.height}
+            continue
+        tg_a = u_tg[sel]
+
+        def _g(f: pl.DataFrame) -> np.ndarray:
+            return f[SCHED_OFFSET].to_numpy().astype(float) - f[LABEL].to_numpy().astype(float)
+
+        (g_hat,), rounds = _fit(tr_a, _g, cfg_b, cols_b, cat_cols, [tg_a])
+        t = tg_a[SCHED_OFFSET].to_numpy().astype(float) - g_hat
+        out[sel] = (1.0 - lam) * pred_b[sel] + lam * t
+        stats[ap] = {"train_rows": tr_a.height, "target_rows": int(sel.size), "rounds": rounds, "lambda": lam}
+    info["gmodel"] = stats
+    return out
+
+
+COPY_TOL_S = 60.0
+COPY_CLS_PARAMS = {
+    "objective": "binary",
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "min_data_in_leaf": 100,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "verbose": -1,
+    "seed": 0,
+    "deterministic": True,
+    "num_threads": 4,
+}
+COPY_CLS_ROUNDS = 400
+
+
+def _copy_mixture(
+    m_tr: pl.DataFrame,
+    m_tg: pl.DataFrame,
+    pred_a: np.ndarray,
+    target_a,
+    plain_a: bool,
+    cfg: TrainConfig,
+    cols_a: list[str],
+    cat_cols: list[str],
+    info: dict,
+) -> np.ndarray:
+    """`pred_a` with the copy mixture applied to the matched target rows at cfg.copy_mix_airports.
+
+    The copy label |y - (MVT - SCHED)| <= 60 s is read on the training side only. Inputs are model A's columns."""
+    import lightgbm as lgb
+
+    out = pred_a.copy()
+    tg_apt = m_tg["ADEP_mvt"].to_numpy()
+    stats = {}
+    for ap in cfg.copy_mix_airports:
+        tr_a = m_tr.filter((pl.col("ADEP_mvt") == ap) & pl.col(SCHED_OFFSET).is_not_null())
+        sel = np.flatnonzero((tg_apt == ap) & m_tg[SCHED_OFFSET].is_not_null().to_numpy())
+        if tr_a.height < 1000 or sel.size == 0:
+            stats[ap] = {"skipped": True, "train_rows": tr_a.height}
+            continue
+        tg_a = m_tg[sel]
+        echo = np.abs(tr_a[LABEL].to_numpy().astype(float) - tr_a[SCHED_OFFSET].to_numpy().astype(float)) <= COPY_TOL_S
+        X, _ = _matrix(pl.concat([tr_a, tg_a], how="diagonal_relaxed"), cols_a, cat_cols)
+        cat_idx = list(range(len(cols_a), len(cols_a) + len(cat_cols)))
+        clf = lgb.train(
+            COPY_CLS_PARAMS,
+            lgb.Dataset(X[: tr_a.height], label=echo.astype(float), categorical_feature=cat_idx),
+            COPY_CLS_ROUNDS,
+        )
+        p = clf.predict(X[tr_a.height :])
+        ms = tg_a[SCHED_OFFSET].to_numpy().astype(float)
+        if LOBT_OFFSET in tg_a.columns:
+            lo = tg_a[LOBT_OFFSET].to_numpy().astype(float)
+            outside = np.isfinite(lo) & (np.abs(ms - lo) > float(cfg.lobt_bound_slack))
+            p = np.where(outside, 0.0, p)
+        (g_ne,), _ = _fit(tr_a.filter(pl.Series(~echo)), target_a, cfg, cols_a, cat_cols, [tg_a])
+        base_ne = (np.zeros(tg_a.height) if plain_a else tg_a[PROXY].to_numpy().astype(float)) + g_ne
+        out[sel] = p * ms + (1.0 - p) * base_ne
+        stats[ap] = {
+            "train_rows": tr_a.height,
+            "train_copy_share": float(echo.mean()),
+            "target_rows": int(sel.size),
+            "target_mean_p": float(p.mean()),
+        }
+    info["copy_mix"] = stats
+    return out
+
+
+DD_SRC = (
+    "nbr_aobt_delay_mean_30m",
+    "nbr_mvt_minus_aobt_mean_30m",
+    "nbr_mvt_minus_aobt_mean_60m",
+    "nbr_dep_n_30m",
+    "dep_tko_prev_15m",
+    "dep_tko_next_15m",
+    "arr_land_prev_15m",
+    "congestion_vs_usual_30m",
+    "queue_ahead",
+    "rwy_headway_prev_s",
+    "bk_sched_backlog_60m",
+    "aobt3_minus_sched",
+    "mvt_minus_aobt3",
+    "delay_neighbor_deviation",
+    "seq_hw_mean_prev5",
+)
+
+
+def day_demean_features(frame: pl.DataFrame) -> pl.DataFrame:
+    """`frame` with dd_<col> = col - mean(col) over the row's airport x UTC day, for each DD_SRC column present.
+
+    Each frame is demeaned over itself (training rows over the training side, target rows over the target month), so
+    nothing crosses the fold boundary. Row order is unchanged."""
+    src = [c for c in DD_SRC if c in frame.columns]
+    day = pl.col("MVT_TIME_UTC_mvt").dt.date()
+    return frame.with_columns(
+        [
+            (pl.col(c).cast(pl.Float64) - pl.col(c).cast(pl.Float64).mean().over("ADEP_mvt", day)).alias(f"dd_{c}")
+            for c in src
+        ]
+    )
+
+
+UCMIX_LANE = "_ucmix_matched"
+UCDAY_COLS = ("ud_n_dep", "ud_n_unm", "ud_unm_share", "ud_unm_ms_med", "ud_unm_ms_2_4h")
+_UCDAY_KEY = "_ucday_date"
+
+
+def _attach_day_feats(rows: pl.DataFrame, frame: pl.DataFrame) -> pl.DataFrame:
+    """`rows` with the UCDAY_COLS of its airport x UTC day, aggregated over `frame` (the side the rows belong to).
+
+    Label-free: only the NM-match flag and MVT - SCHED of the day's departures are read."""
+    day = pl.col("MVT_TIME_UTC_mvt").dt.date().alias(_UCDAY_KEY)
+    unm = pl.col(PROXY).is_null()
+    ms = pl.col(SCHED_OFFSET)
+    agg = (
+        frame.select("ADEP_mvt", day, unm.alias("_u"), ms.alias("_ms"))
+        .group_by("ADEP_mvt", _UCDAY_KEY)
+        .agg(
+            pl.len().cast(pl.Float64).alias("ud_n_dep"),
+            pl.col("_u").sum().cast(pl.Float64).alias("ud_n_unm"),
+            pl.col("_u").mean().cast(pl.Float64).alias("ud_unm_share"),
+            pl.col("_ms").filter(pl.col("_u")).median().cast(pl.Float64).alias("ud_unm_ms_med"),
+            (pl.col("_u") & (pl.col("_ms") >= 7200.0) & (pl.col("_ms") < 14400.0))
+            .sum()
+            .cast(pl.Float64)
+            .alias("ud_unm_ms_2_4h"),
+        )
+    )
+    keep = [c for c in rows.columns if c not in UCDAY_COLS]
+    out = rows.select(keep).with_columns(day)
+    return out.join(agg, on=["ADEP_mvt", _UCDAY_KEY], how="left", maintain_order="left").drop(_UCDAY_KEY)
+
+
+def _ucmix_blend(
+    tr: pl.DataFrame,
+    u_tg: pl.DataFrame,
+    pred_b: np.ndarray,
+    cfg: TrainConfig,
+    cols_b: list[str],
+    cat_cols: list[str],
+    info: dict,
+    tg_all: pl.DataFrame | None = None,
+) -> np.ndarray:
+    """`pred_b` with the gated copy mixture on the unmatched target rows at cfg.ucmix_airports.
+
+    Everything is fitted on the training side of the fold only. The gate keeps rows with MVT - SCHED >= the
+    cutoff on model B, where the copy-or-rollover regime makes the schedule reparameterisation the right model."""
+    import lightgbm as lgb
+
+    w, cut = float(cfg.ucmix_weight), float(cfg.ucmix_max_s)
+    if not (0.0 < w <= 1.0) or not (cut > 0.0):
+        raise ValueError(f"ucmix_weight must be in (0, 1] and ucmix_max_s > 0, got {w!r}, {cut!r}")
+    out = pred_b.copy()
+    tg_apt = u_tg["ADEP_mvt"].to_numpy()
+    cols = list(cols_b) + [UCMIX_LANE]
+    if cfg.ucmix_day_feats:
+        if tg_all is None:
+            raise ValueError("ucmix_day_feats needs the full target frame")
+        tr = _attach_day_feats(tr, tr)
+        u_tg = _attach_day_feats(u_tg, tg_all)
+        cols += list(UCDAY_COLS)
+    cfg_b = cfg.for_unmatched()
+    stats = {}
+    for ap in cfg.ucmix_airports:
+        tr_a = tr.filter(
+            (pl.col("ADEP_mvt") == ap) & pl.col(SCHED_OFFSET).is_not_null() & pl.col(LABEL).is_not_null()
+        ).with_columns(pl.col(PROXY).is_not_null().cast(pl.Float64).alias(UCMIX_LANE))
+        ms_all = u_tg[SCHED_OFFSET].to_numpy().astype(float)
+        with np.errstate(invalid="ignore"):
+            gate = (tg_apt == ap) & np.isfinite(ms_all) & (ms_all > 0.0) & (ms_all < cut)
+        sel = np.flatnonzero(gate)
+        if tr_a.height < 1000 or sel.size == 0:
+            stats[ap] = {"skipped": True, "train_rows": tr_a.height, "target_rows": int(sel.size)}
+            continue
+        tg_a = u_tg[sel].with_columns(pl.lit(0.0).alias(UCMIX_LANE))
+        y = tr_a[LABEL].to_numpy().astype(float)
+        echo = np.abs(y - tr_a[SCHED_OFFSET].to_numpy().astype(float)) <= COPY_TOL_S
+        X, _ = _matrix(pl.concat([tr_a, tg_a], how="diagonal_relaxed"), cols, cat_cols)
+        cat_idx = list(range(len(cols), len(cols) + len(cat_cols)))
+        clf = lgb.train(
+            COPY_CLS_PARAMS,
+            lgb.Dataset(X[: tr_a.height], label=echo.astype(float), categorical_feature=cat_idx),
+            COPY_CLS_ROUNDS,
+        )
+        p = clf.predict(X[tr_a.height :])
+        nc = tr_a.filter(pl.Series(~echo & (y > 0) & (y <= NMBLIND_MAX_S)))
+        (g_nc,), rounds = _fit(nc, lambda f: f[LABEL].to_numpy().astype(float), cfg_b, cols, cat_cols, [tg_a])
+        ms = ms_all[sel]
+        out[sel] = (1.0 - w) * pred_b[sel] + w * (p * ms + (1.0 - p) * g_nc)
+        stats[ap] = {
+            "train_rows": tr_a.height,
+            "train_copy_share": float(echo.mean()),
+            "nc_rows": nc.height,
+            "rounds": rounds,
+            "target_rows": int(sel.size),
+            "target_mean_p": float(p.mean()),
+        }
+    info["ucmix"] = stats
+    return out
 
 
 def _lobt_bound(out: pl.DataFrame, cfg: TrainConfig, info: dict) -> pl.DataFrame:

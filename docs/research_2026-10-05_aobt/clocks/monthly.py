@@ -1,0 +1,22 @@
+import os; os.environ["POLARS_MAX_THREADS"]="2"
+import polars as pl
+pl.Config.set_tbl_rows(300); pl.Config.set_tbl_cols(40); pl.Config.set_tbl_width_chars(260)
+D=pl.read_parquet("slim.parquet").filter(pl.col("PHASE_mvt")=="DEP")
+cls=(pl.when(pl.col("AOBT3").is_null()).then(pl.lit("nm_missing"))
+ .when((pl.col("d_bs").abs()<=6)&(pl.col("d_ba").abs()>60)).then(pl.lit("block_eq_sched"))
+ .when(pl.col("d_ba").abs()<=60).then(pl.lit("agree_60s"))
+ .when(pl.col("d_ba").abs()<=300).then(pl.lit("diff_1_5min"))
+ .when(pl.col("d_ba")<-300).then(pl.lit("block_early_gt5"))
+ .otherwise(pl.lit("block_late_gt5")))
+D=D.with_columns(cls=cls)
+t=D.group_by("APT","month","cls").len().with_columns(sh=pl.col("len")/pl.col("len").sum().over("APT","month"))
+t.write_csv("out/monthly_copy_classes.csv")
+print(D.group_by("APT","cls").len().with_columns(sh=(pl.col("len")/pl.col("len").sum().over("APT")).round(4)).pivot(on="cls",index="APT",values="sh").sort("APT"))
+s=D.group_by("APT","month").agg(aobt_s0=(pl.col("sec_a")==0).mean(),ba_med=pl.col("d_ba").median(),ba_iqr=pl.col("d_ba").quantile(.75)-pl.col("d_ba").quantile(.25)).sort("APT","month")
+s.write_csv("out/monthly_precision_offset.csv")
+for c in ["aobt_s0","ba_med","ba_iqr"]: print(c); print(s.pivot(on="month",index="APT",values=c).sort("APT"))
+h=D.group_by("APT","hour").agg(ba_med=pl.col("d_ba").median()).sort("APT","hour"); h.write_csv("out/hourly_offset.csv")
+print(h.pivot(on="hour",index="APT",values="ba_med").sort("APT"))
+# LTFM constant share by month
+l=D.filter(pl.col("APT")=="LTFM").with_columns(mm=(pl.col("d_mt")/60).round()).group_by("month").agg(c1920=pl.col("mm").is_in([19,20]).mean(),c2425=pl.col("mm").is_in([24,25]).mean(),c16=pl.col("mm").is_in([15,16]).mean()).sort("month")
+print(l); l.write_csv("out/ltfm_constants_monthly.csv")

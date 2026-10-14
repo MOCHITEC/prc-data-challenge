@@ -1,0 +1,19 @@
+# OSM confirmation, arm noise1 -- plan.md §5. main_gap + folds [jan, jul, forward].
+name: osm_full_noise1
+num_rounds: 2000
+early_stopping: 100
+use_categoricals: true
+use_encodings: true
+use_weather: true
+reference_min_count: 30
+inner_holdout_months: 1
+unmatched_num_leaves: 127
+unmatched_min_data_in_leaf: 50
+unmatched_num_rounds: 2000
+n_seeds: 3
+unmatched_sched_reparam: true
+unmatched_sched_reparam_airports: [LIRF]
+lobt_bound: true
+include_candidates: [stand_arrival_gap]
+folds: [jan, jul, forward]
+fe_noise_cols: 1

@@ -1,0 +1,4 @@
+training unmatched rows 22,470: label > 12 h share 0.1469% (limit 0.2203%)
+outputs/mb_ctl.parquet: 5,290 unmatched ranking rows, pred > 12 h 0.2079% (PASS); by airport {'LIRF': 11}
+outputs/mb_b255.parquet: 5,290 unmatched ranking rows, pred > 12 h 0.2079% (PASS); by airport {'LIRF': 11}
+outputs/mb_mix255.parquet: 5,290 unmatched ranking rows, pred > 12 h 0.2079% (PASS); by airport {'LIRF': 11}

@@ -1,0 +1,13 @@
+A = main_flseq_osm_nolirf_l2_opt_cmix-d9b7e7a288
+B = main_flseq_osm_nolirf_l2_opt_cmix_lebl-8ea5dd5990
+       0    270.70    270.70    +0.00    [  -0.04,  +0.05]  0.466
+     200    211.53    211.53    +0.00    [  -0.06,  +0.06]  0.500
+tail structure (reporting only - the VERDICT below is computed by verdict() from the curve alone,
+VERDICT (from the curve only, rule unchanged): REJECT - no difference on all rows: +0.00 s [-0.04, +0.05]
+            all rows: folds forward=+0.05  jan=-0.03  jul=-0.03 | airports better 0/10 | airport-day CI (1230 blocks) +0.00 [-0.05, +0.06]
+   worst 200 removed: folds forward=+0.05  jan=-0.05  jul=-0.04 | airports better 0/10 | airport-day CI (1230 blocks) +0.00 [-0.06, +0.07]
+STRICT VERDICT: REJECT - the curve verdict already rejects
+LEBL matched pooled +0.01 [-0.83,+0.93]
+  LEBL jan: n=12168 138.0 -> 137.1 (-0.89)
+  LEBL jul: n=16322 257.8 -> 257.4 (-0.41)
+  LEBL forward: n=27011 164.2 -> 165.0 (+0.75)

@@ -135,3 +135,48 @@ def test_the_report_is_labelled_as_reporting_only_and_leaves_the_verdict_alone()
     assert "reporting only" in text and "none of these lines change adopt/reject" in text
     assert "195 more" in text  # the list is truncated only when asked
     assert verdict(curve) == before
+
+
+def test_holdout_mask_is_stable_by_airport_day_and_near_its_share():
+    from prc.compare import holdout_mask
+
+    rng = np.random.default_rng(0)
+    ap = rng.choice(["EDDF", "EGLL", "LIRF"], 20000)
+    day = np.array([f"2025-01-{d:02d}" for d in rng.integers(1, 29, 20000)])
+    m = holdout_mask(ap, day)
+    assert np.array_equal(m, holdout_mask(ap, day))
+    keys = np.char.add(ap, day)
+    for k in np.unique(keys):  # whole airport-days, never split
+        assert len(np.unique(m[keys == k])) == 1
+    assert 0.05 < m.mean() < 0.4
+
+
+def test_block_bootstrap_sign_and_ci():
+    from prc.compare import block_bootstrap_rmse_diff
+
+    rng = np.random.default_rng(1)
+    y = rng.normal(0, 100, 5000)
+    p_a = y + rng.normal(0, 50, 5000)
+    p_b = y + rng.normal(0, 40, 5000)
+    r = block_bootstrap_rmse_diff(y, p_a, p_b, rng.integers(0, 200, 5000), n_boot=300)
+    assert r["diff_rmse"] < 0 and r["ci95"][1] < 0 and r["n_blocks"] == 200
+
+
+def test_strict_verdict_rejects_when_one_fold_does_not_improve():
+    from prc.compare import strict_report, strict_verdict
+
+    rng = np.random.default_rng(2)
+    n = 6000
+    y = rng.normal(0, 100, n)
+    fold = np.repeat(["jan", "jul", "forward"], n // 3)
+    ap = np.tile(np.array([f"A{i}" for i in range(10)]), n // 10)
+    block = np.char.add(ap, rng.integers(0, 30, n).astype(str))
+    p_a = y + rng.normal(0, 50, n)
+    p_b = y + rng.normal(0, 40, n)
+    good = strict_report(y, p_a, p_b, fold, ap, block, k=20, n_boot=200)
+    assert strict_verdict(True, good)[0]
+    p_c = np.where(fold == "jan", y + rng.normal(0, 60, n), p_b)  # better in jul/forward, worse in jan
+    bad = strict_report(y, p_a, p_c, fold, ap, block, k=20, n_boot=200)
+    ok, why = strict_verdict(True, bad)
+    assert not ok and "jan" in why
+    assert not strict_verdict(False, good)[0]
