@@ -375,3 +375,15 @@ python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_
   --adsb-models /home/user/prc-final/adsb_out/models /home/user/prc-final/adsb_out/models_s43 /home/user/prc-final/adsb_out/models_s44 --tag final_v6_all5 --c13
 ```
 - 進行中: cat_vtight の screen（2025 年 1・2・6・7 月）。cat_tight より一貫して良ければ a2o / pao を学習し直す。
+
+## 2026-10-14 05:05 UTC: cat_vtight の screen 結果 → 採用しない
+anchored LightGBM、単一 seed 42、matched RMSE の base からの差（s）:
+
+| 設定 | 1 月 | 2 月 | 6 月 | 7 月 | 平均 |
+|---|---|---|---|---|---|
+| cat_tight（採用中） | −1.08 | −0.55 | −0.82 | −1.00 | −0.86 |
+| cat_vtight（200/200/1000） | −1.24 | −0.49 | −0.60 | −1.24 | −0.89 |
+
+- 1・7 月は vtight、2・6 月は tight が良く、平均は同等（seed のばらつき 0.13〜0.3 s の範囲）。vtight は 2000 round の上限に達している。
+- 一貫した改善ではないので、a2o / pao の学習し直し（約 2.5 時間）はしない。cat_tight のまま。
+- 続けて: ADS-B 層の seed 45・46（3 → 5 本平均、見込み −0.02 s）、MLP と CatBoost の seed 47・48（各 −0.02〜−0.03 s）。
