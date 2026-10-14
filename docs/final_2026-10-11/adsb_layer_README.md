@@ -1,3 +1,5 @@
+> **Status (2026-10-14): superseded — see [`docs/FINAL_SUBMISSION.md`](../FINAL_SUBMISSION.md).** The status line below ("June blocked") is from 10-11; June was later ingested for 29 of 30 days. The method description still applies.
+
 # ADS-B residual layer for the final ranking set (Jan, Feb, Jun, Jul 2026)
 
 Status (2026-10-11 17:40 UTC): models fit, Jan/Jul validated against v47, February built and applied on the dev base.

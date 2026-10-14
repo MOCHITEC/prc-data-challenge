@@ -1,3 +1,5 @@
+> **Status (2026-10-14): superseded — see [`docs/FINAL_SUBMISSION.md`](../FINAL_SUBMISSION.md).** This page records the state on 10-11 (Jan/Jul = v47, June ADS-B missing); the final file differs.
+
 # Final evaluation set (2026-10-11)
 
 - The organisers put `final_ranking.parquet` / `final_submitting.parquet` in `prc-2026-datasets` on 2026-10-08 11:04Z.

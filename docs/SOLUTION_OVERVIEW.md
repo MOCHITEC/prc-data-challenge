@@ -1,3 +1,5 @@
+> **Status (2026-10-14): superseded — see [`docs/FINAL_SUBMISSION.md`](FINAL_SUBMISSION.md)** for the final file. This map describes the pipeline at v47; the final file's Jan/Jul rows are v48 (v47 + 12-month appear + EDDF coverage delta).
+
 # Solution overview (state of submission v47, LB 234.48, 2026-10-08)
 
 This is a map of the final pipeline: what each stage does, why it is there, and where its code and evidence
