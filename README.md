@@ -102,8 +102,8 @@ file's identity: source commit, md5, rows and validation result. This section is
      `docs/final_2026-10-11/adsb_layer_README.md` §1.
 2. **February and June rows: the chain**, run on the final data (recipe: `handoff/2026-10-13/README.md` as of
    `25f6246`, translated in `docs/FINAL_SUBMISSION.md` §2.2 and §5.3).
-   1. **Members**, trained with `python -m prc.pipeline --config <member config> --skip-cv` on the final raw data.
-      The code is peaceful-babbage `6a97bf0`.
+   1. **Members**, trained with `.venv/bin/python -m prc.pipeline --config <member config> --skip-cv` on the final raw
+      data. The code is peaceful-babbage `6a97bf0`.
       - The members are a2o, pao, p2o and m4 with 3 seeds each, and c2 (CatBoost) with 1 seed. The configs are in the
         §2 table.
       - The `fl_*` / `seq_*` columns of matched rows were rebuilt on the 2025 + 2026 union
@@ -136,8 +136,9 @@ file's identity: source commit, md5, rows and validation result. This section is
      (`558c736`), also byte for byte.
    - The members, blend, ADS-B layers, overlays and the increment table are taken as committed, not rebuilt. The
      increment table can be recomputed from committed files (`docs/FINAL_SUBMISSION.md` §5.3).
-4. **Gate:** `python -m prc.validate_final <file> --template final_submitting.parquet --ranking final_ranking.parquet
-   --expect-md5 <md5>`. It prints PASS; the output is summarised in `docs/FINAL_SUBMISSION.md` §1.
+4. **Gate:** `.venv/bin/python -m prc.validate_final <file> --template data/raw/final/final_submitting.parquet
+   --ranking data/raw/final/final_ranking.parquet --expect-md5 <md5>`, run from the repository root after §4 and §5.
+   It prints PASS; the output is summarised in `docs/FINAL_SUBMISSION.md` §1.
 
 **What is not in the file** (`docs/FINAL_SUBMISSION.md` §3):
 - no "+1×δ" re-anchor of January/July;
@@ -199,7 +200,9 @@ uv pip install -q --python .venv/bin/python -r requirements-lock.txt
 .venv/bin/python -m pytest -q          # full suite; about 5-9 min
 ```
 
-`make bootstrap` runs the same steps. It also downloads the competition data if the credentials are set.
+`make bootstrap` runs the same steps. It also downloads the competition data if the credentials are set. That
+download step also needs `OSN_COMPETITION_BUCKET=prc-2026-datasets` exported (§5); without it the step prints only
+"download failed".
 
 ## 5. Data access
 
@@ -215,12 +218,21 @@ organisers' OpenSky Network MinIO (S3) service. Credentials come from environmen
 | `OSN_COMPETITION_BUCKET` | `prc-2026-datasets` |
 | `OSN_TEAM_BUCKET`, `PRC_TEAM_NAME` | only needed for submissions |
 
+Export the credentials and `OSN_COMPETITION_BUCKET=prc-2026-datasets` first; never print the secrets.
+
 ```bash
+export OSN_COMPETITION_BUCKET=prc-2026-datasets
 .venv/bin/python -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"   # all files
 # final-phase files only, read-only (runbook §3):
 .venv/bin/python -c "from pathlib import Path; from prc.io_minio import download_files; \
   [print(p) for p in download_files(bucket='prc-2026-datasets', dest=Path('data/raw/final'))]"
 ```
+
+- **To reproduce the final file, the second command is the one you need.** It writes `final_submitting.parquet`,
+  `final_ranking.parquet` and `ranking.parquet` to `data/raw/final/`, the default directory of the assembler and the
+  validator (`docs/FINAL_SUBMISSION.md` §5).
+- The first command (`download_all()`, also `make download`) fetches every object of the bucket into `data/raw/`,
+  not `data/raw/final/`. It raises `RuntimeError: OSN_COMPETITION_BUCKET is not set` if the variable is not exported.
 
 External data are fetched from public endpoints without credentials. Each source, its licence and the script that
 fetches it are listed in `docs/external_data.md`.

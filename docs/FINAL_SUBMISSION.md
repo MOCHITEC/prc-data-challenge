@@ -34,8 +34,9 @@ The file's identity is **defined by this table**. Copies of it:
 
 If the ledger or the bucket ever shows a different md5, trust them: this page is then out of date.
 
-**Validation.** `python -m prc.validate_final <file> --template final_submitting.parquet --ranking
-final_ranking.parquet --expect-md5 c0d4a1439862e68852b65f6854322a29` prints **PASS** and exits 0. It was run on
+**Validation.** `.venv/bin/python -m prc.validate_final <file> --template data/raw/final/final_submitting.parquet
+--ranking data/raw/final/final_ranking.parquet --expect-md5 c0d4a1439862e68852b65f6854322a29` (from the repository
+root, after `README.md` §4 and §5) prints **PASS** and exits 0. It was run on
 2026-10-14 against the organisers' files (`final_submitting.parquet` md5 `2c1f4072…`, `final_ranking.parquet` md5
 `1ce0c6ee…`; the runbook §3 lists both), and again on the file rebuilt by the script of §5.2.
 - The ids equal the template's in set and order.
@@ -85,7 +86,7 @@ The recipe is the top of `handoff/2026-10-13/README.md` as of `25f6246` (in Japa
 translated in §8). In English:
 
 1. **Members.** Each member was trained on the final raw data:
-   `python -m prc.pipeline --config <config> --skip-cv --raw-dir <final raw dir> --work-dir <final work dir>`.
+   `.venv/bin/python -m prc.pipeline --config <config> --skip-cv --raw-dir <final raw dir> --work-dir <final work dir>`.
    - The code was peaceful-babbage `6a97bf0`, which `main` contains.
    - The matched rows of the feature cache had their `fl_*` / `seq_*` columns replaced by values built on the
      2025 + 2026 union (`analysis/local_audit_fix2026.py` run on the final frame). The result is committed as
@@ -305,11 +306,13 @@ The team chose it on 2026-10-14, after a check on the regular leaderboard (Janua
 
 ## 5. Reproduction
 
-### 5.1 Get and check the file (about 2 minutes; the runbook §2–§5 has the full commands)
+### 5.1 Get and check the file
+
+This takes a few minutes, depending on the network (≈132 MB). The runbook §2–§5 has the full commands.
 
 ```bash
 md5sum handoff/2026-10-13/final_v5_plus_febjun_appear.parquet      # c0d4a1439862e68852b65f6854322a29
-python -m prc.validate_final handoff/2026-10-13/final_v5_plus_febjun_appear.parquet \
+.venv/bin/python -m prc.validate_final handoff/2026-10-13/final_v5_plus_febjun_appear.parquet \
   --template data/raw/final/final_submitting.parquet --ranking data/raw/final/final_ranking.parquet \
   --expect-md5 c0d4a1439862e68852b65f6854322a29
 ```
@@ -322,7 +325,7 @@ The competition files come from the organisers' bucket (`README.md` §5).
 `final_submitting.parquet` / `final_ranking.parquet`. Run it from the repository root:
 
 ```bash
-python scripts/final/assemble_final_v48.py --out outputs/final/final_v5_plus_febjun_appear.parquet \
+.venv/bin/python scripts/final/assemble_final_v48.py --out outputs/final/final_v5_plus_febjun_appear.parquet \
   --febjun-appear handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet \
   --reference handoff/2026-10-13/final_v5_plus_febjun_appear.parquet \
   --expect-md5 c0d4a1439862e68852b65f6854322a29
@@ -413,7 +416,7 @@ Notes on the parts:
 
   ```bash
   ln -s final/final_ranking.parquet data/raw/final_ranking.parquet   # final_adsb.py reads this path
-  SCRATCH=$PWD/handoff/2026-10-11/adsb python docs/appear_tier_2026-10-05/final_adsb.py \
+  SCRATCH=$PWD/handoff/2026-10-11/adsb .venv/bin/python docs/appear_tier_2026-10-05/final_adsb.py \
     handoff/2026-10-13/pre_adsb_base_blend5_final.parquet incr_4m.parquet --months 01,02,06,07 --increment
   ```
 
