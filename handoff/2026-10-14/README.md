@@ -1,5 +1,28 @@
 # 最終 4 か月の候補ファイル（beautiful-davinci、2026-10-14）
 
+## ★ 05:15 UTC 更新: 統合役の推奨が v6 になったので、v6 の上に作り直した（`v6/` フォルダ）
+
+**提出役へ: v6 を使うなら、下の表の `v6/` のファイルを使うこと**（v4 の上のファイルは v4 を選んだ場合だけ）。
+旧ボードの試験ファイル（`oldboard/`、v48 ベース）はそのまま使える。決め方も同じ。
+
+| 旧ボードの結果 | 最終ファイル（v6 の上） | md5 |
+|---|---|---|
+| 補正 1 も 2 も悪化しない | `v6/final_v6_gatefull_q15_plus1delta.parquet` | `5cbe5f963ea74a82511ea38bd67a2b93` |
+| 補正 1 は悪化せず、2 は悪化（または旧ボードで試せない） | `v6/final_v6_gatefull_plus1delta.parquet` | `c17d7b91fb2459aab60446b1fd116f08` |
+| 補正 1 は悪化、2 は悪化せず | `v6/final_v6_q15_plus1delta.parquet` | `ce7ec85d5e234ee41c22ed14c62681fb` |
+| どちらも悪化 | 統合役の v6 の `optional_janjul_reanchor_plus1delta.parquet` | `f790bbe4cd7d009d25633ee6a63d22a3` |
+
+- ベース: 統合役の `final_recommended.parquet` = v6（md5 7e53142e478bbb022ae6584850143040）と、その +1×δ 版（md5 f790bbe4…）。
+- **全ファイル 1・7 月の +1×δ 入り。`add_delta_janjul.py` を重ねないこと。** +1×δ なしの版: `v6/final_v6_gatefull.parquet`（2eaaafec…）、
+  `v6/final_v6_gatefull_q15.parquet`（e0862f91…）。
+- 作り方: `docs/final_phase_gate/build_on_base.py <v6> <v6 の +1×δ 版> <出力先> v6`。
+  - 補正 1（門）は v2 で厳密に計算した差分表を足す（2,486 行、Σd²/N 71.7、v4 のときと同じ）。
+  - 補正 2（q^1.5）は v6 から 0.4·q の overlay を逆算して作り直した（45,930 行、Σd²/N 162.2）。v4 の上の差分との違いは RMS 1.5 s。
+  - スクリプト内で、+1×δ のかけ方を再現して統合役の v6 の +1×δ 版と完全一致することを確認（一致しなければ止まる）。
+- 5 ファイルとも validate OK（670,790 行）、LOBT の制約を破る行は 0。
+
+---
+
 **状態（03:05 UTC）**: 補正 1（LIRF の門）と補正 2（LIRF の overlay の重み直し）の 2 つ。どちらも 2025 年で検証し、独立した点検を通過。
 **ユーザーの指示（03:00 UTC）: 補正 2 は「試してみて、スコアが落ちすぎないなら入れる」。** そのため、旧ボード（1・7 月、旧時計）で
 試すための v48 ベースの試験ファイルを `oldboard/` に用意した。手順は下の「旧ボードでの試し方」。
