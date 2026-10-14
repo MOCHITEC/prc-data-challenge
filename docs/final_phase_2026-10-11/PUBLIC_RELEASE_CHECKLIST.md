@@ -10,7 +10,7 @@ State at the time of writing:
 | `main` | fast-forwarded from 1000e4c to the integration branch `integration/final-2026-10-14` |
 | GitHub default branch | **still `claude/prc-data-challenge-planning-l7dk7k`** (b031609, 2026-09-11, old planning README). `gh api -X PATCH repos/MOCHITEC/prc-data-challenge -f default_branch=main` was refused: "Repository settings writes are not permitted through this proxy." (HTTP 403) |
 | licence | `LICENSE` is the GPLv3 text; GitHub detects `GPL-3.0` |
-| tests on the integration branch | 364 passed, 2 skipped (`pytest -q`, 8 min 42 s) |
+| tests on the integration branch | 364 passed, 2 skipped (`pytest -q`; at a8ce052 and again at 0a0799b, 8 min 44 s) |
 | secret scan | no hits (§4) |
 
 ## 1. Before the deadline (10:00Z)
@@ -80,12 +80,12 @@ State at the time of writing:
 
 - **Secret scan**, run on 2026-10-14 with a scanner kept outside the repository. It found nothing:
   - Exact-value search for the 7 credential variables set in the container (`OSN_ID`, `OSN_ACCESS_KEY`,
-    `OSN_SECRET_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`). It covered all 7,195
+    `OSN_SECRET_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`). It covered all 7,239
     objects of the object store, reachable or not, and the working tree: **0 hits**.
-  - Patterns over `git log -p --all` (780 commits, added lines and commit messages): AWS key ids, private-key blocks,
-    GitHub / Slack / Anthropic / OpenAI / Google tokens, JWTs, URLs with passwords, literal secret assignments.
-    **0 hits.**
-  - The same patterns over the 2,133 tracked files at the tip: **0 hits**.
+  - Patterns over `git log -p --all` (786 commits, all 11 branches on GitHub, added lines and commit messages):
+    AWS key ids, private-key blocks, GitHub / Slack / Anthropic / OpenAI / Google tokens, JWTs, URLs with passwords,
+    literal secret assignments. **0 hits.**
+  - The same patterns over the 2,135 tracked files at the tip (0a0799b): **0 hits**.
   - Risky file names ever committed: only `.env.example`. Every version of it has empty credential values.
 - **LICENSE**: GPLv3 full text, present.
 - **Vendored code**: `docs/research_2026-10-05_aobt/kpi/pylib/` (openpyxl 3.1.5, et_xmlfile 2.0.0; MIT) had no
@@ -97,7 +97,7 @@ State at the time of writing:
 - **Large files.**
   - Every tracked parquet file and every other file ≥ 1 MB is listed with its size in
     `docs/final_phase_2026-10-11/tracked_large_files.tsv`: 485 files, 423.1 MB.
-  - The tip tracks 2,133 files (441.5 MB), including 477 parquet files (322.1 MB). The largest file is 30.0 MB, under
+  - The tip tracks 2,135 files (441.6 MB), including 477 parquet files (322.1 MB). The largest file is 30.0 MB, under
     GitHub's 100 MB limit. The packed history is 250 MB.
 
   | directory | files | MB |
