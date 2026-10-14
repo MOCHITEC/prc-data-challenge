@@ -1,6 +1,6 @@
 """Both LIRF corrections on any base that carries the integrator's 0.4*q copy overlay (unfixed q) and LOBT clip:
 
-    python -I docs/final_phase_gate/build_on_base.py <base.parquet> <base_plus1delta.parquet> <out_dir> <tag>
+    python -I docs/final_phase_gate/build_on_base.py <base.parquet> <base_plus1delta.parquet | -> <out_dir> <tag>
 
 1) gate: the copy overlay removed on LIRF matched rows with |LOBT - SCHED| > 3606 s. Delta per row = new - old of the
    gate table (computed exactly on v2, handoff/2026-10-14/lirf_copy_gate_rows_v2.parquet), added to the base.
@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GATE = os.path.join(HERE, "..", "..", "handoff", "2026-10-14", "lirf_copy_gate_rows_v2.parquet")
 QFILE = os.environ.get("QFILE", "/home/user/lc-final/handoff/2026-10-13/inputs/copyq_LIRF_final_unfixed.parquet")
 B = pl.read_parquet(base_p)
-DI = pl.read_parquet(dith_p)
+DI = None if dith_p == "-" else pl.read_parquet(dith_p)  # '-': build the +1x dither file here (no integrator file yet)
 R = (pl.scan_parquet("data/raw/final_ranking.parquet").filter(pl.col("PHASE_mvt") == "DEP")
      .select(K, "ADEP_mvt", pl.col("AOBT_3_flt").is_not_null().alias("mat"), pl.col("MVT_TIME_UTC_mvt").dt.month().alias("mon"),
              (pl.col("MVT_TIME_UTC_mvt") - pl.col("LOBT_flt")).dt.total_seconds().cast(pl.Float64).alias("mml"),
@@ -73,8 +73,15 @@ def dither(sub):
 
 
 mine = dither(B)
-print("dither re-implementation == given +1x file:", mine.equals(DI))
-assert mine.equals(DI), "the +1x file is not the base dithered once"
+if DI is None:
+    DI = mine
+    tplc = pl.read_parquet("data/raw/final_submitting.parquet")
+    tplc.select(K).join(DI, on=K, how="left", maintain_order="left").cast(tplc.schema).write_parquet(
+        os.path.join(out_dir, f"{tag}_plus1delta_built_here.parquet"))
+    print("no +1x file given: built it here from the base (same rule as the integrator's add_delta_janjul.py)")
+else:
+    print("dither re-implementation == given +1x file:", mine.equals(DI))
+    assert mine.equals(DI), "the +1x file is not the base dithered once"
 tpl = pl.read_parquet("data/raw/final_submitting.parquet")
 outs = {
     f"final_{tag}_gatefull": add(B, ("gd", GD)),
