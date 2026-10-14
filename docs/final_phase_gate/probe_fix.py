@@ -11,6 +11,7 @@ so rbar = (S^2 - (R_probe^2 - R_v48^2) N/n) / (2S). With P1 and P3, the LTFM Jan
 rbar_no = (n_all rbar_all - n_de rbar_de) / (n_all - n_de).
 
     python -I docs/final_phase_gate/probe_fix.py <v48.parquet> <R_v48> <R_P1|-> <R_P2|-> <R_P3|-> <R_P4|-> <final_in> <final_out> [--dithered]
+        [--stage2=EDDF=<score>,EDDM=<score>,...]   (optional per-airport January de-icing probes, probes/stage2/)
 
 Correction of the final file F (same departures, by MVT_ID): each cell is shifted by rbar - mean(F - v48) over the cell
 (F before the +1x MVT dither when --dithered: the per-row dither is subtracted first). Then the LOBT identity clip on the
@@ -68,14 +69,39 @@ def main(a):
         cells.append(("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rbar(r0, p3, n_de, -100.0)))
     if p2 != "-":
         cells.append(("LTFM Jul all", (pl.col("ADEP_mvt") == "LTFM") & (pl.col("m") == 7), rbar(r0, p2, n_jul, -40.0)))
-    if p4 != "-":
-        cells.append(("EDDF/EDDM/EHAM/LFPG/LSZH Jan de-icing", pl.col("de_o"), rbar(r0, p4, n_oth, -100.0)))
+    # optional stage 2: per-airport January de-icing probes (probes/stage2/v48_<AP>_01_deice_shift-100.parquet), given as
+    # --stage2 EDDF=<score>,EDDM=<score>,...; the pooled P4 then only covers the airports without their own probe.
+    st2 = {}
+    for x in a:
+        if x.startswith("--stage2="):
+            st2 = {kv.split("=")[0]: kv.split("=")[1] for kv in x[len("--stage2="):].split(",") if kv}
+    oth_ap = pl.read_parquet(P + "cell_OTHER5_01_deice.parquet").select(K, pl.col("ADEP_mvt").alias("ap_o"))
+    O = O.join(oth_ap, on=K, how="left")
+    feb_ap = pl.read_parquet(P + "cell_OTHER5_02_deice.parquet").select(K, pl.col("ADEP_mvt").alias("ap_f"))
+    oth_names = {}
+    if st2:
+        n_ap = {ap: int((O["ap_o"] == ap).sum()) for ap in st2}
+        rb_ap = {ap: rbar(r0, sc, n_ap[ap], -100.0) for ap, sc in st2.items()}
+        for ap, rb_ in rb_ap.items():
+            nm = f"{ap} Jan de-icing"
+            cells.append((nm, pl.col("ap_o") == ap, rb_)); oth_names[nm] = [ap]
+        rest = [ap for ap in ("EDDF", "EDDM", "EHAM", "LFPG", "LSZH") if ap not in st2]
+        if p4 != "-" and rest:
+            n_rest = n_oth - sum(n_ap.values())
+            r_pool = rbar(r0, p4, n_oth, -100.0)
+            r_rest = (n_oth * r_pool - sum(n_ap[ap] * rb_ap[ap] for ap in st2)) / n_rest
+            nm = "/".join(rest) + " Jan de-icing"
+            cells.append((nm, pl.col("ap_o").is_in(rest), r_rest)); oth_names[nm] = rest
+            print(f"five-airport pool rbar {r_pool:+.2f}; per airport {', '.join(f'{k} {v:+.2f}' for k, v in rb_ap.items())}; rest {r_rest:+.2f}")
+    elif p4 != "-":
+        nm = "EDDF/EDDM/EHAM/LFPG/LSZH Jan de-icing"
+        cells.append((nm, pl.col("de_o"), rbar(r0, p4, n_oth, -100.0))); oth_names[nm] = ["EDDF", "EDDM", "EHAM", "LFPG", "LSZH"]
     F = pl.read_parquet(fin)
     nw = (pl.scan_parquet("data/raw/final_ranking.parquet").filter(pl.col("PHASE_mvt") == "DEP")
           .select(K, "MVT_TIME_UTC_mvt", pl.col("AOBT_3_flt").is_not_null().alias("mat"),
                   (pl.col("MVT_TIME_UTC_mvt") - pl.col("LOBT_flt")).dt.total_seconds().cast(pl.Float64).alias("mml")).collect())
     Z = (F.join(nw, on=K, how="left", maintain_order="left").join(V, on=K, how="left", maintain_order="left")
-         .join(O, on=K, how="left", maintain_order="left"))
+         .join(O, on=K, how="left", maintain_order="left").join(feb_ap, on=K, how="left", maintain_order="left"))
     Z = Z.with_columns(dl=pl.when(pl.col("mat") & pl.col("t_old").is_not_null())
                        .then((pl.col("MVT_TIME_UTC_mvt") - pl.col("t_old")).dt.total_seconds().cast(pl.Float64)).otherwise(0.0))
     shift = pl.lit(0.0)
@@ -92,14 +118,15 @@ def main(a):
     # Pre-registered February rule (README, 06:00 UTC): 0.5 x the January de-icing shift of F, if |rbar| passes the threshold.
     jan = {name: (rb, c) for name, (rb, c) in applied.items()}
     feb_l = set(pl.read_parquet(P + "cell_LTFM_02_deice.parquet")[K].to_list())
-    feb_o = set(pl.read_parquet(P + "cell_OTHER5_02_deice.parquet")[K].to_list())
-    for jname, fset, thr, label in (("LTFM Jan de-icing", feb_l, 100.0, "LTFM Feb de-icing"),
-                                    ("EDDF/EDDM/EHAM/LFPG/LSZH Jan de-icing", feb_o, 50.0, "five-airport Feb de-icing")):
+    rules = [("LTFM Jan de-icing", pl.col(K).is_in(list(feb_l)), 100.0, "LTFM Feb de-icing")]
+    for nm, aps in oth_names.items():
+        rules.append((nm, pl.col("ap_f").is_in(aps).fill_null(False), 50.0, nm.replace("Jan", "Feb")))
+    for jname, mask, thr, label in rules:
         if jname in jan and abs(jan[jname][0]) >= thr:
             c2 = 0.5 * jan[jname][1]
-            mask = pl.col(K).is_in(list(fset))
+            nrow = Z.filter(mask).height
             shift = shift + pl.when(mask).then(pl.lit(c2)).otherwise(0.0)
-            print(f"{label}: rows {len(fset)}, shift {c2:+.2f} s (0.5 x the January shift; |rbar| {abs(jan[jname][0]):.0f} >= {thr:.0f})")
+            print(f"{label}: rows {nrow}, shift {c2:+.2f} s (0.5 x the January shift; |rbar| {abs(jan[jname][0]):.0f} >= {thr:.0f})")
         elif jname in jan:
             print(f"{label}: unchanged (|rbar| {abs(jan[jname][0]):.0f} < {thr:.0f})")
     v = pl.col(T).cast(pl.Float64) + shift
