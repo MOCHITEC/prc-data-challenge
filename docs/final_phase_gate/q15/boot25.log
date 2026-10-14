@@ -1,0 +1,33 @@
+sanity: ungated sweep (should resemble the integrator copy_lomo table):
+  UNGATED w=0.5: dSSE vs 0.4 -117.4 M  (integrator table: 0.5 -85, 0.55 -108, 0.65 -117, 0.8 -35)
+  UNGATED w=0.55: dSSE vs 0.4 -159.8 M  (integrator table: 0.5 -85, 0.55 -108, 0.65 -117, 0.8 -35)
+  UNGATED w=0.65: dSSE vs 0.4 -217.9 M  (integrator table: 0.5 -85, 0.55 -108, 0.65 -117, 0.8 -35)
+  UNGATED w=0.8: dSSE vs 0.4 -215.0 M  (integrator table: 0.5 -85, 0.55 -108, 0.65 -117, 0.8 -35)
+A: const w=0.8 (pull=0.8q): dSSE -335.8 M = -161.038 s^2 of 2025 MSE; CI95 [-421.4,-251.4] M P(>=0) 0.0000; months improved 11/12; FebJun -63.3 M CI [-103.8,-28.9]; Jan+Feb+Jun+Jul -92.4 M; by month [ 17.1 -22.9 -37.2 -13.9 -34.5 -40.5 -46.1 -32.4 -20.9 -60.3 -19.7 -24.5]
+   top-10 rows share of total gain 0.130; top-100 0.775; rows with |change|>=1: 150186; sum sq change 370.9 M -> ratio gain/sumsq 0.91
+A2: const w=0.65 (pull=0.65q): dSSE -296.7 M = -142.290 s^2 of 2025 MSE; CI95 [-358.3,-241.2] M P(>=0) 0.0000; months improved 11/12; FebJun -52.3 M CI [-81.1,-27.6]; Jan+Feb+Jun+Jul -87.0 M; by month [  6.6 -18.4 -28.  -13.8 -27.  -33.9 -41.3 -30.7 -21.  -47.5 -18.4 -23.4]
+   top-10 rows share of total gain 0.105; top-100 0.605; rows with |change|>=1: 147068; sum sq change 145.2 M -> ratio gain/sumsq 2.04
+A3: const w=0.7: dSSE -321.3 M = -154.090 s^2 of 2025 MSE; CI95 [-390.6,-254.6] M P(>=0) 0.0000; months improved 11/12; FebJun -57.6 M CI [-90.3,-30.1]; Jan+Feb+Jun+Jul -92.7 M; by month [  9.5 -20.4 -31.7 -14.5 -30.2 -37.2 -44.6 -32.6 -22.  -53.1 -19.6 -24.8]
+   top-10 rows share of total gain 0.111; top-100 0.649; rows with |change|>=1: 148625; sum sq change 208.9 M -> ratio gain/sumsq 1.54
+full-sample dSSE (M) for pull=min(1,c*q^a), rows c, cols a= [1.   1.25 1.5  1.75 2.   2.25 2.5 ]
+c=0.6   -260.5   -273.0   -233.0   -183.8   -136.6    -94.4    -57.1
+c=0.7   -321.3   -373.5   -345.9   -299.9   -252.8   -209.2   -169.8
+c=0.8   -335.8   -438.3   -428.6   -389.2   -344.2   -300.9   -261.2
+c=0.9   -304.2   -467.6   -481.1   -451.6   -410.9   -369.5   -330.6
+c=1.0   -226.3   -461.4   -503.6   -487.1   -453.0   -415.1   -378.3
+c=1.1   -107.5   -423.5   -498.9   -498.1   -472.3   -439.2   -405.5
+c=1.2     36.7   -367.9   -480.0   -496.3   -479.5   -451.6   -420.9
+c=1.3    199.1   -301.8   -452.4   -487.1   -480.1   -457.7   -430.4
+c=1.4    379.7   -225.5   -419.7   -473.7   -476.2   -459.6   -435.9
+c=1.5    575.6   -140.1   -380.3   -456.9   -470.5   -459.2   -438.6
+c=1.6    786.4    -46.7   -335.5   -435.4   -461.9   -457.6   -440.6
+LOMO (c,a) chosen per held-out month: [(np.float64(1.1), np.float64(1.5), np.float64(3.8)), (np.float64(1.0), np.float64(1.5), np.float64(-20.1)), (np.float64(1.0), np.float64(1.5), np.float64(-36.0)), (np.float64(1.0), np.float64(1.5), np.float64(-26.4)), (np.float64(1.0), np.float64(1.5), np.float64(-45.9)), (np.float64(1.0), np.float64(1.5), np.float64(-48.2)), (np.float64(1.0), np.float64(1.5), np.float64(-66.7)), (np.float64(1.0), np.float64(1.5), np.float64(-53.0)), (np.float64(1.0), np.float64(1.5), np.float64(-53.2)), (np.float64(1.0), np.float64(1.5), np.float64(-75.4)), (np.float64(1.0), np.float64(1.5), np.float64(-33.7)), (np.float64(1.0), np.float64(1.5), np.float64(-43.7))]; LOMO total -498.5 M (-239.098 s^2); months improved 11/12
+B: pull=q^2: dSSE -453.0 M = -217.261 s^2 of 2025 MSE; CI95 [-521.6,-387.1] M P(>=0) 0.0000; months improved 12/12; FebJun -50.5 M CI [-79.3,-25.4]; Jan+Feb+Jun+Jul -121.1 M; by month [-13.4 -11.3 -21.2 -23.7 -34.8 -39.1 -57.3 -47.6 -54.7 -66.1 -36.3 -47.5]
+   top-10 rows share of total gain 0.107; top-100 0.514; rows with |change|>=1: 142586; sum sq change 397.7 M -> ratio gain/sumsq 1.14
+B2: pull=min(1,1.2*q^2): dSSE -479.5 M = -229.969 s^2 of 2025 MSE; CI95 [-554.7,-409.7] M P(>=0) 0.0000; months improved 12/12; FebJun -57.7 M CI [-87.8,-30.4]; Jan+Feb+Jun+Jul -125.1 M; by month [ -8.7 -13.4 -27.5 -25.1 -41.7 -44.2 -58.7 -48.6 -58.  -73.7 -33.4 -46.4]
+   top-10 rows share of total gain 0.107; top-100 0.535; rows with |change|>=1: 141813; sum sq change 552.4 M -> ratio gain/sumsq 0.87
+B3: pull=q^1.5: dSSE -503.6 M = -241.535 s^2 of 2025 MSE; CI95 [-582.4,-429.9] M P(>=0) 0.0000; months improved 12/12; FebJun -68.4 M CI [-101.5,-38.5]; Jan+Feb+Jun+Jul -136.4 M; by month [ -1.3 -20.1 -36.  -26.4 -45.9 -48.2 -66.7 -53.  -53.2 -75.4 -33.7 -43.7]
+   top-10 rows share of total gain 0.099; top-100 0.513; rows with |change|>=1: 135391; sum sq change 454.0 M -> ratio gain/sumsq 1.11
+C: per-q-bin weight (LOMO): dSSE -466.4 M = -223.689 s^2 of 2025 MSE; CI95 [-544.6,-394.8] M P(>=0) 0.0000; months improved 12/12; FebJun -62.1 M CI [-95.3,-32.8]; Jan+Feb+Jun+Jul -124.6 M; by month [ -2.6 -20.6 -28.1 -25.1 -38.4 -41.6 -59.9 -49.4 -53.9 -72.8 -32.5 -41.6]
+   top-10 rows share of total gain 0.108; top-100 0.543; rows with |change|>=1: 135617; sum sq change 521.1 M -> ratio gain/sumsq 0.90
+C full-sample bin weights (for 2026): [-0.005  0.026  0.055  0.141  0.181  0.286  0.302  0.563  0.69   0.801  0.982]
