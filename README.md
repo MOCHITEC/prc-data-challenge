@@ -4,6 +4,10 @@ Code and documentation of team **resilient-hedgehog** (MOCHITEC Inc.) for the
 [PRC Data Challenge 2026](https://prc-data-challenge-2026.netlify.app/) of the EUROCONTROL Performance Review
 Commission and the OpenSky Network. Licence: GNU GPLv3 (`LICENSE`).
 
+- **Final file:** §3 and [`docs/FINAL_SUBMISSION.md`](docs/FINAL_SUBMISSION.md).
+- **Results:** §10.
+- **Documentation map:** §11.
+
 ## 1. Task and metric
 
 - **Target.** `TAXITIME_SEC_mvt = MVT_TIME − BLOCK_TIME` (seconds) for departures at 10 airports: EDDF, EDDM, EGLL,
@@ -246,3 +250,98 @@ and the stand tables derived from OSM are derived databases of adsb.lol and OSM.
 - Vendored third-party code: `docs/research_2026-10-05_aobt/kpi/pylib/` holds openpyxl 3.1.5 and et_xmlfile 2.0.0.
   Both are MIT; their licence files are next to them. They are used by one research script only.
 - Data: see §7 and `docs/external_data.md`.
+
+## 10. Results
+
+Only numbers that are in committed documents appear here; each row names its source. The ΔRMSE values are in
+seconds, and negative means better. The CIs are the 95 % bootstrap intervals that each source states. These are
+2025 offline measurements: each row compares one change against the base of its day, so the rows **do not add up**.
+
+**Abbreviations.**
+- *pooled OOF*: the 2025 out-of-fold predictions of the `jan`, `jul` and `forward` month folds, 672,428 rows.
+- *Jan+Jul ADS-B CV*: Jan + Jul 2025, 344,419 rows, leave-days-out (5 folds of days), day-block bootstrap.
+- `R = docs/competitor_research_2026-09-21/results/`, `M = docs/research_2026-10-05_measure/`,
+  `A = docs/appear_tier_2026-10-05/results.md`.
+
+| stage | change measured | ΔRMSE [95 % CI] | data | source |
+|---|---|---|---|---|
+| member p2o (plain target) | blend H2 → H2 + p2o, weight 0.5. Alone, p2o is worse than the anchored model by +0.93 [+0.59, +1.31] | −0.78 [−1.00, −0.60] | pooled OOF | `R/plainy-blend.md` |
+| member c2 (CatBoost) | + c2, equal weights 1/3. Alone +0.94 [+0.49, +1.56] | −1.75 [−2.08, −1.47] | pooled OOF | `R/catboost-blend.md` |
+| lever L2 (forward NM windows) | in all three members | −0.32 [−0.45, −0.20] | pooled OOF | `R/blend-l2.md` |
+| member pao (per-airport) | blend + pao. Alone vs a2: +0.00 [−0.54, +0.52] | −0.77 [−0.92, −0.64] | pooled OOF | `R/per-airport-member.md` |
+| retune of the anchored member | blend `hybrid_blend_l2_pa` → `…_opt`. The member alone gains −2.41 [−2.85, −2.02] | −0.89 [−1.10, −0.72] | pooled OOF | `R/optuna-retune.md` |
+| member m4 (MLP) | + m4, equal weights 1/4. Alone it is worse than M1 by +5.59 [+4.67, +6.69] | −0.75 [−0.93, −0.58] | pooled OOF | `R/mlp-member.md` |
+| lever L6 (gate retention) | one anchored member, `ret_base` → `ret_l6` | −0.76 [−0.95, −0.56] | `forward` fold, 328,009 rows | `M/l6_verdict.txt`, `M/l6_plan.md` |
+| cmix (LIRF copy mixture in a2o) | a2o member. The strict verdict is REJECT: only 1 of 10 airports improves | −0.49 [−0.83, −0.15] | pooled OOF | `M/cmix_verdict.txt` |
+| lane B: NM-blind (w 0.25) | non-LIRF unmatched rows (7,841): −7.73 [−20.41, −4.10] | whole frame −0.42 | pooled OOF | `docs/research_2026-10-06_nmblind/verdict.txt`, `plan.md` |
+| lane B: ucmix (LIRF unmatched) | LIRF unmatched rows (537): −143.58 [−253.82, −37.74] | whole frame −1.60 [−2.95, −0.40] | pooled OOF | `docs/research_2026-10-07_ucmix/verdict.txt`, `plan.md` |
+| learned ADS-B residual | on the H2 base: RMSE 316.97 → 302.94. Gain 8,697.9 s² [7,691.4, 9,828.8] | −14.03 | Jan+Jul ADS-B CV | `R/adsb-learned-residual.md` §2 |
+| learned ADS-B residual, refit | on the R6-cbopt base: RMSE 311.705 → 298.596. Gain 8,000.6 s² [7,007.3, 9,060.8] | −13.11 | Jan+Jul ADS-B CV | `R/adsb-learned-residual.md` §14 |
+| appear tier (4 months) | appear vs plain residual | −1.858 [−2.542, −1.346] | Jan+Jul ADS-B CV | `A` §1 |
+| appear tier (12 months, A12) | vs the production mix of the day | −0.804 [−0.924, −0.692] | 2025, 12 months | `A` §12 |
+| appear tier on held-out Feb+Jun 2025 | A12 vs P12 | −1.434 [−1.997, −1.056] | Feb, Jun 2025 held out | `A` §21 |
+| EDDF coverage delta (in v48) | A12 trained on thinned EDDF fixes. EDDF rows −1.13 [−1.73, −0.46] | all rows −0.19 [−0.39, −0.02] | Jan+Jul 2025, held out | `A` §18 |
+| LIRF matched copy overlay (0.4·q) | 2025 Jan+Jul check: gain 390 s² per row (MSE; Jan 15, Jul 375). It changes 26,277 Jan/Jul 2026 rows | — | Jan+Jul 2025 | `docs/posjoin_2026-10-05/deeper_checks.md` |
+| LIRF unmatched copy band | 34 of 34 such 2025 rows are schedule copies | — | 2025 | `docs/SOLUTION_OVERVIEW.md` §4 |
+| LOBT clip ±3606 s | the identity window holds on every matched 2025 row (2.06 M) | — | 2025 | `docs/SOLUTION_OVERVIEW.md` §4 |
+
+The best pre-ADS-B blend on 2026-10-07 had a pooled OOF RMSE of 269.69 (`docs/research_2026-10-07_ucmix/plan.md`).
+
+**Offline gains carry over to the leaderboard unevenly** (`docs/SOLUTION_OVERVIEW.md` §6):
+- consistency fixes: about 2× their CV estimate;
+- model-level additions: about 1×;
+- ADS-B residual add-ons: 10–35 %.
+
+For example, the 12-month appear tier delivered about 9 % of its CV gain on the board
+(`docs/appear_tier_2026-10-05/results.md` §17). The fl_/seq_ train/test consistency fix gained −1.36 s on the board
+(`docs/SOLUTION_OVERVIEW.md` §5).
+
+**Leaderboard history** (January + July 2026, 344,841 departures). The full table, with the class of every
+submission (model update, A/B, diagnostic, few-row rule), is in
+[`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md) §1.
+
+| version | what changed | leaderboard RMSE |
+|---|---|---|
+| v1 | baseline | 345.3520 |
+| v4 | two clocks, weather, linear trees | 305.0270 |
+| v10 | model B reparameterised on the schedule at LIRF | 284.3584 |
+| v17 | ADS-B pushback override (rule) | 272.1788 |
+| v21 | learned ADS-B residual replaces the rule | 254.7657 |
+| v33 | plain-target, CatBoost, L2, per-airport and retuned members | 250.9496 |
+| v34 | positional ADS-B overlay on 430 unmatched rows (a few-row rule; see `DEVELOPMENT_HISTORY.md` §2.2) | 246.7493 |
+| v39 | appear tier | 239.5208 |
+| v42 | C12 batch | 236.4369 |
+| v47 | C15: per-member consistency fix, 3-seed L6 deltas, ucmix | 234.4831 |
+| **v48** | C15 + 12-month appear + EDDF coverage delta: **the January/July rows of the final file** | **234.4099** |
+
+The ledger has 50 uploads under 48 version numbers. 12 are classed as diagnostics (two of them also carry another
+class) and 3 as A/B checks (`docs/DEVELOPMENT_HISTORY.md` §1). The final file itself had no score when this was
+written; its January/July rows are v48's.
+
+## 11. Documentation map
+
+| topic | document |
+|---|---|
+| **the final file: identity, recipe, reproduction, limits** | [`docs/FINAL_SUBMISSION.md`](docs/FINAL_SUBMISSION.md) |
+| index of `docs/` | [`docs/README.md`](docs/README.md) |
+| pipeline map (state at v47) | `docs/SOLUTION_OVERVIEW.md` |
+| leaderboard use, every submission, row-level rules | `docs/DEVELOPMENT_HISTORY.md` |
+| external data, licences, fetch scripts | `docs/external_data.md` |
+| upload runbook; release checklist; final-phase impact | `docs/final_phase_2026-10-11/RUNBOOK_final_submit.md`, `PUBLIC_RELEASE_CHECKLIST.md`, `IMPACT.md` |
+| final-set chain scripts (ADS-B layer, overlays, assembly of later variants) | `docs/final_2026-10-11/` (`adsb_layer_README.md`, `overlays_README.md`) |
+| final-file assembly | `scripts/final/assemble_final_v48.py` |
+| member p2o (plain target) | `docs/competitor_research_2026-09-21/results/plainy-blend.md` |
+| member c2 (CatBoost), and its retune | `docs/competitor_research_2026-09-21/results/catboost-blend.md`, `catboost-retune.md` |
+| lever L2 in the members | `docs/competitor_research_2026-09-21/results/blend-l2.md` |
+| member pao (per-airport) | `docs/competitor_research_2026-09-21/results/per-airport-member.md` |
+| retune of the anchored member | `docs/competitor_research_2026-09-21/results/optuna-retune.md` |
+| member m4 (MLP) | `docs/competitor_research_2026-09-21/results/mlp-member.md` |
+| L6 gate retention, cmix | `docs/research_2026-10-05_measure/` (`l6_plan.md`, `l6_verdict.txt`, `cmix_verdict.txt`, `copy_plan.md`) |
+| lane B: NM-blind, ucmix | `docs/research_2026-10-06_nmblind/`, `docs/research_2026-10-07_ucmix/` |
+| learned ADS-B residual | `docs/competitor_research_2026-09-21/results/adsb-learned-residual.md` |
+| appear tier, 12-month refit, EDDF coverage delta | `docs/appear_tier_2026-10-05/results.md`, `handoff/2026-10-08/COV26_EDDF.md`, `ON_C15.md` |
+| coverage-weighted training (rejected) | `docs/covw_2026-10-08/README.md` |
+| positional ADS-B join and the v35 overlays | `docs/posjoin_2026-10-05/README.md`, `deeper_checks.md` |
+| LIRF label classes | `docs/lirf_wrap_2026-10-06/README.md` |
+| train/test consistency audit; ADS-B coverage audit | `docs/shift_2026-10-06/`, `docs/adsb_audit_2026-10-07/README.md` |
+| validation rule and protocol | `docs/competitor_research_2026-09-21/results/14-validation-design.md`, `docs/SOLUTION_OVERVIEW.md` §6 |
