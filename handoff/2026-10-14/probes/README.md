@@ -11,7 +11,7 @@
 | P3 | `v48_LTFM_01_deice_shift-100.parquet` | LTFM の 1 月の除氷条件の行（1,843）を −100 s | `788c07805af5217eb689ce7bd75c65ea` |
 | P4 | `v48_OTHER5_01_deice_shift-100.parquet` | EDDF・EDDM・EHAM・LFPG・LSZH の 1 月の除氷条件の行（4,880）を −100 s | `b7ce0c0c6b3ea8fe887a39ddc4fc2e13` |
 
-**対照（推奨）: v48 そのもの（`resilient-hedgehog_v48.parquet` と同じファイル、md5 8ee6679f…）も新しい番号でもう一度出してほしい。**
+**対照（推奨）: v48 そのもの（`resilient-hedgehog_v48.parquet` と同じファイル、md5 8ee6679f…）も新しい番号でもう一度出してほしい（同じものを `v48_control.parquet` として置いた）。**
 旧ボードの正解が 10/11 以降に差し替えられていると基準値 234.4099 がずれ、特に P3 の推定が数十秒狂う。対照の点数を基準値として使う
 （234.4099 と同じなら問題なし）。
 
