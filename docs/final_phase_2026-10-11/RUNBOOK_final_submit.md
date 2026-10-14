@@ -1,5 +1,14 @@
 # Runbook: the final upload on 2026-10-14
 
+> **Status: done.** `resilient-hedgehog_final.parquet` was uploaded on 2026-10-14; the bucket object's
+> `last_modified` is **10:30:29Z**, md5 **`c0d4a1439862e68852b65f6854322a29`** (2,151,179 bytes), read-back verified.
+> The file is `handoff/2026-10-13/final_v5_plus_febjun_appear.parquet` from `ea0e0a8` (`docs/FINAL_SUBMISSION.md` §1).
+> The ledger lines were committed in `8189b58`. The scorer wrote its result file at 10:30:38Z: `"status":
+> "Succeeded"`, `"used_pairs": 670790`, no score (`final_result_2026-10-14.json` next to this runbook).
+> The organisers' pages state the deadline as "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" and "2026-10-14T10:00Z";
+> the upload was at 10:30:29Z, after it. The steps below are kept as the procedure, with the values of that upload.
+> Until 10:30Z on 10-14 this runbook targeted the base file `be8d89dc…` (`25f6246`), which was not uploaded.
+
 Who and when (`NO_FINAL_UPLOAD.md`):
 - **Only the RPC thread** uploads, on branch `claude/model-b-and-arrival-features`.
 - Upload **after 13:00 JST (04:00Z)** on 10-14. The deadline is **19:00 JST (10:00Z)**.
@@ -9,20 +18,21 @@ What is uploaded:
 | item | value |
 |---|---|
 | object | `prc-2026-resilient-hedgehog/resilient-hedgehog_final.parquet` |
-| file | `final_from_v48.parquet`: Jan/Jul = v48's file, Feb/Jun = the laughing-cray chain, with June on our own ADS-B layer on 29 of 30 days. The file's identity is stated in `docs/FINAL_SUBMISSION.md` §1; this table and §0 copy it |
-| source | `25f624685ec1d26f8309f9d7980588b834c36c0f:handoff/2026-10-13/final_from_v48.parquet`, branch `origin/claude/laughing-cray-vvwh0k` (contained in `main`), commit "v48-based final file: June now uses our ADS-B layer (29/30 days; 06-11 keeps the A12 layer)" |
-| md5 | `be8d89dcf79bd59a6f43d80193c95685` (2,145,836 bytes) |
-| not this one | The same path in `558c736` holds an earlier version, md5 `c7ffa31e…` (2,145,277 bytes). It has June on the A12 layer and was this runbook's target until 2026-10-14. Do not upload it. |
+| file | `final_v5_plus_febjun_appear.parquet`: the v48-based file `be8d89dc…` (Jan/Jul = v48's file, Feb/Jun = the laughing-cray chain, June on our own ADS-B layer on 29 of 30 days) plus the 12-month appear increment on 103,311 Feb and 123,624 Jun rows. The file's identity is stated in `docs/FINAL_SUBMISSION.md` §1; this table and §0 copy it |
+| source | `ea0e0a85bec37c0a98b2a14f663c1742303f6813:handoff/2026-10-13/final_v5_plus_febjun_appear.parquet`, branch `origin/claude/beautiful-davinci-ehugk4` (contained in `main`), commit "Final candidate on the integrator's v5: appear increment on Feb and Jun rows (06-11 excluded), so Feb/Jun follow the v48 recipe". Restored at the same path on `main` in `0d43558` |
+| md5 | `c0d4a1439862e68852b65f6854322a29` (2,151,179 bytes) |
+| not these | The base `handoff/2026-10-13/final_from_v48.parquet` @ `25f6246`, md5 `be8d89dc…` (2,145,836 bytes): this runbook's target until 10:30Z on 2026-10-14, not uploaded. The same path in `558c736`, md5 `c7ffa31e…` (2,145,277 bytes), June on the A12 layer: the target until earlier on 2026-10-14. |
 | template | `final_submitting.parquet` from `prc-2026-datasets`, 670,790 rows, md5 `2c1f407296e217fd7d242c9d51ba27ad` |
 | months | `final_ranking.parquet`, md5 `1ce0c6ee9ea15b8c3d0cd282591d4e0a` |
 
-The object **already exists**:
+Before the upload the object **already existed** (it has now been replaced):
 - 4,079,671 bytes, last modified 2026-10-09 16:02:32Z, etag `7f95f323928691c9e167e1a1b330f40b`.
 - Nobody knows who uploaded it.
 - Its scorer sidecar `resilient-hedgehog_final.parquet_result.json` (16:32:57Z) says `"status": "Failed"`,
   `"error_type": "FileNotFoundError"`, `"error": "s3://prc-2026-datasets/dev_sub_template.parquet"`. That is a missing
   file on the organisers' side, not a fault in the uploaded file.
-- **The upload must replace it deliberately**, with `--confirm-final-overwrite`.
+- **The upload had to replace it deliberately**, with `--confirm-final-overwrite`. It did (the ledger line has
+  `"overwrite_confirmed": true` and the old object's size, mtime and etag).
 
 All timings below were measured in the dry run on 2026-10-13 around 01:10–01:25Z, in this container.
 
@@ -35,9 +45,9 @@ export WT=/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d7
 export OSN_TEAM_BUCKET=prc-2026-resilient-hedgehog
 export PRC_TEAM_NAME=resilient-hedgehog
 export OSN_COMPETITION_BUCKET=prc-2026-datasets
-export SRC_COMMIT=25f624685ec1d26f8309f9d7980588b834c36c0f
-export SRC_PATH=handoff/2026-10-13/final_from_v48.parquet
-export FINAL_MD5=be8d89dcf79bd59a6f43d80193c95685
+export SRC_COMMIT=ea0e0a85bec37c0a98b2a14f663c1742303f6813
+export SRC_PATH=handoff/2026-10-13/final_v5_plus_febjun_appear.parquet
+export FINAL_MD5=c0d4a1439862e68852b65f6854322a29
 # The credentials come from the container environment. Check they are set; never print them:
 env | grep -E '^OSN_(ID|ACCESS_KEY|SECRET_KEY)=' | sed 's/=.*/=<set>/'
 ```
@@ -111,23 +121,24 @@ md5sum data/raw/final/*
 
 ```bash
 cd "$WT"
-git fetch origin claude/laughing-cray-vvwh0k
+git fetch origin claude/beautiful-davinci-ehugk4
 mkdir -p data/final_candidate
-git show "$SRC_COMMIT:$SRC_PATH" > data/final_candidate/final_from_v48.parquet
-md5sum data/final_candidate/final_from_v48.parquet   # must print $FINAL_MD5 (be8d89dcf79bd59a6f43d80193c95685)
+git show "$SRC_COMMIT:$SRC_PATH" > data/final_candidate/final.parquet
+md5sum data/final_candidate/final.parquet   # must print $FINAL_MD5 (c0d4a1439862e68852b65f6854322a29)
 ```
 
 ## 5. Validation (2.6 s measured)
 
 ```bash
 cd "$WT"
-.venv/bin/python -m prc.validate_final data/final_candidate/final_from_v48.parquet \
+.venv/bin/python -m prc.validate_final data/final_candidate/final.parquet \
   --template data/raw/final/final_submitting.parquet --ranking data/raw/final/final_ranking.parquet \
-  --expect-md5 "$FINAL_MD5" --json outputs/final/validate_final_from_v48.json; echo "exit=$?"
+  --expect-md5 "$FINAL_MD5" --json outputs/final/validate_final.json; echo "exit=$?"
 ```
 
-It printed **PASS, exit 0** on 10-14 for `be8d89dc…`, and on 10-13 for the earlier `c7ffa31e…`. The values below are
-for `be8d89dc…`. They differ from `c7ffa31e…` only in the June p50 (925 → 926) and p99 (2,073 → 2,066).
+It printed **PASS, exit 0** on 10-14 for `c0d4a143…` and for its base `be8d89dc…`, and on 10-13 for the earlier
+`c7ffa31e…`. The values below are for `c0d4a143…`. The base `be8d89dc…` differs only in the Feb p50 / p99 (922 /
+2,198) and the Jun p99 (2,066); `c7ffa31e…` has Jun p50 925 and p99 2,073.
 
 **Shape and values**
 - 670,790 rows, equal to the template.
@@ -142,8 +153,8 @@ for `be8d89dc…`. They differ from `c7ffa31e…` only in the June p50 (925 → 
 | month | rows | p50 (s) | p99 (s) | rows > 10,800 s |
 |---|---|---|---|---|
 | Jan | 152,719 | 970 | 3,095 | 15 |
-| Feb | 144,158 | 922 | 2,198 | 11 |
-| Jun | 181,791 | 926 | 2,066 | 9 |
+| Feb | 144,158 | 921 | 2,216 | 11 |
+| Jun | 181,791 | 926 | 2,075 | 9 |
 | Jul | 192,122 | 936 | 2,138 | 31 |
 
 **Per airport.** All 10 airports have rows in all 4 months.
@@ -155,7 +166,7 @@ for `be8d89dc…`. They differ from `c7ffa31e…` only in the June p50 (925 → 
 ```bash
 cd "$WT"
 .venv/bin/python -m prc.submit --final --dry-run --confirm-final-overwrite \
-  --file data/final_candidate/final_from_v48.parquet \
+  --file data/final_candidate/final.parquet \
   --template data/raw/final/final_submitting.parquet --ranking data/raw/final/final_ranking.parquet \
   --source-commit "$SRC_COMMIT" --source-path "$SRC_PATH" --expect-md5 "$FINAL_MD5" \
   --note "dry run 2026-10-14 before the final upload"; echo "exit=$?"
@@ -177,15 +188,15 @@ Both outcomes were seen on 10-13.
 **If the size, mtime or etag differ from the values above**, someone else has uploaded since 10-13. Stop and find out
 before going on.
 
-## 7. The real upload (after 04:00Z on 10-14)
+## 7. The real upload (done 2026-10-14 10:30:29Z)
 
 ```bash
 cd "$WT"
 .venv/bin/python -m prc.submit --final --confirm-final-overwrite \
-  --file data/final_candidate/final_from_v48.parquet \
+  --file data/final_candidate/final.parquet \
   --template data/raw/final/final_submitting.parquet --ranking data/raw/final/final_ranking.parquet \
   --source-commit "$SRC_COMMIT" --source-path "$SRC_PATH" --expect-md5 "$FINAL_MD5" \
-  --note "final: v48-based final_from_v48.parquet (laughing-cray 25f6246)"; echo "exit=$?"
+  --note "final: v48-based be8d89dc + Feb/Jun appear increment (final_v5_plus_febjun_appear, ea0e0a8)"; echo "exit=$?"
 ```
 
 **Order of operations:**
@@ -199,14 +210,14 @@ cd "$WT"
 8. GET it back into a temp dir and compare md5;
 9. a `"status": "uploaded", "verified": true` ledger line with `remote_md5` and the new etag.
 
-**Duration.** Not measured, because nothing was uploaded on 10-13. The file is 2.1 MB and a 132 MB download took
-17 s, so expect seconds.
+**Duration.** About 2 s on 10-14: the `attempted` line has `uploaded_at` 10:30:27Z and the object's
+`last_modified` is 10:30:29Z.
 
 **Exit codes**
 
 | code | output | meaning | what to do |
 |---|---|---|---|
-| 0 | `UPLOADED and verified: … md5 be8d89dc…` | done | step 8 |
+| 0 | `UPLOADED and verified: … md5 c0d4a143…` | done | step 8 |
 | 1 | `REFUSED: …` | nothing was uploaded | Read the reason. "changed since it was shown" means another PUT landed between the two HEADs: find out who, then re-run step 6 and step 7. A gate or md5 failure means the wrong file: redo step 4. |
 | 2 | `REFUSED: cannot build the OSN config` | credentials are missing | step 0 |
 | 3 | `VERIFY FAILED` | the PUT happened, but the read-back md5 differs or the read-back failed | Re-run step 7 once. `--confirm-final-overwrite` is needed again, because the object is now ours. If it fails again, run step 8 by hand and report. |
@@ -232,10 +243,11 @@ r = c.get_object(cfg.team_bucket, name + '_result.json'); print(r.read().decode(
 ```
 
 **What to check**
-- The md5 of the bucket object must be `$FINAL_MD5` (`be8d89dcf79bd59a6f43d80193c95685`).
-- The size must be 2,145,836 bytes.
+- The md5 of the bucket object must be `$FINAL_MD5` (`c0d4a1439862e68852b65f6854322a29`).
+- The size must be 2,151,179 bytes.
 - The scorer sidecar `resilient-hedgehog_final.parquet_result.json` must have a `last_modified` **after** the upload.
-  - Last time the scorer wrote it 30 minutes after the upload (16:02 → 16:32Z on 10-09).
+  - On 10-09 the scorer wrote it 30 minutes after the upload (16:02 → 16:32Z). On 10-14 it wrote it 9 s after
+    (10:30:29 → 10:30:38Z), with `"status": "Succeeded"` and `"used_pairs": 670790`.
   - Re-run the block until it shows a new sidecar.
   - **Until then, the printed sidecar is the old 10-09 "Failed" one.**
 - If the new sidecar says `Failed` again with the same `dev_sub_template.parquet` error, the fault is on the
@@ -246,7 +258,7 @@ r = c.get_object(cfg.team_bucket, name + '_result.json'); print(r.read().decode(
 ```bash
 cd "$WT"
 git add experiments/submissions.jsonl
-git commit -m "Final upload: resilient-hedgehog_final.parquet = final_from_v48 @ 25f6246 (md5 be8d89dc…), verified"
+git commit -m "Final upload: resilient-hedgehog_final.parquet = final_v5_plus_febjun_appear @ ea0e0a8 (md5 c0d4a143…), verified"
 git push -u origin claude/model-b-and-arrival-features || { git pull --no-rebase && git push -u origin claude/model-b-and-arrival-features; }
 ```
 
@@ -279,8 +291,8 @@ Commit after step 6 and step 7.
 
 ## Facts measured on 10-13 (for the record)
 
-- **`final_from_v48.parquet` ids match `final_submitting.parquet` exactly**: 670,790 ids, equal in order, and no
-  duplicates.
+- **The final file's ids match `final_submitting.parquet` exactly**: 670,790 ids, equal in order, and no
+  duplicates (checked on `final_from_v48.parquet` on 10-13; `c0d4a143…` has the same ids in the same order).
 - **Jan/Jul departures, `final_ranking` vs `ranking.parquet`**, joined on `MVT_ID_mvt`. Each of the 344,841 rows is
   present in both files.
   - `MVT_TIME_UTC_mvt` differs on **316,651 rows (91.83 %)**; 28,190 are unchanged.

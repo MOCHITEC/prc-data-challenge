@@ -54,9 +54,9 @@ Map of the pipeline at v47: `docs/SOLUTION_OVERVIEW.md`. Short version:
 5. **Appear tier.** Eight columns describing the aircraft's ADS-B position and timing relative to its own stand
    (`scripts/adsb_appear.py`), from OSM `parking_position` plus a 2026 ADS-B stand map. They are added to the
    residual model and applied as the increment `c_A12(b) − c_P12(b)`. Code: `docs/appear_tier_2026-10-05/`
-   (`final_adsb.py` for the final set). In the final file the appear tier is in the January/July rows (from v48). Of
-   the February/June rows, only 2026-06-11 goes through the A12 layer, and only 78 appear rows exist for that day.
-   See `docs/FINAL_SUBMISSION.md` §2.3 and §3.
+   (`final_adsb.py` for the final set). In the final file the appear tier is in the January/July rows (from v48) and,
+   as the increment, in 226,935 February/June rows. 2026-06-11 goes through the A12 layer instead, and only 78 appear
+   rows exist for that day. See `docs/FINAL_SUBMISSION.md` §2.3 and §2.5.
 6. **Overlays**, applied after the residual layer by `docs/final_2026-10-11/apply_overlays.py`:
    - lane-B deltas: NM-blind and ucmix;
    - LIRF matched schedule-copy overlay: `p' = p + 0.4·q·(MVT − SCHED − p)`, where q comes from a 2025 classifier;
@@ -72,14 +72,24 @@ How each piece was validated: `docs/SOLUTION_OVERVIEW.md` §6 and the per-topic 
 **The authoritative description is [`docs/FINAL_SUBMISSION.md`](docs/FINAL_SUBMISSION.md).** Its §1 defines the
 file's identity: source commit, md5, rows and validation result. This section is a summary.
 
-- **The file.** `handoff/2026-10-13/final_from_v48.parquet` **as committed in `25f6246`** (branch
-  `claude/laughing-cray-vvwh0k`, contained in `main`): `git show 25f6246:handoff/2026-10-13/final_from_v48.parquet >
-  final_from_v48.parquet`.
-  - The same path holds an earlier version in `558c736`, which differs only in June.
-  - The path is deleted at the branch tip (`6adbcac`).
-- **The upload.** The file actually uploaded as `resilient-hedgehog_final.parquet` is recorded in
-  `experiments/submissions.jsonl` by `prc.submit --final`. The steps are in
-  `docs/final_phase_2026-10-11/RUNBOOK_final_submit.md`.
+- **The file.** `handoff/2026-10-13/final_v5_plus_febjun_appear.parquet`, md5 **`c0d4a1439862e68852b65f6854322a29`**,
+  2,151,179 bytes, 670,790 rows. It was added in **`ea0e0a8`** (branch `claude/beautiful-davinci-ehugk4`, contained
+  in `main`), deleted in `9849a14` and restored byte for byte in `0d43558`; it is in the tree on `main`.
+  - **Its base** is `handoff/2026-10-13/final_from_v48.parquet` as committed in `25f6246` (md5 `be8d89dc…`, branch
+    `claude/laughing-cray-vvwh0k`). The uploaded file = that base + the 12-month appear increment on 103,311 February
+    and 123,624 June rows. January/July are unchanged (= v48).
+  - Earlier versions of this README named the base `be8d89dc…` as the final file. It was not uploaded.
+- **The upload.** Uploaded as `prc-2026-resilient-hedgehog/resilient-hedgehog_final.parquet` by `prc.submit --final`;
+  the bucket object's `last_modified` is **2026-10-14 10:30:29Z** and its read-back md5 matched. The ledger lines
+  (`"kind": "final"`) are at the end of `experiments/submissions.jsonl` (`8189b58`). It replaced an object of
+  2026-10-09 (4,079,671 bytes, uploader unknown, whose scoring had failed).
+  - **Scorer:** the result file written at 10:30:38Z says `"status": "Succeeded"`, `"used_pairs": 670790`, and
+    contains no score (copy: `docs/final_phase_2026-10-11/final_result_2026-10-14.json`).
+  - **Deadline:** the organisers' pages state "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" and
+    "2026-10-14T10:00Z". The upload was at 10:30:29Z, after 10:00Z. Whether it is accepted is for the organisers.
+- **Why this file** (`docs/FINAL_SUBMISSION.md` §4). On 2026-10-14 the Jan/Jul part of the laughing-cray v6 file
+  scored 234.5741 on the leaderboard (v50), while v48 resubmitted unchanged scored 234.4099 (v51), exactly v48's
+  score. So the Jan/Jul rows stay v48, and February/June get the appear increment so that they follow v48's recipe.
 
 **How the rows were produced** (`docs/FINAL_SUBMISSION.md` §2):
 
@@ -107,28 +117,38 @@ file's identity: source commit, md5, rows and validation result. This section is
       - 2026-06-11 had no adsb.lol data in that ingest, so it uses the A12 layer
         (`docs/appear_tier_2026-10-05/final_adsb.py`). Its effect there is close to zero
         (`docs/FINAL_SUBMISSION.md` §2.3).
-      - **February and June carry no appear increment.**
+      - This layer has no appear term; step 6 adds it.
    4. **Overlays and LOBT clip:** `docs/final_2026-10-11/apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`.
       See `docs/final_2026-10-11/overlays_README.md` and `laneB_deltas.py`.
-   5. Floor at 0, round, int32.
-3. **Combining.** `scripts/final/assemble_final_v48.py` combines the months.
-   - It rebuilds this step from the committed chain files (`handoff/2026-10-13/inputs/orig_chain_blend_adsb2_ovl.parquet`,
-     `blend_A12_ovl.parquet`) and v48.
-   - It writes both committed versions byte for byte: `--june-layer a12` gives `c7ffa31e…` (`558c736`), and the
-     default gives `be8d89dc…` (`25f6246`).
-   - The members, blend, ADS-B layers and overlays are taken from those files, not rebuilt.
+   5. Floor at 0, round, int32. This gives the base `be8d89dc…`.
+   6. **Appear increment.** `handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet` (md5 `fe3aedc0…`): the
+      12-month appear term `c_A12 − c_P12` (`c_A12thin − c_P12` at EDDF), from `final_adsb.py --increment` on the
+      blend. It is added on 103,311 February and 123,624 June rows, not on 2026-06-11 (already on the A12 layer); the
+      LOBT clip is re-applied and a negative result keeps the old value. Evidence: with 2025 February and June held
+      out, A12 vs P12 −1.434 s [−1.997, −1.056] (`docs/appear_tier_2026-10-05/results.md` §21). Details:
+      `docs/FINAL_SUBMISSION.md` §2.5.
+3. **Combining.** `scripts/final/assemble_final_v48.py` combines the months and adds the increment.
+   - It rebuilds these steps from the committed chain files (`handoff/2026-10-13/inputs/orig_chain_blend_adsb2_ovl.parquet`,
+     `blend_A12_ovl.parquet`), v48 and the increment table.
+   - `--febjun-appear handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet` writes **the uploaded file
+     `c0d4a143…` byte for byte** (0 rows differ; rerun 2026-10-14).
+   - Without it, the default gives the base `be8d89dc…` (`25f6246`) and `--june-layer a12` gives `c7ffa31e…`
+     (`558c736`), also byte for byte.
+   - The members, blend, ADS-B layers, overlays and the increment table are taken as committed, not rebuilt. The
+     increment table can be recomputed from committed files (`docs/FINAL_SUBMISSION.md` §5.3).
 4. **Gate:** `python -m prc.validate_final <file> --template final_submitting.parquet --ranking final_ranking.parquet
    --expect-md5 <md5>`. It prints PASS; the output is summarised in `docs/FINAL_SUBMISSION.md` §1.
 
 **What is not in the file** (`docs/FINAL_SUBMISSION.md` §3):
 - no "+1×δ" re-anchor of January/July;
-- no February/June appear increment;
-- none of the later candidates on the branches: the laughing-cray "v2/v3/v4" files, the reweight and LTFM variants,
-  and the beautiful-davinci appear and LIRF-gate variants.
+- none of the later candidates on the branches: the laughing-cray "v2" to "v7a" files (including v6, `7e53142e…`),
+  the reweight and LTFM variants, and the beautiful-davinci LIRF-gate variants.
 
 **Hand-off notes.** The `handoff/<date>/` folders are dated working notes between parallel sessions. Several name a
-"recommended" file, such as `handoff/2026-10-13/README.md` (`d0ce32b6…`) and `handoff/2026-10-14/README.md` /
-`handoff/2026-10-13/CANDIDATES.md` (`b7e8298d…`). **Those files were not submitted.**
+"recommended" file, such as `handoff/2026-10-13/README.md` (`d0ce32b6…`, later `7e53142e…`) and
+`handoff/2026-10-14/README.md` / `handoff/2026-10-13/CANDIDATES.md` (`b7e8298d…`). **Those files were not submitted.**
+The uploaded file itself is marked withdrawn in `handoff/2026-10-13/CANDIDATES.md` (06:20 UTC on 10-13); it was chosen
+on 10-14 all the same (`docs/FINAL_SUBMISSION.md` §7).
 
 **v48's EDDF coverage-matched delta.**
 - **The problem.** In 2026, adsb.lol has fewer than half the 2025 ground fixes per EDDF departure: 76–125 in 2025
@@ -150,8 +170,8 @@ file's identity: source commit, md5, rows and validation result. This section is
   - Thinning at test time at airports whose coverage became denser was rejected too (`results.md` §20).
 
 **Reproducibility, briefly** (details and limits: `docs/FINAL_SUBMISSION.md` §5–§6).
-- **What can be reproduced exactly.** The final file, byte for byte, with `scripts/final/assemble_final_v48.py` from
-  committed files.
+- **What can be reproduced exactly.** The final file, byte for byte, with `scripts/final/assemble_final_v48.py
+  --febjun-appear …` from committed files.
 - **What cannot.** The January/July rows can only be copied from v48. Running the documented chain on January/July
   differs from v48 by RMS 53.2 s (`handoff/2026-10-13/README.md`; `docs/final_phase_2026-10-11/IMPACT.md` §4(c)).
 - **Rerunning the chain from raw data needs:**
@@ -313,10 +333,19 @@ submission (model update, A/B, diagnostic, few-row rule), is in
 | v42 | C12 batch | 236.4369 |
 | v47 | C15: per-member consistency fix, 3-seed L6 deltas, ucmix | 234.4831 |
 | **v48** | C15 + 12-month appear + EDDF coverage delta: **the January/July rows of the final file** | **234.4099** |
+| v50 | check on 2026-10-14: the Jan/Jul part of laughing-cray v6 (`janjul_only_final_v6_all5.parquet`, `55a91f49…`) | 234.5741 |
+| v51 | control on 2026-10-14: v48 resubmitted unchanged (`8ee6679f…`) | 234.4099 |
 
-The ledger has 50 uploads under 48 version numbers. 12 are classed as diagnostics (two of them also carry another
-class) and 3 as A/B checks (`docs/DEVELOPMENT_HISTORY.md` §1). The final file itself had no score when this was
-written; its January/July rows are v48's.
+v51 (v48 unchanged) scored exactly v48's original 234.4099, so the board had not moved, and v6's Jan/Jul rows are
+0.1642 worse than v48's. That is why the final file keeps v48's Jan/Jul rows (`docs/FINAL_SUBMISSION.md` §4). The v50/v51 upload
+lines are in `experiments/submissions.jsonl`; the scores were read from the leaderboard.
+
+Up to v49, the ledger has 50 uploads under 48 version numbers. 12 are classed as diagnostics (two of them also carry
+another class) and 3 as A/B checks (`docs/DEVELOPMENT_HISTORY.md` §1). v50 and v51 came after that count.
+
+**The final file** (`c0d4a143…`, uploaded 2026-10-14 10:30:29Z) has no score in the repository: the scorer's result
+file says `"status": "Succeeded"` and `"used_pairs": 670790` and contains no score
+(`docs/final_phase_2026-10-11/final_result_2026-10-14.json`). Its January/July rows are v48's.
 
 ## 11. Documentation map
 

@@ -17,23 +17,31 @@ State at the time of writing:
 
 1. **Set the default branch to `main`.** GitHub → Settings → General → Default branch → switch to `main` → Update.
    This could not be done from this session (see above).
-2. **Check that the docs name the file that was actually uploaded** (updated 2026-10-14).
-   - `docs/FINAL_SUBMISSION.md` §1 is the one place that states the file's identity. README §3 and the runbook
-     summarise it. It names `handoff/2026-10-13/final_from_v48.parquet` as committed in **`25f6246`**, md5
-     **`be8d89dcf79bd59a6f43d80193c95685`**. The runbook §0 variables carry the same values.
-   - It does **not** name the earlier version at the same path, `558c736` / `c7ffa31e…`.
-   - It does not name the later files that the branches recommend: laughing-cray's
-     `handoff/2026-10-13/final_recommended.parquet` (`d0ce32b6…`) and beautiful-davinci's
-     `handoff/2026-10-14/final_v4_gatefull_plus1delta.parquet` (`b7e8298d…`). `docs/FINAL_SUBMISSION.md` §3 and §7
-     state that those were not submitted.
-   - After the upload, compare the md5 in the new `"kind": "final"` line of `experiments/submissions.jsonl` with §1.
-     If they differ, update `docs/FINAL_SUBMISSION.md` §1–§3, README §3 and the runbook §0, and push to `main`
-     **before 10:00Z**.
+2. **Check that the docs name the file that was actually uploaded** (done after the upload, 2026-10-14).
+   - Uploaded: `resilient-hedgehog_final.parquet`, md5 **`c0d4a1439862e68852b65f6854322a29`**, 2,151,179 bytes,
+     bucket `last_modified` **2026-10-14 10:30:29Z**, read back and verified. It is
+     `handoff/2026-10-13/final_v5_plus_febjun_appear.parquet` from **`ea0e0a8`**, restored on `main` in `0d43558`.
+     The ledger lines (`"kind": "final"`) were committed in `8189b58`. The scorer's result file (10:30:38Z) says
+     `"Succeeded"`, `"used_pairs": 670790`, no score (`final_result_2026-10-14.json` in this folder).
+   - `docs/FINAL_SUBMISSION.md` §1 is the one place that states the file's identity. README §3 and the runbook (header
+     and §0 variables) carry the same commit and md5. Done; `grep -rn c0d4a143 README.md docs/` lists every copy.
+   - The pages name **`be8d89dc…`** (`handoff/2026-10-13/final_from_v48.parquet` @ `25f6246`) only as the documented
+     base: the uploaded file = that base + the 12-month appear increment on 103,311 Feb and 123,624 Jun rows
+     (`docs/FINAL_SUBMISSION.md` §2.5). Until the upload these pages named `be8d89dc…` as the final file.
+   - `scripts/final/assemble_final_v48.py --febjun-appear handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet`
+     rebuilds `c0d4a143…` byte for byte (`docs/FINAL_SUBMISSION.md` §5.2).
+   - The pages do not name as final the earlier version `558c736` / `c7ffa31e…`, or the later files the branches
+     recommend: laughing-cray's `handoff/2026-10-13/final_recommended.parquet` (`d0ce32b6…`, then v6 `7e53142e…`)
+     and beautiful-davinci's `handoff/2026-10-14/final_v4_gatefull_plus1delta.parquet` (`b7e8298d…`).
+     `docs/FINAL_SUBMISSION.md` §3, §4 and §7 state that those were not submitted, and why v6 was not (v50/v51).
+   - **Deadline.** The organisers' pages state "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" and
+     "2026-10-14T10:00Z". The upload (10:30:29Z) and the commits that record and document it (`8189b58` onwards)
+     came after 10:00Z. Whether they are accepted is for the organisers.
 3. **Put the final upload's ledger lines on `main` before 10:00Z.**
    - `RUNBOOK_final_submit.md` §8 commits them to `claude/model-b-and-arrival-features`, which `main` is now ahead of.
    - Merge that branch into `main` and union `experiments/submissions.jsonl` (append-only).
    - Or commit the lines on `main` directly.
-4. Do not commit anything after 10:00Z that should be reviewed.
+4. Do not commit anything after 10:00Z that should be reviewed. (Not kept: see item 2, "Deadline".)
 
 ## 2. After the deadline
 
