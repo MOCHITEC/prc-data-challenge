@@ -149,7 +149,22 @@ def main(a):
         ntot = sum(p_[0] for p_ in parts)
         jan["LTFM Jan de-icing"] = (sum(p_[0] * p_[1] for p_ in parts) / ntot, sum(p_[0] * p_[2] for p_ in parts) / ntot)
     feb_l = set(pl.read_parquet(P + "cell_LTFM_02_deice.parquet")[K].to_list())
-    rules = [("LTFM Jan de-icing", pl.col(K).is_in(list(feb_l)), 100.0, "LTFM Feb de-icing")]
+    if any(k.startswith("LTFM Jan de-icing ") for k in applied):
+        # pre-registered refinement (README 07:05 UTC): with day-level January cells, February days take the January day with
+        # the same level of model excess over MVT - AOBT_3: 18 Feb -> 18 Jan (if P6 ran), the other February days -> the
+        # other January days; each at 0.5 x, when that January cell's |rbar| >= 100 s.
+        feb_days = (pl.scan_parquet("data/raw/final_ranking.parquet").filter(pl.col("PHASE_mvt") == "DEP")
+                    .select(K, pl.col("MVT_TIME_UTC_mvt").dt.day().alias("dom")).collect())
+        Z = Z.join(feb_days, on=K, how="left", maintain_order="left")
+        in_feb = pl.col(K).is_in(list(feb_l))
+        rules = []
+        if "LTFM Jan de-icing 18 Jan" in applied:
+            rules.append(("LTFM Jan de-icing 18 Jan", in_feb & (pl.col("dom") == 18), 100.0, "LTFM Feb de-icing 18 Feb"))
+            rules.append(("LTFM Jan de-icing other days", in_feb & (pl.col("dom") != 18), 100.0, "LTFM Feb de-icing other days"))
+        else:
+            rules.append(("LTFM Jan de-icing other days", in_feb, 100.0, "LTFM Feb de-icing (all days)"))
+    else:
+        rules = [("LTFM Jan de-icing", pl.col(K).is_in(list(feb_l)), 100.0, "LTFM Feb de-icing")]
     for nm, aps in oth_names.items():
         rules.append((nm, pl.col("ap_f").is_in(aps).fill_null(False), 50.0, nm.replace("Jan", "Feb")))
     for jname, mask, thr, label in rules:
