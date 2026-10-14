@@ -29,4 +29,12 @@ m45 = pl.read_parquet(D + "mlp_l6_s45.parquet").select("MVT_ID_mvt", pl.col("TAX
 o = m3.join(m45, on="MVT_ID_mvt", how="left").with_columns(
     pl.coalesce((3 * pl.col("m3") + 2 * pl.col("m45")) / 5, pl.col("m3")).round(0).cast(pl.Int32).alias("TAXITIME_SEC_mvt")).select("MVT_ID_mvt", "TAXITIME_SEC_mvt")
 o.write_parquet(D + "mlp_l6_5seeds.parquet")
-print("written pao_l6_cattight_nolirf.parquet and mlp_l6_5seeds.parquet in", D)
+
+# a2o (cat_tight) 5-seed flfix file: pred_fix and pred_orig = (3 * seeds 42-44 + 2 * seeds 45-46) / 5 (float, not rounded).
+a3 = pl.read_parquet(D + "a2o_cattight_flfix.parquet")
+a2 = pl.read_parquet(D + "a2o_cattight_s45_flfix.parquet").select("MVT_ID_mvt", pl.col("pred_fix").alias("fix45"), pl.col("pred_orig").alias("orig45"))
+j = a3.join(a2, on="MVT_ID_mvt", how="left")
+assert j["fix45"].null_count() == 0
+j.with_columns(((3 * pl.col("pred_fix") + 2 * pl.col("fix45")) / 5).alias("pred_fix"),
+               ((3 * pl.col("pred_orig") + 2 * pl.col("orig45")) / 5).alias("pred_orig")).select(a3.columns).write_parquet(D + "a2o_cattight_5seeds_flfix.parquet")
+print("written pao_l6_cattight_nolirf.parquet, mlp_l6_5seeds.parquet and a2o_cattight_5seeds_flfix.parquet in", D)

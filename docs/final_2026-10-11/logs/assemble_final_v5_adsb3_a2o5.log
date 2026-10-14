@@ -1,0 +1,17 @@
+
+
+blend written; rms(b_new - b0) = 11.24
+C13: rows 339551 (expect 339551), sum e^2/344841 1.21 (gate < 5), max|e| 82.3 (gate < 150), sum d_a2o^2/344841 36.9 (expect 40-300), mean d_a2o -0.25 (gate |.| < 3)
+vs current recommended:
+ shape: (4, 3)
+┌─────┬─────────┬─────┐
+│ m   ┆ changed ┆ rms │
+│ --- ┆ ---     ┆ --- │
+│ i8  ┆ u32     ┆ f64 │
+╞═════╪═════════╪═════╡
+│ 1   ┆ 0       ┆ 0.0 │
+│ 2   ┆ 0       ┆ 0.0 │
+│ 6   ┆ 0       ┆ 0.0 │
+│ 7   ┆ 0       ┆ 0.0 │
+└─────┴─────────┴─────┘
+written /home/user/prc-data-challenge/handoff/2026-10-13/final_v5_adsb3_a2o5.parquet

@@ -1,4 +1,4 @@
-> **最終版（2026-10-13 23:20 UTC）**: 推奨は `final_recommended.parquet`（md5 d0ce32b68f3a7a4599d8a0982ca81988）。詳細はこのファイル末尾の「★★ 最終版」を見てください。それより上の節は作業の記録です。
+> **最新の推奨（2026-10-14 03:40 UTC）**: `final_recommended.parquet` = v5（md5 **411a6aa0b05b8e3b525d3d2bf4e17ea9**）。1 つ前（v4、md5 d0ce32b6…）は `final_v4_cb5_mlp5.parquet` として残してある。詳細は末尾の「★★ 最終版」と「v5」の節。それより上の節は作業の記録です。
 
 # データ分析（laughing-cray）の最終候補（2026-10-13 00:50 UTC）
 
@@ -333,3 +333,22 @@ md5 の一覧: `MD5SUMS`（335 件）。
 - a2o（cat_tight）に seed 45・46 を足して 5 seeds 平均（`members/a2o_cattight_5seeds_flfix.parquet` = (3×seed42–44 + 2×seed45–46)/5、seed 45–46 は `members/a2o_cattight_s45_flfix.parquet`）。a2o 単体 mean5 − mean3 の RMS 9.7 s。
 - v4 比の変化: 1 月 RMS 9.1 s、2 月 7.3、6 月 6.9、7 月 6.7。
 - 実行: `assemble_step.py --a2o members/a2o_cattight_5seeds_flfix.parquet --pao members/pao_l6_cattight_nolirf.parquet --m4 members/mlp_l6_5seeds.parquet --cb <5 本> --adsb-models <models> <models_s43> <models_s44> --tag final_v5_adsb3_a2o5 --c13`。
+
+
+## 2026-10-14 03:40 UTC: 推奨を v5 に切り替え（独立点検 合格）
+- **`final_recommended.parquet` = `final_v5_adsb3_a2o5.parquet`（md5 411a6aa0b05b8e3b525d3d2bf4e17ea9）**、1・7 月だけ: `janjul_only_final_recommended.parquet`（6daa4e6e2eeee0f4a79ee6cf055b9cb0）。
+  任意の変種 `optional_janjul_reanchor_plus1delta.parquet` も v5 から作り直した。
+- v4 からの変更: 自前 ADS-B 層を 3 seeds 平均、a2o を 5 seeds 平均。
+- **1・7 月の unmatched 行について（★★ の記述の訂正）**: v4 までは unmatched 5,290 行が v48 と同一だったが、v5 では ADS-B 層の seed 平均が unmatched の ground-fix 行にも効くため、1,765 行が変わる（RMS 13.9 s、平均 +0.4 s、max 173 s）。
+  v48 の層はそれらの行で seed 42 の 1 本だけだったので、平均に置き換えるのは設計どおり（意図した変更）。matched 行の v48 との差は RMS 12.9 s、平均 −0.12 s、max 573 s（LIRF 1/31、CatBoost / MLP の seed 平均）。
+- 点検結果: 形式・網羅 合格、LOBT 違反 0、2・6 月の層は 1 回ずつ、Jan/Jul の変化はすべてメンバー差分と層の seed 平均で説明がつく。再現性の指摘（AIR/POS 用の保存モデル 2 本が支店に無い）→ `adsb_store/learn/final_model_months_A.txt`, `final_model_7v2.txt` を追加した。
+- 実行コマンド（literal）:
+```
+cd /home/user/prc-final && F=/home/user/pb-work/outputs/final
+python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_l6_cattight_nolirf.parquet --m4 $F/mlp_l6_5seeds.parquet \
+  --cb $F/main_flseq_osm_nolirf_cb_l2.parquet $F/main_flseq_osm_nolirf_cb_l2_s43.parquet $F/main_flseq_osm_nolirf_cb_l2_s44.parquet $F/cb_l2_s45.parquet $F/cb_l2_s45.parquet \
+  --adsb-models /home/user/prc-final/adsb_out/models /home/user/prc-final/adsb_out/models_s43 /home/user/prc-final/adsb_out/models_s44 \
+  --tag final_v5_adsb3_a2o5 --c13
+```
+  stdout は `docs/final_2026-10-11/logs/assemble_final_v5_adsb3_a2o5.log`。派生メンバー（pao nolirf、MLP 5 seeds、a2o 5 seeds）は `derived_members.py`。
+- 進行中: pao（cat_tight、LIRF 以外）と p2o の seed 45・46。できたら v6 として点検し、通れば差し替える。
