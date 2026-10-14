@@ -356,6 +356,7 @@ ce79384d26bc0a87ddba43f19df719fa  ./final_from_v48_cb3_appear_cat_c13_v2.parquet
 411a6aa0b05b8e3b525d3d2bf4e17ea9  ./final_recommended.parquet
 d0ce32b68f3a7a4599d8a0982ca81988  ./final_v4_cb5_mlp5.parquet
 411a6aa0b05b8e3b525d3d2bf4e17ea9  ./final_v5_adsb3_a2o5.parquet
+7e53142e478bbb022ae6584850143040  ./final_v6_all5.parquet
 db61fe139d76ef7fb9942f4acd6a0805  ./inputs/adsb_layer_detail_v2.parquet
 95fbbaee49d76e0777589b485b151fd1  ./inputs/adsb_layer_detail_v5_seed42.parquet
 95e02cacd1d51bfa35a191470b1c17eb  ./inputs/appear_increment_out_v2.parquet
@@ -373,6 +374,7 @@ edafe1ab8e631b4b67d9e4bfff7ded54  ./inputs/ucmix_laneB_delta_final.parquet
 6daa4e6e2eeee0f4a79ee6cf055b9cb0  ./janjul_only_final_recommended.parquet
 1e7fa78e74f4c00f66eedc9356f144bf  ./janjul_only_final_v4_cb5_mlp5.parquet
 6daa4e6e2eeee0f4a79ee6cf055b9cb0  ./janjul_only_final_v5_adsb3_a2o5.parquet
+55a91f49410b93c9d97a774d76afdab2  ./janjul_only_final_v6_all5.parquet
 a50ad4d87e672cdaf698afd9d7157244  ./members/a2o_cattight_5seeds_flfix.parquet
 5a5edf433beda3132164b353bb04e6a4  ./members/a2o_cattight_flfix.parquet
 05fa0fd94eb97aa993327037fba775fa  ./members/a2o_cattight_s45_flfix.parquet
@@ -386,7 +388,11 @@ ecead58fcd77001635f1b4eb625fb809  ./members/main_flseq_osm_nolirf_l2_pa_opt_l6.p
 1b6e273e1c70ec83f876a8dc7d55f1d4  ./members/main_flseq_osm_nolirf_plainy_l2_opt_l6.parquet
 caa9c1280a9427ab500ca26fa3708949  ./members/mlp_l6_5seeds.parquet
 6318b7a627d0b0dc202eb5aad0162941  ./members/mlp_l6_s45.parquet
+509e4f1e5a323e38eaa9e42aff3b44e0  ./members/p2o_l6_5seeds.parquet
+4d4568ae233468718bc4cd3cf55b3b65  ./members/p2o_l6_s45.parquet
 ff17861079c7a26718e0fe87bb10024c  ./members/pao_l6_cattight.parquet
+9bf9aca742a6d2e34e52e6462aaac2f5  ./members/pao_l6_cattight_5seeds_nolirf.parquet
 085543c49818660e91446b6d30436436  ./members/pao_l6_cattight_nolirf.parquet
+5eb8c5350816a36da54571a366c5a0c5  ./members/pao_l6_cattight_s45.parquet
 47d6574fff23907128d1032a343b7c4c  ./optional_janjul_reanchor_plus1delta.parquet
 38edd5a6a6ab0328de841936cffa907a  ./pre_adsb_base_blend5_final.parquet

@@ -352,3 +352,10 @@ python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_
 ```
   stdout は `docs/final_2026-10-11/logs/assemble_final_v5_adsb3_a2o5.log`。派生メンバー（pao nolirf、MLP 5 seeds、a2o 5 seeds）は `derived_members.py`。
 - 進行中: pao（cat_tight、LIRF 以外）と p2o の seed 45・46。できたら v6 として点検し、通れば差し替える。
+
+## 2026-10-14 04:25 UTC: v6 = v5 ＋ pao・p2o も 5 seeds 平均（全メンバー 5 seeds）。点検を実行中（推奨はまだ v5）
+- `final_v6_all5.parquet`（md5 7e53142e478bbb022ae6584850143040、validate OK）、1・7 月だけ: `janjul_only_final_v6_all5.parquet`（55a91f49410b93c9d97a774d76afdab2）。
+- pao（cat_tight、LIRF 以外）= (3×seed42–44 + 2×seed45–46)/5（`members/pao_l6_cattight_5seeds_nolirf.parquet`、LIRF は本番 pao のまま）。pao 単体 mean5 − mean3 の RMS 9.9 s（LIRF 以外）。
+- p2o = (3×seed42–44 + 2×seed45–46)/5（`members/p2o_l6_5seeds.parquet`、`configs/p2o_l6_s45.yaml`）。p2o 単体 mean5 − mean3 の RMS 10.8 s。
+- v5 比の変化: 各月 RMS 2.8〜3.6 s。stdout は `docs/final_2026-10-11/logs/assemble_final_v6_all5.log`。
+- 並行して cat_vtight（cat_smooth 200 / cat_l2 200 / min_data_per_group 1000）を 2025 年の 4 fold（1・2・6・7 月）で screen 中。
