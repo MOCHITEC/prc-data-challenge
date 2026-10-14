@@ -74,7 +74,8 @@ final_ranking.parquet --expect-md5 be8d89dcf79bd59a6f43d80193c95685` prints **PA
 
 ### 2.2 February and June: the chain
 
-The recipe is the top of `handoff/2026-10-13/README.md` as of `25f6246` (in Japanese). In English:
+The recipe is the top of `handoff/2026-10-13/README.md` as of `25f6246` (in Japanese; the rest of that note is
+translated in §8). In English:
 
 1. **Members.** Each member was trained on the final raw data:
    `python -m prc.pipeline --config <config> --skip-cv --raw-dir <final raw dir> --work-dir <final work dir>`.
@@ -341,3 +342,62 @@ Japanese. They are kept as written, as the record.
 - **None of those recommendations was submitted.** The final file is the one in §1.
 - Where a hand-off note and this page disagree about the final file, this page is right. Exception: the upload
   ledger `experiments/submissions.jsonl` overrides both (§1).
+
+## 8. English translation of the hand-off note for this file
+
+This is `handoff/2026-10-13/README.md` **as of `25f6246`**: `git show 25f6246:handoff/2026-10-13/README.md`. The
+note was written by the laughing-cray thread on 2026-10-13, at 00:50 with an update at 02:30 UTC, and is in
+Japanese. The recipe part is in §2.2 above and the path table in §5.3. The rest is translated here. Later sections
+of the same file, added after `25f6246`, are about other candidates (§3, §7).
+
+**Header.** It follows the team instruction (`docs/final_phase_2026-10-11/NO_FINAL_UPLOAD.md`). The note says:
+- this thread has uploaded nothing to the bucket;
+- the bucket's `resilient-hedgehog_final.parquet` (10-09) was not made by this thread;
+- v48 and v49 were not submitted by this thread.
+
+**Files.**
+
+| file | md5 | content |
+|---|---|---|
+| `final_from_v48.parquet` | `be8d89dcf79bd59a6f43d80193c95685` | Jan/Jul = v48's file (old ranking clock). Feb = the chain below (own ADS-B layer). Jun = the chain below, "ADS-B layer = the A12 layer". Validate OK |
+| `pre_adsb_base_blend5_final.parquet` | `38edd5a6a6ab0328de841936cffa907a` | the 5-member blend before the ADS-B layer (4 months, float); the base b to pass to `final_adsb.py` and similar |
+
+The June cell was not updated when the md5 was. The 02:30 update below is what the file contains: §2.4 checks it.
+
+**Where it ran.** Working directory `/home/user/prc-final`; member outputs in `/home/user/pb-work/outputs/final`.
+
+**ADS-B layers** (two kinds):
+- **Own:** `docs/final_2026-10-11/adsb_layer.py apply`. It rebuilds the composition of v47's layer (G12A / G7A / GL4 /
+  AIR / POS / RULE, c = 0 at LTFM). The note lists it for Jan, Feb and Jul.
+- **A12:** `docs/appear_tier_2026-10-05/final_adsb.py` from the beautiful-davinci thread, with
+  `handoff/2026-10-11/adsb`. It covers all 4 months.
+
+**Overlays.** `apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`, in this order:
+- lane-B: NM-blind (w 0.25) and ucmix;
+- LIRF: copy band, time-zone class, matched copy overlay (0.4·q);
+- the LOBT clip (±3606 s) last.
+
+**Validation** (on Jan/Jul rows, against v47 and v48):
+
+| compared | RMS difference | median difference |
+|---|---|---|
+| chain (own layer) vs v47 | 52.5 s | 16 s |
+| chain (own layer) vs v48 | 53.2 s | 16 s |
+| chain (A12 layer only) vs v48 | 68.8 s | 16 s |
+| v48 vs v47 | 22.6 s | 6 s |
+
+- "The own layer is closer to v47 / v48." The note's explanation, marked by the note itself as a belief: the A12
+  layer alone lacks posjoin, LIRF matched (GL4), air-only and similar parts.
+- "The median difference of 16 s comes mainly from the ±12 s shift of MVT in final_ranking" and from the
+  approximations of the rebuilt ADS-B layer.
+- "The script itself was confirmed to reproduce v47 on every row on the old ranking data." The note does not say
+  which script. `docs/final_2026-10-11/overlays_README.md` states that `apply_overlays.py` "reproduces v47 exactly".
+- At 00:50 June had no own layer yet, because the adsb.lol June ingest was still running. The note planned a "v5"
+  with June on the own layer, "+ (c_A12 − c_P12) if needed".
+
+**Update (2026-10-13 02:30 UTC): June switched to the own ADS-B layer as well.**
+- The adsb.lol June data were ingested for 29 of the 30 days; 2026-06-11 had no data.
+- The June rows were replaced with the own layer, the same composition as v47 / v48.
+- Only the 2026-06-11 rows keep the A12 layer (the beautiful-davinci 4-month version, which has data for that day).
+- January, February and July are unchanged. In June, 142,281 rows changed; the RMS of the change is 44.6 s.
+- Validate OK. md5 `be8d89dcf79bd59a6f43d80193c95685`.
