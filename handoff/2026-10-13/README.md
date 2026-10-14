@@ -1,4 +1,4 @@
-> **最新の推奨（2026-10-14 03:40 UTC）**: `final_recommended.parquet` = v5（md5 **411a6aa0b05b8e3b525d3d2bf4e17ea9**）。1 つ前（v4、md5 d0ce32b6…）は `final_v4_cb5_mlp5.parquet` として残してある。詳細は末尾の「★★ 最終版」と「v5」の節。それより上の節は作業の記録です。
+> **最新の推奨（2026-10-14 04:45 UTC）**: `final_recommended.parquet` = v6（md5 **7e53142e478bbb022ae6584850143040**、全メンバー 5 seeds ＋ ADS-B 層 3 seeds）。1 つ前の v5（411a6aa0…）と v4（d0ce32b6…）も同じフォルダに残してある。詳細は末尾の節。それより上の節は作業の記録です。
 
 # データ分析（laughing-cray）の最終候補（2026-10-13 00:50 UTC）
 
@@ -359,3 +359,19 @@ python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_
 - p2o = (3×seed42–44 + 2×seed45–46)/5（`members/p2o_l6_5seeds.parquet`、`configs/p2o_l6_s45.yaml`）。p2o 単体 mean5 − mean3 の RMS 10.8 s。
 - v5 比の変化: 各月 RMS 2.8〜3.6 s。stdout は `docs/final_2026-10-11/logs/assemble_final_v6_all5.log`。
 - 並行して cat_vtight（cat_smooth 200 / cat_l2 200 / min_data_per_group 1000）を 2025 年の 4 fold（1・2・6・7 月）で screen 中。
+
+
+## 2026-10-14 04:45 UTC: 推奨を v6 に切り替え（独立点検 合格: blocker / major なし）
+- **`final_recommended.parquet` = `final_v6_all5.parquet`（md5 7e53142e478bbb022ae6584850143040）**、1・7 月だけ: `janjul_only_final_recommended.parquet`（55a91f49410b93c9d97a774d76afdab2）。
+  任意の変種 `optional_janjul_reanchor_plus1delta.parquet` も v6 から作り直した。
+- 点検結果（4 観点）: 形式・網羅 合格（件数・ID・順序・型すべて一致、LOBT 違反 0）。1・7 月は v48 相当（matched RMS 15.2 / 11.3 s、unmatched は v5 と同じ 1,765 行が ADS-B 層の seed 平均で変化）。
+  2・6 月は chain の中間ファイルから全行が正確に再現（0 行の不一致）。残る軽微な点は 60 s 未満 31 行（Jan/Jul は v47/v48 と同数の 9 行）。
+- v5 → v6 の変更: pao（LIRF 以外）と p2o を 5 seeds 平均に。各月 RMS 2.8〜3.6 s の変化。
+- 実行コマンド（literal）: `docs/final_2026-10-11/logs/assemble_final_v6_all5.log` の先頭を参照。
+```
+cd /home/user/prc-final && F=/home/user/pb-work/outputs/final && python derived_members.py --dir $F
+python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_l6_cattight_5seeds_nolirf.parquet --p2o $F/p2o_l6_5seeds.parquet --m4 $F/mlp_l6_5seeds.parquet \
+  --cb $F/main_flseq_osm_nolirf_cb_l2.parquet $F/main_flseq_osm_nolirf_cb_l2_s43.parquet $F/main_flseq_osm_nolirf_cb_l2_s44.parquet $F/cb_l2_s45.parquet $F/cb_l2_s45.parquet \
+  --adsb-models /home/user/prc-final/adsb_out/models /home/user/prc-final/adsb_out/models_s43 /home/user/prc-final/adsb_out/models_s44 --tag final_v6_all5 --c13
+```
+- 進行中: cat_vtight の screen（2025 年 1・2・6・7 月）。cat_tight より一貫して良ければ a2o / pao を学習し直す。
