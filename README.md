@@ -254,6 +254,11 @@ The full list is in `docs/external_data.md`. The model uses:
 - **Iowa Environmental Mesonet** METAR: "Weather observations from the Iowa Environmental Mesonet (IEM) of Iowa State
   University."
 
+Research only, not used in any submission or in the final file:
+- **EUROCONTROL** OPDI v0.0.2 flight events and the PRU taxi-out additional time. Source: EUROCONTROL. Only aggregate
+  results are kept in the tree. The per-row files derived from them were removed on 2026-10-14 under the EUROCONTROL
+  terms (no modification without prior written permission); they remain in git history (`docs/external_data.md`).
+
 The files under `handoff/**/adsb_store/`, `handoff/2026-10-11/adsb/`, `handoff/2026-10-13/june_adsb_for_adsb_layer/`
 and the stand tables derived from OSM are derived databases of adsb.lol and OSM. They are made available under ODbL
 1.0 (see `docs/external_data.md`).

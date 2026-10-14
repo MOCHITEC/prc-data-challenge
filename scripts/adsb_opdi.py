@@ -8,7 +8,8 @@
 `--opdi` adds six columns to the residual's design: the OPDI `exit-parking_position` event linked to the departure
 (MVT - exit, exit - AOBT_3, stand match, number of candidate exits, OPDI's time-in-use) and MVT - exit - base. They
 are read from handoff/2026-10-05/opdi_exitpark.parquet (built by docs/opdi_events_2026-10-05/link_events.py; no label
-in it) and kept only at APTS: the residual is fitted on Jan + Jul 2025, where OPDI covers LSZH (58 % / 79 % of
+in it; removed from the tree on 2026-10-14 under the EUROCONTROL terms, so re-create it with that script and point
+PRC_OPDI_EXIT at it) and kept only at APTS: the residual is fitted on Jan + Jul 2025, where OPDI covers LSZH (58 % / 79 % of
 departures) and almost nothing else, so elsewhere (EDDF 15-25 % in 2026) the trees would extrapolate.
 
 `--opdi-shuffle` adds the same six columns with the OPDI block permuted across the rows that have one, within each

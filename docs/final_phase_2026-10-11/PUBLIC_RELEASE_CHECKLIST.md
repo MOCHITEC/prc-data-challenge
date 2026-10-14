@@ -63,7 +63,16 @@ State at the time of writing:
    - `handoff/2026-10-05/opdi_exitpark.parquet` (OPDI);
    - `docs/research_2026-10-05_aobt/kpi/pru_published_2024_2025.csv` (PRU taxi-out).
 
-   Decide whether to keep them. Deleting them at the tip leaves them in history; history was not rewritten.
+   **Decided 2026-10-14 (user, option A): removed from the tip on 2026-10-14; still present in git history.**
+   History was not rewritten.
+   - Removed with `git rm`: the two files above and `docs/research_2026-10-05_aobt/kpi/out/validation_per_airport.csv`,
+     which copies PRU columns (`pru_add`, `pru_valid_share`, …).
+   - Kept: the aggregate OPDI text results and the figures.
+   - How to re-create each file, and the reason (the EUROCONTROL terms, quoted): `handoff/2026-10-05/README.md` §6,
+     `docs/research_2026-10-05_aobt/README.md` and `docs/external_data.md` (derived-data table).
+   - README §7 carries a EUROCONTROL attribution line.
+   - No code path used by the tests reads these files (`tests/test_opdi.py` mocks the OPDI table). `pytest -q` after
+     the removal: 364 passed, 2 skipped (7 min 44 s).
 2. **Competition-derived per-row fields.** These files carry fields copied from the competition files for 2026 rows:
    `t_mvt`, `t_aobt3`, `t_sched`, `t_block` (all null), `TAXITIME_SEC_mvt` (all null), `AIRCRAFT_TYPE_mvt` and
    `RUNWAY_mvt`. 149 files, 134,253 rows, no labels.

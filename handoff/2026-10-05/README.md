@@ -90,6 +90,21 @@ POLARS_MAX_THREADS=2 .venv/bin/python scripts/adsb_learn_apply.py --base opt --o
 | `adsb_opdi.patch` | `scripts/adsb_learn_cv.py`・`adsb_learn_apply.py` への差分（`--opdi`・`--opdi-shuffle` の読み取り、列の追加、S4 の比較相手、出力名） |
 | `../../scripts/adsb_opdi.py` | 列の読み込み・LSZH 以外を空にする・並べ替えの対照・判定の表示・2025/2026 の被覆の比較 |
 
+**Removed (English note, 2026-10-14).** `opdi_exitpark.parquet` was removed from the public tree on 2026-10-14,
+because it is per-row data derived from EUROCONTROL OPDI, and the EUROCONTROL terms say that the data "may be copied in whole or in part, provided that EUROCONTROL is mentioned as the source and it is not used for commercial purposes", but "may not be modified without prior written permission from EUROCONTROL". Source: EUROCONTROL (OPDI v0.0.2).
+It was research only: no submission and not the final file used it (`docs/external_data.md`). It is still in git
+history: `git show 1d12abb:handoff/2026-10-05/opdi_exitpark.parquet`. To re-create it:
+  1. `.venv/bin/python scripts/opdi_events_ingest.py` downloads the OPDI v002 flight-event files
+     `https://www.eurocontrol.int/performance/data/download/OPDI/v002/flight_events/flight_events_{span}.parquet`
+     (the 10-day spans listed in the script), keeps the ground events at the 10 airports and writes
+     `data/external/opdi_events/ground_<span>.parquet`. The 2025-10-02 to 10-12 file returned 404
+     (`docs/opdi_events_2026-10-05/plan.md`).
+  2. `.venv/bin/python docs/opdi_events_2026-10-05/link_events.py` links the events to the departures and writes
+     `data/work/opdi_exitpark.parquet`. It reads the feature cache `data/work_flseq/feat_{train,rank}.parquet`, which
+     `prc.pipeline` builds from the competition files.
+  3. `src/prc/train.py` (`fe_opdi_exit`) reads `data/work/opdi_exitpark.parquet`; `scripts/adsb_opdi.py` reads the
+     path in `PRC_OPDI_EXIT` (its default was the removed file).
+
 ## 7. ライセンス（要判断）
 
 OPDI は EUROCONTROL の一般の免責事項（出典明記・非商用・無断改変禁止）で公開されている。コンペの賞の条件は

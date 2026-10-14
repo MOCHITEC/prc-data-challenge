@@ -17,8 +17,8 @@ measured in notes or CV and did not reach any leaderboard submission or the fina
 | OurAirports `airports.csv`, `runways.csv` | public domain | airport reference points (8 km ADS-B filter), runway thresholds | **final chain** | `src/prc/airports.py`, `src/prc/osm.py` |
 | Iowa Environmental Mesonet ASOS/METAR | public domain, attribution requested | hourly weather features (`use_weather: true`) | **final chain** | `src/prc/weather.py` |
 | Open-Meteo historical weather API | CC BY 4.0 | precipitation / snow features in one weather arm (`configs/wx2_C.yaml`) | research only | `src/prc/weather.py` (`fetch_openmeteo`) |
-| EUROCONTROL OPDI v0.0.2 flight list and flight events | EUROCONTROL disclaimer: attribution, non-commercial, no modification without permission | turnaround and stand-exit features (`fe_opdi`, `fe_opdi_exit`) | research only; a derived file is committed (see below) | `src/prc/opdi.py`, `scripts/opdi_events_ingest.py`, `scripts/adsb_opdi.py`, `docs/opdi_2026-09-30/`, `docs/opdi_events_2026-10-05/` |
-| EUROCONTROL PRU taxi-out additional time (monthly, per airport) | EUROCONTROL disclaimer, as OPDI | check of a re-implementation of the PRU ATXOT indicator | research only; 240-row extract committed | `docs/research_2026-10-05_aobt/kpi/00_extract_pru.py`, `pru_published_2024_2025.csv` |
+| EUROCONTROL OPDI v0.0.2 flight list and flight events | EUROCONTROL disclaimer: attribution, non-commercial, no modification without permission | turnaround and stand-exit features (`fe_opdi`, `fe_opdi_exit`) | research only; the derived per-row file was removed from the tip on 2026-10-14 (see below) | `src/prc/opdi.py`, `scripts/opdi_events_ingest.py`, `scripts/adsb_opdi.py`, `docs/opdi_2026-09-30/`, `docs/opdi_events_2026-10-05/` |
+| EUROCONTROL PRU taxi-out additional time (monthly, per airport) | EUROCONTROL disclaimer, as OPDI | check of a re-implementation of the PRU ATXOT indicator | research only; the 240-row extract and a table copying it were removed from the tip on 2026-10-14 (see below) | `docs/research_2026-10-05_aobt/kpi/00_extract_pru.py`, `pru_published_2024_2025.csv` |
 | EUROCONTROL ansperformance daily airport files (pre-departure delay, ATFM slot adherence, arrival ATFM delay) | EUROCONTROL disclaimer, as OPDI | leak and feature screening | research only; "All_Pre-Departure_Delay" ruled out as a label leak | `docs/research_2026-10-01/extdata/context/*.py`, `docs/research_2026-10-01/extdata/README.md` |
 | X-Plane Scenery Gateway (stand coordinates) | not verified (notes say "GPLv2 or later, original text not checked") | probe of stand-coordinate coverage | research only | `docs/research_2026-10-01/extdata/offblock/xp.py` |
 | ADS-B Exchange free samples (first day of each month) | terms forbid redistribution (per notes) | probe of LTFM ground coverage | research only, rejected | `docs/research_2026-10-01/extdata/offblock/adsbx_probe.py` |
@@ -36,8 +36,15 @@ Not data inputs:
 |---|---|---|
 | `handoff/2026-10-13/adsb_store/`, `handoff/2026-10-13/june_adsb_for_adsb_layer/`, `handoff/2026-10-11/adsb/` (per-departure ADS-B features, positional joins, dwell, appear features, stand map) | adsb.lol, OpenStreetMap | Derived databases; made available under ODbL 1.0 with the attributions below |
 | `docs/final_2026-10-11/adsb_models/`, `handoff/2026-10-11/adsb/learn/*.txt` (LightGBM text models) | trained on adsb.lol-derived features and the competition labels | Produced works |
-| `handoff/2026-10-05/opdi_exitpark.parquet` (OPDI stand-exit columns per departure) | EUROCONTROL OPDI | Licence not open; see the release checklist |
-| `docs/research_2026-10-05_aobt/kpi/pru_published_2024_2025.csv` | EUROCONTROL PRU taxi-out file | Licence not open; see the release checklist |
+| `handoff/2026-10-05/opdi_exitpark.parquet` (OPDI stand-exit columns per departure) | EUROCONTROL OPDI | **Removed from the tip on 2026-10-14; still present in git history** (`git show 1d12abb:<path>`). Re-create: `handoff/2026-10-05/README.md` §6 and below |
+| `docs/research_2026-10-05_aobt/kpi/pru_published_2024_2025.csv` | EUROCONTROL PRU taxi-out file | **Removed from the tip on 2026-10-14; still present in git history.** Re-create: `docs/research_2026-10-05_aobt/README.md` and below |
+| `docs/research_2026-10-05_aobt/kpi/out/validation_per_airport.csv` (columns `pru_add`, `pru_valid_share`, … copied from the PRU file) | EUROCONTROL PRU taxi-out file | **Removed from the tip on 2026-10-14; still present in git history.** Re-create: as above |
+
+**Decision (2026-10-14, user, option A).** The three EUROCONTROL-derived files above were removed from the tip with
+`git rm`, because the EUROCONTROL terms say that the data "may be copied in whole or in part, provided that EUROCONTROL is mentioned as the source and it is not used for commercial purposes", but "may not be modified without prior written permission from EUROCONTROL". History was not rewritten. They were research only: no submission and not the
+final file used them. The aggregate OPDI and PRU results that remain (notes, text tables and figures under
+`docs/opdi_events_2026-10-05/`, `docs/opdi_2026-09-30/` and `docs/research_2026-10-05_aobt/kpi/`) cite EUROCONTROL
+as the source.
 
 ## adsb.lol historical ADS-B traces
 
@@ -104,7 +111,8 @@ production recipes.
 | **URL** | `https://www.eurocontrol.int/performance/data/download/OPDI/v002/flight_list/flight_list_{YYYYMM}.parquet`, `.../flight_events/flight_events_{span}.parquet`. |
 | **Licence** | No open licence is stated on opdi.aero. The EUROCONTROL disclaimer applies (`https://ansperformance.eu/about/disclaimer/`): "It may be copied in whole or in part, provided that EUROCONTROL is mentioned as the source and it is not used for commercial purposes … may not be modified without prior written permission from EUROCONTROL." The code carries a LICENCE FLAG for this (`src/prc/opdi.py`, `scripts/opdi_events_ingest.py`). |
 | **Use** | Turnaround time (`fe_opdi`, `configs/opdi_*.yaml`, `docs/opdi_2026-09-30/`). Stand-exit event (`fe_opdi_exit`, `configs/ox*.yaml`, `scripts/adsb_opdi.py`, `docs/opdi_events_2026-10-05/`, `handoff/2026-10-05/README.md`). All measured in CV only. The ledger and the final-chain configs contain no OPDI feature. |
-| **Committed derivative** | `handoff/2026-10-05/opdi_exitpark.parquet` (136,388 rows: `MVT_ID_mvt` and five `opdi_exit_*` columns). |
+| **Derivative (removed)** | `handoff/2026-10-05/opdi_exitpark.parquet` (136,388 rows: `MVT_ID_mvt` and five `opdi_exit_*` columns) was removed from the tip on 2026-10-14 under the EUROCONTROL terms; it is still in git history. |
+| **Re-create** | `scripts/opdi_events_ingest.py` (downloads `https://www.eurocontrol.int/performance/data/download/OPDI/v002/flight_events/flight_events_{span}.parquet`), then `docs/opdi_events_2026-10-05/link_events.py` (writes `data/work/opdi_exitpark.parquet`; needs the `prc.pipeline` feature cache). Details: `handoff/2026-10-05/README.md` §6. |
 
 ## EUROCONTROL PRU taxi-out additional time (research only)
 
@@ -112,7 +120,8 @@ production recipes.
 |---|---|
 | **Source** | EUROCONTROL Performance Review Unit, monthly taxi-out additional time per airport. The local file name was `txo.xlsx` (sheet `DATA`). The repository does not record its download URL. Its columns (`YEAR, MONTH_NUM, …, TOTAL_ADD_TIME_MIN`) match EUROCONTROL's `Taxi-Out_Additional_Time.xlsx`. |
 | **Licence** | EUROCONTROL disclaimer, as for OPDI. |
-| **Use** | `docs/research_2026-10-05_aobt/kpi/00_extract_pru.py` extracts 2024–2025 rows for the 10 airports into `pru_published_2024_2025.csv` (240 rows). `02_baseline_validate.py` checks a re-implementation of the ATXOT indicator against it. Not a model input. It uses the vendored openpyxl (`kpi/pylib/`, MIT, licence files included). |
+| **Use** | `docs/research_2026-10-05_aobt/kpi/00_extract_pru.py` extracts 2024–2025 rows for the 10 airports into `pru_published_2024_2025.csv` (240 rows). `02_baseline_validate.py` checks a re-implementation of the ATXOT indicator against it and writes `out/validation_per_airport.csv`. Not a model input. It uses the vendored openpyxl (`kpi/pylib/`, MIT, licence files included). |
+| **Removed** | `pru_published_2024_2025.csv` and `out/validation_per_airport.csv` were removed from the tip on 2026-10-14 under the EUROCONTROL terms; both are still in git history. Re-create them with `Taxi-Out_Additional_Time.xlsx` saved as `kpi/txo.xlsx`, then `00_extract_pru.py` and `02_baseline_validate.py` (`docs/research_2026-10-05_aobt/README.md`). |
 
 ## EUROCONTROL ansperformance daily airport files (research only)
 

@@ -8,6 +8,22 @@
 - 外部データ: PRU の公表値、adsb.lol の 4 日分（ODbL。「Contains data from adsb.lol, made available under the ODbL 1.0.」）、METAR。
 - スクリプトの入出力パスはスクラッチ領域を指している。[S] は実測、[X] は推論。
 
+> **Removed files (English note, 2026-10-14).** `kpi/pru_published_2024_2025.csv` (the PRU published taxi-out
+> additional time, 240 rows) and `kpi/out/validation_per_airport.csv` (it copies PRU columns such as `pru_add` and
+> `pru_valid_share`) were removed from the public tree on 2026-10-14, because the EUROCONTROL terms say that
+> the data "may be copied in whole or in part, provided that EUROCONTROL is mentioned as the source and it is not used for commercial purposes", but "may not be modified without prior written permission from EUROCONTROL".
+> Source: EUROCONTROL (Performance Review Unit). Both were research only (`docs/external_data.md`). They are still in
+> git history, e.g. `git show 1d12abb:docs/research_2026-10-05_aobt/kpi/pru_published_2024_2025.csv`. The figures and
+> the other aggregate outputs in `kpi/` stay. To re-create the two files:
+>
+> 1. Download EUROCONTROL's taxi-out additional time file `Taxi-Out_Additional_Time.xlsx` (sheet `DATA`) and save
+>    it as `docs/research_2026-10-05_aobt/kpi/txo.xlsx`. The repository does not record the download URL.
+> 2. In `docs/research_2026-10-05_aobt/kpi/`, run `python 00_extract_pru.py`. It writes `pru_published_2024_2025.csv`
+>    (2024–2025 rows for the 10 airports, 240 rows).
+> 3. Then `python 02_baseline_validate.py` writes `out/validation_per_airport.csv` (and
+>    `out/replication_monthly.csv`). It also needs `dep2025.parquet`, the 2025 departures from the competition files
+>    (`common.py`, `load()`).
+
 > **独立レビュー（2026-10-05、`review/`）を受けた訂正。以下の本文より優先する。**
 > - 総合判定は「大幅修正」。中心の結果（F2: LIRF の穴埋めが公式値を歪め、年間 1 位が LIRF から EGLL に入れ替わる）は、ほとんどの補正方法で残る。
 > - F1: r = 0.993 は空港間の差が支配的。空港内の相関は 0.97。de-icing の代理指標を外すと r = 0.937 に落ち、月次順位の一致は 69%。代理指標の較正が要る。公式値と一致するのはほぼ当然でもある（データの出所が同じ）。新しさは無い。
