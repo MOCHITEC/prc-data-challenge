@@ -74,6 +74,10 @@ State at the time of writing:
 5. **Japanese-language notes.** Many notes and hand-off READMEs are in Japanese, including `handoff/2026-10-13/README.md`,
    the main recipe. `README.md`, `docs/external_data.md`, `docs/DEVELOPMENT_HISTORY.md`, `docs/SOLUTION_OVERVIEW.md`
    and the runbook are in English.
+   - Update 2026-10-14: `docs/FINAL_SUBMISSION.md` §2.2, §5.3 and §8 translate the parts of
+     `handoff/2026-10-13/README.md` (as of `25f6246`) that concern the final file.
+   - `docs/README.md` is now an English index. The earlier Japanese page is kept at
+     `docs/archive/README_2026-09-25_ja.md`.
 6. **The unknown 10-09 final upload.** The runbook's `--confirm-final-overwrite` upload replaces it. If the final
    upload did not happen, that object is still the team's final file.
 7. **The earlier integration attempt** (`docs/integration_2026-10-06.md`, tip 6d3c407) is on no remote branch and
