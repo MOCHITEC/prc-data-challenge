@@ -68,6 +68,13 @@ BEFORE = {
     "sw1.yaml": ("c0d223319b", "9f53bbe724"),
     "tc_ctrl.yaml": ("c217ddd030", "9f53bbe724"),
     "tc_drop.yaml": ("86a3693e18", "9f53bbe724"),
+    # recipes from claude/beautiful-davinci-ehugk4, registered at the 2026-10-14 integration; ids computed from the
+    # unchanged files and equal to the exp_ids logged in experiments/experiments.jsonl
+    "main_flseq_asofmj.yaml": ("87ea8fee1d", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_asofmj.yaml": ("f251478c1a", "9f53bbe724"),
+    "main_flseq_osm_nolirf_l2_clip.yaml": ("29a6ce9882", "9f53bbe724"),
+    "ox.yaml": ("1ffe076b1c", "9f53bbe724"),
+    "ox_stress.yaml": ("0b2319a4ca", "9f53bbe724"),
     "abl_no_categoricals.yaml": ("2d339105bd", "864be36cf6"),
     "abl_no_encodings.yaml": ("c9761a913d", "864be36cf6"),
     "abl_vanilla_params.yaml": ("66aa584f56", "f95eb3b33e"),
