@@ -1,5 +1,19 @@
 # 最終 4 か月の候補ファイル（beautiful-davinci、2026-10-14）
 
+## ★★ 提出役（RPC実装）の runbook 用の値（06:05 UTC 時点）
+旧ボードの試験結果が出る前に提出する場合の安全な推奨（門 + 1・7 月 +1×δ、v6 ベース）:
+```bash
+export SRC_BRANCH=origin/claude/beautiful-davinci-ehugk4
+export SRC_COMMIT=e5c440bd269dbdcf837eed236737d5e0ac7b3de2
+export SRC_PATH=handoff/2026-10-14/v6/final_v6_gatefull_plus1delta.parquet
+export FINAL_MD5=c17d7b91fb2459aab60446b1fd116f08
+```
+- 旧ボードの試験（門・q15・LTFM と除氷行の試験、`probes/README.md`）の点数がそろったら、
+  `python -I docs/final_phase_gate/assemble_final.py <7 つの点数> <出力>` で作ったファイルに差し替える（私に点数を伝えてもらえれば作る）。
+- どのファイルも 1・7 月の +1×δ 入り。`add_delta_janjul.py` を重ねてかけないこと。
+
+---
+
 ## ★ 05:15 UTC 更新: 統合役の推奨が v6 になったので、v6 の上に作り直した（`v6/` フォルダ）
 
 **提出役へ: v6 を使うなら、下の表の `v6/` のファイルを使うこと**（v4 の上のファイルは v4 を選んだ場合だけ）。
