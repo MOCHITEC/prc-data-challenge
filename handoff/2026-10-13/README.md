@@ -318,3 +318,10 @@ md5 の一覧: `MD5SUMS`（335 件）。
 
 ## このスレッドは何もアップロードしていない
 チーム指示どおり、`_final.parquet` も `_vNN.parquet` もバケットには置いていない。提出は RPC 実装スレッドが行う。
+
+## 2026-10-14 02:10 UTC: 改善を継続中（ユーザー指示: 締めるまで続ける）
+実行中の項目。できたものから点検して `final_recommended.parquet` を差し替え、ここに追記する。差し替えがなければ上の ★★ の md5 が最終。
+1. 自前 ADS-B 層のモデル（m12a / m7a / m4v2）を seed 42・43・44 の 3 本で学習し、補正 c を平均する（`adsb_layer.py` に `ADSB_SEED` / `ADSB_MODELS` を追加、`assemble_step.py --adsb-models`）。
+   seed 違いの差は RMS 約 8 s（調整ワーカーの v2 refit と本番モデルの比較）。見込み −0.05 s 前後。
+2. a2o（cat_tight）・pao（cat_tight、LIRF 以外）・p2o の seed 45・46 を足して 5 seeds 平均に（各 −0.01〜−0.02 s）。
+3. 時間があれば cat_vtight（200/200/1000）の screen。

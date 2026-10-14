@@ -39,7 +39,7 @@ os.environ.setdefault("POLARS_UNKNOWN_EXTENSION_TYPE_BEHAVIOR", "load_as_storage
 FINAL = "/home/user/prc-final"
 WORK = "/home/user/prc-work"          # older repo copy that still holds the 2025 OOF files and feat_train.parquet
 HERE = os.path.join(FINAL, "adsb_out")
-MODELS = os.path.join(HERE, "models")
+MODELS = os.environ.get("ADSB_MODELS") or os.path.join(HERE, "models")  # ADSB_MODELS: alternative model dir (seed runs)
 FEAT = os.path.join(HERE, "feat")
 POS = os.path.join(HERE, "pos")
 LEARN = os.path.join(SCR, "learn")
@@ -138,6 +138,10 @@ def cmd_fit(check7: bool) -> None:
     del X
     log(f"matrix {Xn.shape} float32, rss {rss_mb():.0f} MB")
     P = {**CV.PARAMS, **V2}
+    if os.environ.get("ADSB_SEED"):
+        _s = int(os.environ["ADSB_SEED"])
+        P = {**P, "seed": _s, "bagging_seed": _s, "feature_fraction_seed": _s}
+        log(f"seed override {_s}")
     meta = {"features": feats, "features_apron": allf, "cats": cats, "params": P, "models": {}}
     todo = ["m12a", "m7a", "m4v2"] + (["m7v2_check"] if check7 else [])
     for tag in todo:

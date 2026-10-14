@@ -33,6 +33,7 @@ ap.add_argument("--cb", nargs="+", default=[F + "main_flseq_osm_nolirf_cb_l2.par
 ap.add_argument("--tag", required=True)
 ap.add_argument("--c13", action="store_true", help="add the exact a2o C13 correction on Jan/Jul matched rows")
 ap.add_argument("--skip-chain", action="store_true", help="reuse chain files already built for this tag")
+ap.add_argument("--adsb-models", nargs="*", default=None, help="model dirs for a seed-averaged ADS-B layer (default: adsb_out/models only)")
 a = ap.parse_args()
 
 
@@ -77,8 +78,26 @@ adsb = A + f"blend_{a.tag}_adsb.parquet"
 ovl = A + f"blend_{a.tag}_adsb_ovl.parquet"
 inc = A + f"incr_{a.tag}_febjun.parquet"
 if not a.skip_chain:
-    subprocess.run([PY, "adsb_layer.py", "apply", "--base", base, "--out", adsb], cwd="/home/user/prc-final/adsb_out", env=ENV, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if a.adsb_models:
+        # seed-averaged ADS-B layer: run apply once per model dir and average the outputs (layer is b + c, so the
+        # mean of the outputs is b + mean c); the detail file is the last run's.
+        outs = []
+        for i, md in enumerate(a.adsb_models):
+            o_i = A + f"blend_{a.tag}_adsb_m{i}.parquet"
+            subprocess.run([PY, "adsb_layer.py", "apply", "--base", base, "--out", o_i], cwd="/home/user/prc-final/adsb_out",
+                           env={**ENV, "ADSB_MODELS": md}, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            outs.append(pl.read_parquet(o_i).select("MVT_ID_mvt", pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias(f"o{i}")))
+        M = outs[0]
+        for o in outs[1:]:
+            M = M.join(o, on="MVT_ID_mvt", how="left", maintain_order="left")
+        cols = [f"o{i}" for i in range(len(outs))]
+        M.select("MVT_ID_mvt", (sum(pl.col(c) for c in cols) / len(cols)).round(0).cast(pl.Int32).alias("TAXITIME_SEC_mvt")).write_parquet(adsb)
+        sp = [float(((M[c] - M[cols[0]]) ** 2).mean()) ** .5 for c in cols[1:]]
+        print(f"ADS-B layer averaged over {len(cols)} model sets; rms(seed_k - seed_0) = {[round(x, 1) for x in sp]}", flush=True)
+        subprocess.run(["cp", A + f"blend_{a.tag}_adsb_m0_detail.parquet", os.path.splitext(adsb)[0] + "_detail.parquet"], check=False)
+    else:
+        subprocess.run([PY, "adsb_layer.py", "apply", "--base", base, "--out", adsb], cwd="/home/user/prc-final/adsb_out", env=ENV, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # --q-cache: the LIRF copy classifier fitted on the UNFIXED final frame (overlays/val/copyq_final_unfixed.parquet,
     # shipped as handoff inputs/copyq_LIRF_final_unfixed.parquet), so the step no longer refits from feat_train.
     subprocess.run([PY, "overlays/apply_overlays.py", "--base", adsb, "--out", ovl, "--laneB", "--lobt-clip", "--copy-feat", "unfixed",
