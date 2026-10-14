@@ -14,7 +14,8 @@ rbar_no = (n_all rbar_all - n_de rbar_de) / (n_all - n_de).
 
 Correction of the final file F (same departures, by MVT_ID): each cell is shifted by rbar - mean(F - v48) over the cell
 (F before the +1x MVT dither when --dithered: the per-row dither is subtracted first). Then the LOBT identity clip on the
-final clock and the zero floor. A probe given as '-' leaves its rows unchanged (if P1 is missing, P3 alone corrects only
+final clock and the zero floor. February de-icing rows (cell_*_02_deice.parquet, flagged from hourly METAR) get 0.5 x the
+January de-icing shift when |rbar| >= 100 s (LTFM) / 50 s (five airports), as pre-registered. A probe given as '-' leaves its rows unchanged (if P1 is missing, P3 alone corrects only
 the de-icing rows; if P3 is missing, P1 corrects all LTFM January rows by one shift)."""
 import sys
 import numpy as np
@@ -65,14 +66,29 @@ def main(a):
     Z = Z.with_columns(dl=pl.when(pl.col("mat") & pl.col("t_old").is_not_null())
                        .then((pl.col("MVT_TIME_UTC_mvt") - pl.col("t_old")).dt.total_seconds().cast(pl.Float64)).otherwise(0.0))
     shift = pl.lit(0.0)
+    applied = {}
     for name, mask, rb in cells:
         cz = Z.filter(mask)
         assert cz["v48"].null_count() == 0
         base = (cz[T].cast(pl.Float64) - (cz["dl"] if dithered else 0.0)) - cz["v48"].cast(pl.Float64)
         c = rb - float(base.mean())
         shift = shift + pl.when(mask.fill_null(False)).then(pl.lit(c)).otherwise(0.0)
+        applied[name] = (rb, c)
         print(f"{name}: rows {cz.height}, rbar(v48) {rb:+.2f} s, mean(F-v48) {float(base.mean()):+.2f} s, shift {c:+.2f} s, "
               f"old-LB MSE gain {cz.height / N_OLD * rb ** 2:.1f} s^2")
+    # Pre-registered February rule (README, 06:00 UTC): 0.5 x the January de-icing shift of F, if |rbar| passes the threshold.
+    jan = {name: (rb, c) for name, (rb, c) in applied.items()}
+    feb_l = set(pl.read_parquet(P + "cell_LTFM_02_deice.parquet")[K].to_list())
+    feb_o = set(pl.read_parquet(P + "cell_OTHER5_02_deice.parquet")[K].to_list())
+    for jname, fset, thr, label in (("LTFM Jan de-icing", feb_l, 100.0, "LTFM Feb de-icing"),
+                                    ("EDDF/EDDM/EHAM/LFPG/LSZH Jan de-icing", feb_o, 50.0, "five-airport Feb de-icing")):
+        if jname in jan and abs(jan[jname][0]) >= thr:
+            c2 = 0.5 * jan[jname][1]
+            mask = pl.col(K).is_in(list(fset))
+            shift = shift + pl.when(mask).then(pl.lit(c2)).otherwise(0.0)
+            print(f"{label}: rows {len(fset)}, shift {c2:+.2f} s (0.5 x the January shift; |rbar| {abs(jan[jname][0]):.0f} >= {thr:.0f})")
+        elif jname in jan:
+            print(f"{label}: unchanged (|rbar| {abs(jan[jname][0]):.0f} < {thr:.0f})")
     v = pl.col(T).cast(pl.Float64) + shift
     lo, hi = (pl.col("mml") - 3606).ceil(), (pl.col("mml") + 3606).ceil()
     v = pl.when(pl.col("mml").is_not_null()).then(pl.max_horizontal(pl.min_horizontal(v, hi), lo)).otherwise(v)
