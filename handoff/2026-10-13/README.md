@@ -387,3 +387,9 @@ anchored LightGBM、単一 seed 42、matched RMSE の base からの差（s）:
 - 1・7 月は vtight、2・6 月は tight が良く、平均は同等（seed のばらつき 0.13〜0.3 s の範囲）。vtight は 2000 round の上限に達している。
 - 一貫した改善ではないので、a2o / pao の学習し直し（約 2.5 時間）はしない。cat_tight のまま。
 - 続けて: ADS-B 層の seed 45・46（3 → 5 本平均、見込み −0.02 s）、MLP と CatBoost の seed 47・48（各 −0.02〜−0.03 s）。
+
+## 2026-10-14 06:45 UTC: v7a = v6 ＋ ADS-B 層を 5 seeds 平均 ＋ MLP を 7 seeds 平均（点検を実行中。推奨はまだ v6）
+- `final_v7a_adsb5_mlp7.parquet`（md5 45ffc9e9f1d95f60f04e850b21377f35）、1・7 月だけ: `janjul_only_final_v7a_adsb5_mlp7.parquet`。
+- v6 からの変化: 各月 RMS 4.2〜5.6 s（ADS-B 層の seed 45・46 と MLP の seed 47・48 を足しただけ）。C13 の検査は合格（e² 平均 1.21、max|e| 82.3）。
+- 外部知見スレッドの補正（門・q15・+1×δ）は `build_on_base.py` で v6 から作ったファイルと md5 まで一致することを確認した（6 ファイルすべて）。v7a の上でも同じスクリプトで作れる（推奨を切り替えるときに一緒に置く）。
+- 実行中: CatBoost の seed 47・48（07:40 ごろ終わる）→ ADS-B 層の seed 47・48 → v7b（CatBoost・ADS-B 層とも 7 seeds）。

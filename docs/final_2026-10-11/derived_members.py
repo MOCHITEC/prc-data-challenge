@@ -52,4 +52,11 @@ if os.path.exists(D + "p2o_l6_s45.parquet"):
     p2 = pl.read_parquet(D + "p2o_l6_s45.parquet").select("MVT_ID_mvt", pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("p2"))
     p3.join(p2, on="MVT_ID_mvt", how="left").select("MVT_ID_mvt", pl.coalesce((3 * pl.col("p3") + 2 * pl.col("p2")) / 5, pl.col("p3")).round(0).cast(pl.Int32).alias("TAXITIME_SEC_mvt")).write_parquet(D + "p2o_l6_5seeds.parquet")
     print("written p2o_l6_5seeds.parquet")
+# MLP 7-seed variant (v7a): round((3 * mlp_l6 [42-44] + 2 * mlp_l6_s45 [45-46] + 2 * mlp_l6_s47 [47-48]) / 7).
+if os.path.exists(D + "mlp_l6_s47.parquet"):
+    m47 = pl.read_parquet(D + "mlp_l6_s47.parquet").select("MVT_ID_mvt", pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("m47"))
+    d7 = m3.join(m45, on="MVT_ID_mvt", how="left").join(m47, on="MVT_ID_mvt", how="left")
+    d7.select("MVT_ID_mvt", pl.coalesce((3 * pl.col("m3") + 2 * pl.col("m45") + 2 * pl.col("m47")) / 7, pl.col("m3")).round(0).cast(pl.Int32)
+              .alias("TAXITIME_SEC_mvt")).write_parquet(D + "mlp_l6_7seeds.parquet")
+    print("written mlp_l6_7seeds.parquet")
 print("written pao_l6_cattight_nolirf.parquet, mlp_l6_5seeds.parquet and a2o_cattight_5seeds_flfix.parquet in", D)
