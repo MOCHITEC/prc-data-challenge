@@ -8,7 +8,7 @@ Commission and the OpenSky Network. Licence: GNU GPLv3 (`LICENSE`).
 
 - **Target.** `TAXITIME_SEC_mvt = MVT_TIME − BLOCK_TIME` (seconds) for departures at 10 airports: EDDF, EDDM, EGLL,
   EHAM, LEBL, LEMD, LFPG, LIRF, LSZH, LTFM.
-- **Training data.** The organisers' 2025 movements (`training_2025-MM-01_2025-MM-01.parquet`, all 12 months), with
+- **Training data.** The organisers' 2025 movements (`training_2025-MM-01_*.parquet`, all 12 months), with
   the NM flight record joined (`AOBT_3_flt`, `LOBT_flt`, …).
 - **Leaderboard set.** January and July 2026 (`ranking.parquet`, 344,841 departures).
 - **Final set.** January, February, June and July 2026 (`final_ranking.parquet` / `final_submitting.parquet`,
@@ -91,6 +91,8 @@ is reachable only through the commit above.
    - February rows: `docs/final_2026-10-11/adsb_layer.py apply`.
    - June rows: `docs/appear_tier_2026-10-05/final_adsb.py` with the store `handoff/2026-10-11/adsb`. This was the
      "A12" layer; June's own layer did not exist yet.
+   - The own layer has no appear term. So in this file the February rows carry no appear increment. The later
+     variants add it to February and June (a37e5bb).
 4. **Overlays and LOBT clip** on February and June rows:
    `docs/final_2026-10-11/apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`. See
    `docs/final_2026-10-11/overlays_README.md` and `laneB_deltas.py`.
@@ -125,8 +127,10 @@ machine. Those branches are merged here (`docs/final_phase_2026-10-11/PUBLIC_REL
   - lane-B deltas, LIRF q and the union features: `handoff/2026-10-13/inputs/`;
   - per-day ADS-B features: `handoff/2026-10-13/adsb_store/` and `handoff/2026-10-11/adsb/`;
   - residual models: `docs/final_2026-10-11/adsb_models/`.
-- Rerunning from raw data needs the competition files, about 200 GB of adsb.lol downloads, and fresh fits of every
-  member. LightGBM and CatBoost boosters are not saved.
+- Rerunning from raw data needs three things:
+  - the competition files;
+  - the adsb.lol archives, 2–4 GB per day (194.9 GB for the 57 Jan/Jul 2026 days downloaded);
+  - fresh fits of every member, because `src/prc` does not save LightGBM or CatBoost models.
 - Recipe documents: `handoff/2026-10-13/README.md`, `handoff/2026-10-14/README.md`, `docs/final_2026-10-11/README.md`,
   `docs/final_phase_2026-10-13/README.md`, `docs/final_phase_2026-10-11/IMPACT.md` §4(c), `RUNBOOK_final_submit.md`.
 
