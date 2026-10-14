@@ -44,11 +44,24 @@ def main(a):
     assert (n_all, n_de, n_jul, n_oth) == (22396, 1843, 25185, 4880), (n_all, n_de, n_jul, n_oth)
     cells = []  # (name, polars mask over O, rbar)
     ltfm_jan = (pl.col("ADEP_mvt") == "LTFM") & (pl.col("m") == 1)
+    post = set(pl.read_parquet(P + "cell_LTFM_01_postdeice.parquet")[K].to_list())
+    O = O.with_columns(post_l=pl.col(K).is_in(list(post)))
+    n_post = len(post)
     if p1 != "-" and p3 != "-":
         ra, rd = rbar(r0, p1, n_all, -40.0), rbar(r0, p3, n_de, -100.0)
         rn = (n_all * ra - n_de * rd) / (n_all - n_de)
-        cells += [("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rd), ("LTFM Jan other", ltfm_jan & ~pl.col("de_l"), rn)]
-        print(f"LTFM Jan: rbar all {ra:+.2f}, de-icing {rd:+.2f}, other {rn:+.2f}")
+        if abs(rd) >= 100.0:
+            # pre-registered: the post-de-icing hour rows get 0.5 x the de-icing shift; the remaining 'other' rows get the
+            # rest of the non-de-icing mean (their mean residual given that the post rows' mean is assumed 0.5 rd)
+            r_post = 0.5 * rd
+            r_rest = (n_all * ra - n_de * rd - n_post * r_post) / (n_all - n_de - n_post)
+            cells += [("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rd),
+                      ("LTFM Jan post-de-icing hour", ltfm_jan & ~pl.col("de_l") & pl.col("post_l"), r_post),
+                      ("LTFM Jan other", ltfm_jan & ~pl.col("de_l") & ~pl.col("post_l"), r_rest)]
+            print(f"LTFM Jan: rbar all {ra:+.2f}, de-icing {rd:+.2f}, post-hour (0.5 x de-icing) {r_post:+.2f}, rest {r_rest:+.2f}")
+        else:
+            cells += [("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rd), ("LTFM Jan other", ltfm_jan & ~pl.col("de_l"), rn)]
+            print(f"LTFM Jan: rbar all {ra:+.2f}, de-icing {rd:+.2f}, other {rn:+.2f}")
     elif p1 != "-":
         cells.append(("LTFM Jan all", ltfm_jan, rbar(r0, p1, n_all, -40.0)))
     elif p3 != "-":
