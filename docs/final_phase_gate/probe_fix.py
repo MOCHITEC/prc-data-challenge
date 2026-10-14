@@ -12,6 +12,7 @@ rbar_no = (n_all rbar_all - n_de rbar_de) / (n_all - n_de).
 
     python -I docs/final_phase_gate/probe_fix.py <v48.parquet> <R_v48> <R_P1|-> <R_P2|-> <R_P3|-> <R_P4|-> <final_in> <final_out> [--dithered]
         [--stage2=EDDF=<score>,EDDM=<score>,...]   (optional per-airport January de-icing probes, probes/stage2/)
+        [--p5=<score>] [--p6=<score>]              (optional LTFM de-icing rows of 19 / 18 January, S = -100)
 
 Correction of the final file F (same departures, by MVT_ID): each cell is shifted by rbar - mean(F - v48) over the cell
 (F before the +1x MVT dither when --dithered: the per-row dither is subtracted first). Then the LOBT identity clip on the
@@ -48,6 +49,30 @@ def main(a):
     post = set(pl.read_parquet(P + "cell_LTFM_01_postdeice.parquet")[K].to_list())
     O = O.with_columns(post_l=pl.col(K).is_in(list(post)))
     n_post = len(post)
+    # optional day-level split of the LTFM January de-icing cell: --p5=<score> (19 Jan rows), --p6=<score> (18 Jan rows), S = -100
+    opt = {x.split("=", 1)[0][2:]: x.split("=", 1)[1] for x in a if x.startswith("--p5=") or x.startswith("--p6=")}
+    d19 = set(pl.read_parquet(P + "cell_LTFM_0119_deice.parquet")[K].to_list())
+    d18 = set(pl.read_parquet(P + "cell_LTFM_0118_deice.parquet")[K].to_list())
+    O = O.with_columns(d19=pl.col(K).is_in(list(d19)), d18=pl.col(K).is_in(list(d18)))
+
+    def de_cells(rd):
+        # the whole de-icing cell keeps the name "LTFM Jan de-icing" in `applied` through its overall rbar (used by the
+        # pre-registered post-hour and February rules); with P5/P6 the rows are shifted day by day
+        if not opt:
+            return [("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rd)]
+        out, used, acc = [], [], 0.0
+        for key, col, n_d, label in (("p5", "d19", len(d19), "LTFM Jan de-icing 19 Jan"), ("p6", "d18", len(d18), "LTFM Jan de-icing 18 Jan")):
+            if key in opt:
+                r_d = rbar(r0, opt[key], n_d, -100.0)
+                out.append((label, ltfm_jan & pl.col(col), r_d)); used.append(col); acc += n_d * r_d
+        n_rest = n_de - sum(len(d19) if c == "d19" else len(d18) for c in used)
+        r_rest = (n_de * rd - acc) / n_rest
+        rest_mask = ltfm_jan & pl.col("de_l")
+        for c in used:
+            rest_mask = rest_mask & ~pl.col(c)
+        out.append(("LTFM Jan de-icing other days", rest_mask, r_rest))
+        print("LTFM Jan de-icing by day: " + ", ".join(f"{l} {r:+.2f}" for l, _, r in out))
+        return out
     if p1 != "-" and p3 != "-":
         ra, rd = rbar(r0, p1, n_all, -40.0), rbar(r0, p3, n_de, -100.0)
         rn = (n_all * ra - n_de * rd) / (n_all - n_de)
@@ -56,17 +81,17 @@ def main(a):
             # rest of the non-de-icing mean (their mean residual given that the post rows' mean is assumed 0.5 rd)
             r_post = 0.5 * rd
             r_rest = (n_all * ra - n_de * rd - n_post * r_post) / (n_all - n_de - n_post)
-            cells += [("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rd),
+            cells += de_cells(rd) + [
                       ("LTFM Jan post-de-icing hour", ltfm_jan & ~pl.col("de_l") & pl.col("post_l"), r_post),
                       ("LTFM Jan other", ltfm_jan & ~pl.col("de_l") & ~pl.col("post_l"), r_rest)]
             print(f"LTFM Jan: rbar all {ra:+.2f}, de-icing {rd:+.2f}, post-hour (0.5 x de-icing) {r_post:+.2f}, rest {r_rest:+.2f}")
         else:
-            cells += [("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rd), ("LTFM Jan other", ltfm_jan & ~pl.col("de_l"), rn)]
+            cells += de_cells(rd) + [("LTFM Jan other", ltfm_jan & ~pl.col("de_l"), rn)]
             print(f"LTFM Jan: rbar all {ra:+.2f}, de-icing {rd:+.2f}, other {rn:+.2f}")
     elif p1 != "-":
         cells.append(("LTFM Jan all", ltfm_jan, rbar(r0, p1, n_all, -40.0)))
     elif p3 != "-":
-        cells.append(("LTFM Jan de-icing", ltfm_jan & pl.col("de_l"), rbar(r0, p3, n_de, -100.0)))
+        cells += de_cells(rbar(r0, p3, n_de, -100.0))
     if p2 != "-":
         cells.append(("LTFM Jul all", (pl.col("ADEP_mvt") == "LTFM") & (pl.col("m") == 7), rbar(r0, p2, n_jul, -40.0)))
     # optional stage 2: per-airport January de-icing probes (probes/stage2/v48_<AP>_01_deice_shift-100.parquet), given as
@@ -117,6 +142,12 @@ def main(a):
               f"old-LB MSE gain {cz.height / N_OLD * rb ** 2:.1f} s^2")
     # Pre-registered February rule (README, 06:00 UTC): 0.5 x the January de-icing shift of F, if |rbar| passes the threshold.
     jan = {name: (rb, c) for name, (rb, c) in applied.items()}
+    if "LTFM Jan de-icing" not in jan and any(k.startswith("LTFM Jan de-icing") for k in jan):
+        # overall de-icing cell (P3) for the pre-registered rules: row-weighted mean of the day cells
+        parts = [(Z.filter(m_).height, rb_, c_) for nm_, m_, rb_ in cells if nm_.startswith("LTFM Jan de-icing")
+                 for c_ in [applied[nm_][1]]]
+        ntot = sum(p_[0] for p_ in parts)
+        jan["LTFM Jan de-icing"] = (sum(p_[0] * p_[1] for p_ in parts) / ntot, sum(p_[0] * p_[2] for p_ in parts) / ntot)
     feb_l = set(pl.read_parquet(P + "cell_LTFM_02_deice.parquet")[K].to_list())
     rules = [("LTFM Jan de-icing", pl.col(K).is_in(list(feb_l)), 100.0, "LTFM Feb de-icing")]
     for nm, aps in oth_names.items():

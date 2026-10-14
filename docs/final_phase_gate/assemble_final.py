@@ -40,7 +40,7 @@ if all(x == "-" for x in (p1, p2, p3, p4)):
 else:
     r0 = rc if rc != "-" else str(V48)
     cmd = [sys.executable, "-I", "docs/final_phase_gate/probe_fix.py", "handoff/2026-10-14/probes/v48_control.parquet", r0,
-           p1, p2, p3, p4, base, dst, "--dithered"]
+           p1, p2, p3, p4, base, dst, "--dithered"] + [x for x in a[8:] if x.startswith(("--p5=", "--p6=", "--stage2="))]
     print("$", " ".join(cmd))
     subprocess.run(cmd, check=True)
 subprocess.run([sys.executable, "-m", "prc.validate_submission", dst, "data/raw/final_submitting.parquet"], check=True)
