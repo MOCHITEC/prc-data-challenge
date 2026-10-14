@@ -263,6 +263,13 @@ The files under `handoff/**/adsb_store/`, `handoff/2026-10-11/adsb/`, `handoff/2
 and the stand tables derived from OSM are derived databases of adsb.lol and OSM. They are made available under ODbL
 1.0 (see `docs/external_data.md`).
 
+**Data notice.** The repository contains no raw competition files. It does contain per-row files with fields
+derived from the PRC Data Challenge 2026 dataset (EUROCONTROL PRC / OpenSky Network): mainly the per-departure ADS-B
+feature and position files under `handoff/2026-10-13/` and `handoff/2026-10-11/adsb/learn/`, which carry times,
+airport, runway and aircraft type of 2026 departures. No licence for that dataset had been published
+at the time of release. If the organisers require these files to be removed, please contact the team
+(details: `docs/final_phase_2026-10-11/PUBLIC_RELEASE_CHECKLIST.md` §3.2).
+
 ## 8. Development history
 
 `docs/DEVELOPMENT_HISTORY.md` lists, from `experiments/submissions.jsonl`:

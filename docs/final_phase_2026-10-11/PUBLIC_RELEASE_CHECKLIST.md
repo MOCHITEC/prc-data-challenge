@@ -73,15 +73,33 @@ State at the time of writing:
    - README §7 carries a EUROCONTROL attribution line.
    - No code path used by the tests reads these files (`tests/test_opdi.py` mocks the OPDI table). `pytest -q` after
      the removal: 364 passed, 2 skipped (7 min 44 s).
-2. **Competition-derived per-row fields.** These files carry fields copied from the competition files for 2026 rows:
-   `t_mvt`, `t_aobt3`, `t_sched`, `t_block` (all null), `TAXITIME_SEC_mvt` (all null), `AIRCRAFT_TYPE_mvt` and
-   `RUNWAY_mvt`. 149 files, 134,253 rows, no labels.
-   - `handoff/2026-10-13/adsb_store/pos/`;
-   - `handoff/2026-10-13/adsb_store/posday/`;
-   - `handoff/2026-10-13/june_adsb_for_adsb_layer/pos/`.
+2. **Competition-derived per-row fields. Decision pending with the user / organisers.** The files were not
+   deleted or changed. Facts from a read-only audit of `origin/main` on 2026-10-14:
+   - **No raw competition file** (`training_*`, `ranking`, `submitting`, `final_*`) is tracked on any ref.
+   - **412 tracked parquet files** (142.8 MB, 1,410,814 rows, all 2026 rows) carry per-row fields copied or renamed
+     from the competition data. Every one has `ADEP_mvt`, `t_mvt` (= `MVT_TIME_UTC_mvt`) and `t_aobt3`
+     (= `AOBT_3_flt`). Subsets also carry `t_sched` (= `SCHED_TIME_UTC_mvt`), `RUNWAY_mvt` and
+     `AIRCRAFT_TYPE_mvt`. The renaming is in `analysis/stand_common.py` lines 51 and 54 and
+     `docs/research_2026-10-01/errgroups/ltfm_adsb/s1_ref.py` lines 409–412.
 
-   Many other hand-off files are `MVT_ID_mvt` + prediction or delta. `.gitignore` says "competition data
-   (redistribution not allowed until public release)". Check the organisers' data terms.
+     | class | files | where |
+     |---|---|---|
+     | c1 | 149 | `handoff/2026-10-13/adsb_store/pos/` 62, `handoff/2026-10-13/adsb_store/posday/` 57, `handoff/2026-10-13/june_adsb_for_adsb_layer/pos/` 30 |
+     | c2 | 85 | the other pos/posday files in the same three folders; they also carry `t_sched` |
+     | c3 | 178 | `handoff/2026-10-13/adsb_store/feat/` 115, `handoff/2026-10-13/june_adsb_for_adsb_layer/feat/` 59, and four `learn/feat_*2026*.parquet` (`handoff/2026-10-11/adsb/learn/feat_2026.parquet`, `feat_2026fj.parquet`; `handoff/2026-10-13/adsb_store/learn/feat_2026.parquet`, `feat_pos_2026.parquet`) |
+
+     The earlier version of this item counted only class c1 (149 files).
+   - **One CSV**, `docs/research_2026-10-01/rollover/fingerprints/rank_candidates_ms8h.csv` (22 rows): `FLIGHT_mvt`,
+     scheduled and movement times, `RUNWAY_mvt`.
+   - **`handoff/2026-10-13/adsb_store/rescat/codes.parquet`** derives `airline` from the first 3 characters of
+     `CALLSIGN_flt` / `FLIGHT_mvt`, and `apron` from `ADEP_mvt` + the `STAND_mvt` prefix.
+   - **Licence.** No licence had been published for the 2026 dataset (organiser site and its source repository
+     checked 2026-10-14). The 2024 and 2025 datasets were later released under CC BY 4.0.
+   - `.gitignore` line 15 ("competition data (redistribution not allowed until public release)") and
+     `docs/research_2026-10-05_aobt/BRIEF.md` line 12 are the team's own notes. They cite no organiser source.
+   - Many other hand-off files are only `MVT_ID_mvt` + prediction or delta.
+   - README §7 now carries a "Data notice" saying this and asking the organisers to contact the team if removal is
+     required.
 3. **ODbL notice for derived ADS-B / OSM data.** README §7 and `docs/external_data.md` state that the committed
    adsb.lol- and OSM-derived files are made available under ODbL 1.0. Confirm this is intended. ODbL requires it if a
    derived database is published.
