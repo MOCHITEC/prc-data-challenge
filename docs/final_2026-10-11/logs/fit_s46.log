@@ -1,0 +1,15 @@
+labelled rows 344419 {'jan': 153706, 'jul': 190713} | null y 0 null b 0 | days 62 | lane A 339046
+Nov+Dec matched-lane members: 1
+Nov+Dec matched-lane members: 1
+Nov+Dec matched-lane members: 1
+05:10:07 training rows 1645799, rss 1543 MB
+rows per month: {'2025-01': np.int64(125627), '2025-02': np.int64(110537), '2025-03': np.int64(140181), '2025-04': np.int64(141056), '2025-05': np.int64(127893), '2025-06': np.int64(99065), '2025-07': np.int64(160381), '2025-08': np.int64(159762), '2025-09': np.int64(154642), '2025-10': np.int64(155351), '2025-11': np.int64(136330), '2025-12': np.int64(134974)}
+05:10:12 matrix (1645799, 59) float32, rss 2256 MB
+05:10:12 seed override 46
+[LightGBM] [Warning] Met negative value in categorical features, will convert it to NaN
+05:13:59 m12a: 1645799 rows, 778 rounds, 227 s, rss 1055 MB
+[LightGBM] [Warning] Met negative value in categorical features, will convert it to NaN
+05:15:39 m7a: 1027067 rows, 441 rounds, 100 s, rss 1059 MB
+[LightGBM] [Warning] Met negative value in categorical features, will convert it to NaN
+05:16:48 m4v2: 557312 rows, 521 rounds, 69 s, rss 1059 MB
+seed 46 exit 0
