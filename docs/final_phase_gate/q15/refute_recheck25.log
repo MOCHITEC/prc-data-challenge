@@ -1,0 +1,28 @@
+rows 159216 dup ids False
+q^1.5 vs 0.4q (gated, clipped): dSSE -503.6 M = -241.5 s^2/N25; by month [ -1.3 -20.1 -36.  -26.4 -45.9 -48.2 -66.7 -53.  -53.2 -75.4 -33.7 -43.7]; improved 12/12; FebJun -68.4; JFJJ -136.4
+  rounded version dSSE -503.5 M
+  drop best month (Oct): -428.2 M; drop best two: -361.5 M
+  top-10 share 0.099 top-100 0.513 top-1000 1.268; worst-10 rows (loss) [2.67 2.7  2.94 2.97 2.99 3.19 3.21 4.22 5.08 5.65]
+  rows gaining: 89818, losing: 63879, sum gain -959.4 M, sum loss 455.8 M
+  dSSE excluding top-1% |dd| rows: -76.3 M; excluding top 0.1%: -286.0 M
+  day-boot CI95 [-579.4, -431.1] M, P(>=0)=0.0000
+  FebJun CI95 [-102.6, -36.0] M, P(>=0)=0.0000
+  Jan CI95 [-17.2, 13.8] M, P(>=0)=0.4203
+  JFJJ CI95 [-185.2, -90.9] M, P(>=0)=0.0000
+  month-block boot CI95 [-628.1, -375.4] M
+  per-month-rate projection to 2026: dSSE -124.1 M -> dMSE -185.0 s^2 -> dRMSE -0.395 s
+  per-row gain by month (s^2): {np.int64(1): -117, np.int64(2): -1890, np.int64(3): -2880, np.int64(4): -1889, np.int64(5): -3179, np.int64(6): -3324, np.int64(7): -4483, np.int64(8): -3472, np.int64(9): -3668, np.int64(10): -5376, np.int64(11): -2989, np.int64(12): -3651}
+  UNGATED NO-CLIP w=0.50: dSSE -108.5 M (integrator: 0.5 -85, 0.65 -117, 0.8 -35)
+  UNGATED CLIP    w=0.50: dSSE -117.4 M
+  UNGATED NO-CLIP w=0.65: dSSE -176.2 M (integrator: 0.5 -85, 0.65 -117, 0.8 -35)
+  UNGATED CLIP    w=0.65: dSSE -217.9 M
+  UNGATED NO-CLIP w=0.80: dSSE -128.7 M (integrator: 0.5 -85, 0.65 -117, 0.8 -35)
+  UNGATED CLIP    w=0.80: dSSE -215.0 M
+  Jan per-bin w*: [-0.   -0.04 -0.02  0.15  0.09 -0.19 -0.15  0.4   0.66  0.81  0.9 ]  copy rate: [0.02 0.08 0.16 0.27 0.33 0.4  0.51 0.62 0.72 0.77 0.93]
+  Feb per-bin w*: [-0.01  0.1   0.11  0.22  0.25  0.52  0.01  0.57  0.88  0.58  1.  ]  copy rate: [0.03 0.09 0.16 0.27 0.35 0.42 0.51 0.57 0.82 0.87 0.97]
+  Jun per-bin w*: [0.01 0.06 0.08 0.07 0.12 0.45 0.07 0.38 0.94 0.97 1.  ]  copy rate: [0.03 0.09 0.18 0.27 0.34 0.47 0.52 0.64 0.72 0.83 0.99]
+  Jul per-bin w*: [-0.01  0.02  0.07  0.2   0.26  0.13  0.5  -0.04  0.87  0.81  0.96]  copy rate: [0.02 0.09 0.15 0.23 0.31 0.38 0.48 0.52 0.71 0.89 0.99]
+  all per-bin w*: [-0.01  0.03  0.05  0.14  0.18  0.29  0.3   0.56  0.69  0.8   0.98]  copy rate: [0.02 0.08 0.16 0.26 0.34 0.43 0.52 0.63 0.72 0.84 0.99]
+  half-split: tune on months [1, 2, 3, 4, 5, 6] -> (c,a)=(1.1,1.50), held-out dSSE -318.9 M (q^1.5 fixed: -325.7 M)
+  half-split: tune on months [7, 8, 9, 10, 11, 12] -> (c,a)=(1.1,1.75), held-out dSSE -171.3 M (q^1.5 fixed: -177.9 M)
+base b: dSSE -479.7 M, months improved 12/12
