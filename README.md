@@ -50,7 +50,9 @@ Map of the pipeline at v47: `docs/SOLUTION_OVERVIEW.md`. Short version:
 5. **Appear tier.** Eight columns describing the aircraft's ADS-B position and timing relative to its own stand
    (`scripts/adsb_appear.py`), from OSM `parking_position` plus a 2026 ADS-B stand map. They are added to the
    residual model and applied as the increment `c_A12(b) − c_P12(b)`. Code: `docs/appear_tier_2026-10-05/`
-   (`final_adsb.py` for the final set).
+   (`final_adsb.py` for the final set). In the final file the appear tier is in the January/July rows (from v48). Of
+   the February/June rows, only 2026-06-11 goes through the A12 layer, and only 78 appear rows exist for that day.
+   See `docs/FINAL_SUBMISSION.md` §2.3 and §3.
 6. **Overlays**, applied after the residual layer by `docs/final_2026-10-11/apply_overlays.py`:
    - lane-B deltas: NM-blind and ucmix;
    - LIRF matched schedule-copy overlay: `p' = p + 0.4·q·(MVT − SCHED − p)`, where q comes from a 2025 classifier;
@@ -63,80 +65,102 @@ How each piece was validated: `docs/SOLUTION_OVERVIEW.md` §6 and the per-topic 
 
 ## 3. The final file and how it was produced
 
-**The file to upload** is named in `docs/final_phase_2026-10-11/RUNBOOK_final_submit.md`:
+**The authoritative description is [`docs/FINAL_SUBMISSION.md`](docs/FINAL_SUBMISSION.md).** Its §1 defines the
+file's identity: source commit, md5, rows and validation result. This section is a summary.
 
-| | |
-|---|---|
-| file | `handoff/2026-10-13/final_from_v48.parquet` **as committed in 558c736** on `claude/laughing-cray-vvwh0k` |
-| md5 | `c7ffa31edc2a4de5f1837682d90e14cb`, 2,145,277 bytes, 670,790 rows |
-| how to get it | `git show 558c736:handoff/2026-10-13/final_from_v48.parquet > final_from_v48.parquet` |
+- **The file.** `handoff/2026-10-13/final_from_v48.parquet` **as committed in `25f6246`** (branch
+  `claude/laughing-cray-vvwh0k`, contained in `main`): `git show 25f6246:handoff/2026-10-13/final_from_v48.parquet >
+  final_from_v48.parquet`.
+  - The same path holds an earlier version in `558c736`, which differs only in June.
+  - The path is deleted at the branch tip (`6adbcac`).
+- **The upload.** The file actually uploaded as `resilient-hedgehog_final.parquet` is recorded in
+  `experiments/submissions.jsonl` by `prc.submit --final`. The steps are in
+  `docs/final_phase_2026-10-11/RUNBOOK_final_submit.md`.
 
-The file was later replaced at the same path (25f6246, md5 `be8d89dc…`) and deleted at the branch tip (6adbcac). It
-is reachable only through the commit above.
+**How the rows were produced** (`docs/FINAL_SUBMISSION.md` §2):
 
-**Recipe** (the laughing-cray hand-off: `handoff/2026-10-13/README.md`, top sections, as of 558c736):
-
-1. **Members.** Each member was trained on the final raw data with `python -m prc.pipeline --config <member config>
-   --skip-cv --raw-dir data/raw_final --work-dir data/work_final`. The code was peaceful-babbage commit `6a97bf0`
-   (contained in this branch). Members: a2o (3 seeds), pao (3), p2o (3), m4 (3) and c2 (1 seed); configs in the
-   table above.
-   - On matched rows, the `fl_*` / `seq_*` columns of the feature cache were replaced by values built on the
-     2025 + 2026 union (`analysis/local_audit_fix2026.py`). This is the train/test consistency fix of
-     `docs/SOLUTION_OVERVIEW.md` §5.
-   - `prc.pipeline.load_raw` matches `ranking.parquet` and `submitting.parquet` by exact name. So `data/raw_final`
-     held the final files under those names. The commands that built that directory are not recorded.
-2. **Blend.** Matched rows: `((a2o + pao)/2 + p2o + c2 + m4) / 4`. Unmatched rows: model B. The result is committed as
-   `handoff/2026-10-13/pre_adsb_base_blend5_final.parquet`.
-3. **ADS-B residual layer.**
-   - February rows: `docs/final_2026-10-11/adsb_layer.py apply`.
-   - June rows: `docs/appear_tier_2026-10-05/final_adsb.py` with the store `handoff/2026-10-11/adsb`. This was the
-     "A12" layer; June's own layer did not exist yet.
-   - The own layer has no appear term. So in this file the February rows carry no appear increment. The later
-     variants add it to February and June (a37e5bb).
-4. **Overlays and LOBT clip** on February and June rows:
-   `docs/final_2026-10-11/apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`. See
-   `docs/final_2026-10-11/overlays_README.md` and `laneB_deltas.py`.
-5. **January and July rows** were copied unchanged from v48: `handoff/2026-10-08/C15_appear12_cov26eddf.parquet`,
-   md5 `8ee6679f…`, leaderboard 234.4099.
-   - v48 itself is the end of a chain of per-submission delta layers, v33 → v48. See `docs/SOLUTION_OVERVIEW.md`
-     §7, `docs/batch_2026-10-06/README.md`, `handoff/2026-10-08/ON_C15.md` and
+1. **January and July rows: v48, unchanged.**
+   - The file is `handoff/2026-10-08/C15_appear12_cov26eddf.parquet`, md5 `8ee6679f…`, public leaderboard 234.4099.
+     All 344,841 rows are equal.
+   - v48 = C15 (v47) + the 12-month appear delta + the EDDF coverage-matched delta (below).
+   - v48 itself is the end of a chain of per-submission delta layers, v33 → v48. See `docs/SOLUTION_OVERVIEW.md` §7,
+     `docs/batch_2026-10-06/README.md`, `handoff/2026-10-08/ON_C15.md` and
      `docs/final_2026-10-11/adsb_layer_README.md` §1.
-6. **Combining** the Jan/Jul rows of v48 with the Feb/Jun chain rows into one file was not committed as a script.
-   The file first appears as `cand_v4a_v48JanJul_oursFeb_A12Jun.parquet` (0220c69) and was renamed in 558c736.
-   `docs/final_2026-10-11/assemble_step.py` (8777c62, later) implements the same combination for the later
-   variants.
-   - `scripts/final/assemble_final_v48.py` rebuilds this step from the committed chain files
-     (`handoff/2026-10-13/inputs/orig_chain_blend_adsb2_ovl.parquet`, `blend_A12_ovl.parquet`) and v48. It writes
-     both committed versions byte for byte: `--june-layer a12` gives `c7ffa31e…` (558c736), the default gives
-     `be8d89dc…` (25f6246). The members, blend, ADS-B layers and overlays are taken from those files, not rebuilt.
-7. **Gate:** `python -m prc.validate_final <file> --template final_submitting.parquet --ranking
-   final_ranking.parquet --expect-md5 <md5>`. It passed on 10-13; the output is in the runbook §5.
+2. **February and June rows: the chain**, run on the final data (recipe: `handoff/2026-10-13/README.md` as of
+   `25f6246`, translated in `docs/FINAL_SUBMISSION.md` §2.2 and §5.3).
+   1. **Members**, trained with `python -m prc.pipeline --config <member config> --skip-cv` on the final raw data.
+      The code is peaceful-babbage `6a97bf0`.
+      - The members are a2o, pao, p2o and m4 with 3 seeds each, and c2 (CatBoost) with 1 seed. The configs are in the
+        §2 table.
+      - The `fl_*` / `seq_*` columns of matched rows were rebuilt on the 2025 + 2026 union
+        (`analysis/local_audit_fix2026.py`).
+      - The predictions are committed in `handoff/2026-10-13/members/`.
+   2. **Blend.** Matched rows: `((a2o + pao)/2 + p2o + c2 + m4) / 4`. Unmatched rows: model B. The result is
+      `handoff/2026-10-13/pre_adsb_base_blend5_final.parquet`.
+   3. **ADS-B residual layer.**
+      - Our rebuilt layer (`docs/final_2026-10-11/adsb_layer.py apply`) covers all 28 February days and 29 of the 30
+        June days.
+      - 2026-06-11 had no adsb.lol data in that ingest, so it uses the A12 layer
+        (`docs/appear_tier_2026-10-05/final_adsb.py`). Its effect there is close to zero
+        (`docs/FINAL_SUBMISSION.md` §2.3).
+      - **February and June carry no appear increment.**
+   4. **Overlays and LOBT clip:** `docs/final_2026-10-11/apply_overlays.py --laneB --lobt-clip --copy-feat unfixed`.
+      See `docs/final_2026-10-11/overlays_README.md` and `laneB_deltas.py`.
+   5. Floor at 0, round, int32.
+3. **Combining.** `scripts/final/assemble_final_v48.py` combines the months.
+   - It rebuilds this step from the committed chain files (`handoff/2026-10-13/inputs/orig_chain_blend_adsb2_ovl.parquet`,
+     `blend_A12_ovl.parquet`) and v48.
+   - It writes both committed versions byte for byte: `--june-layer a12` gives `c7ffa31e…` (`558c736`), and the
+     default gives `be8d89dc…` (`25f6246`).
+   - The members, blend, ADS-B layers and overlays are taken from those files, not rebuilt.
+4. **Gate:** `python -m prc.validate_final <file> --template final_submitting.parquet --ranking final_ranking.parquet
+   --expect-md5 <md5>`. It prints PASS; the output is summarised in `docs/FINAL_SUBMISSION.md` §1.
 
-**Later candidates** exist on the branches. They are not the runbook's target. Their recipes are in their READMEs.
+**What is not in the file** (`docs/FINAL_SUBMISSION.md` §3):
+- no "+1×δ" re-anchor of January/July;
+- no February/June appear increment;
+- none of the later candidates on the branches: the laughing-cray "v2/v3/v4" files, the reweight and LTFM variants,
+  and the beautiful-davinci appear and LIRF-gate variants.
 
-| file | md5 | recipe |
-|---|---|---|
-| `handoff/2026-10-13/final_from_v48.parquet` @ 25f6246 (June on the own ADS-B layer) | `be8d89dc…` | `handoff/2026-10-13/README.md` (update 02:30) |
-| `handoff/2026-10-13/final_recommended.parquet` = `final_v4_cb5_mlp5.parquet` | `d0ce32b6…` | same README, section "★★ 最終版"; `docs/final_2026-10-11/assemble_step.py`, `derived_members.py` |
-| `handoff/2026-10-14/final_v4_gatefull_plus1delta.parquet` (and 3 variants) | `b7e8298d…` | `handoff/2026-10-14/README.md`; `docs/final_phase_gate/` |
+**Hand-off notes.** The `handoff/<date>/` folders are dated working notes between parallel sessions. Several name a
+"recommended" file, such as `handoff/2026-10-13/README.md` (`d0ce32b6…`) and `handoff/2026-10-14/README.md` /
+`handoff/2026-10-13/CANDIDATES.md` (`b7e8298d…`). **Those files were not submitted.**
 
-Which file was finally uploaded is recorded in `experiments/submissions.jsonl` by `prc.submit --final`.
+**v48's EDDF coverage-matched delta.**
+- **The problem.** In 2026, adsb.lol has fewer than half the 2025 ground fixes per EDDF departure: 76–125 in 2025
+  against 35 in 2026 (`handoff/2026-10-08/COV26_EDDF.md`).
+- **The fix.**
+  - The 2025 EDDF fixes were thinned to the 2026 density, counted per 100 m cell (`docs/appear_tier_2026-10-05/plan_cov26.md`,
+    `cov_thin.py`).
+  - The 12-month appear residual was retrained on them (A12thin).
+  - The delta `c_A12thin(b) − c_A12(b)` was added on the 2026 EDDF rows only:
+    `handoff/2026-10-08/cov26_eddf_delta_vs_v47.parquet`, 31,774 rows, mean −3.8 s.
+- **CV.** On thinned EDDF rows, with January and July 2025 held out: EDDF −1.13 s [−1.73, −0.46], all rows −0.19 s
+  [−0.39, −0.02] (`docs/appear_tier_2026-10-05/results.md` §18).
+- **Leaderboard.** v48 put it on C15 together with the 12-month appear delta (`handoff/2026-10-08/ON_C15.md`). The two
+  together moved the leaderboard from 234.4831 (v47) to 234.4099 (`docs/DEVELOPMENT_HISTORY.md` §1). The EDDF part
+  was not scored on its own.
+- **What was not adopted.**
+  - Re-weighting the training months by coverage similarity was tested separately and rejected; no delta was built
+    from it (`docs/covw_2026-10-08/README.md`).
+  - Thinning at test time at airports whose coverage became denser was rejected too (`results.md` §20).
 
-**Honest note on reproducibility.** The final chain was run by several working sessions, each on its own branch and
-machine. Those branches are merged here (`docs/final_phase_2026-10-11/PUBLIC_RELEASE_CHECKLIST.md` lists them).
-- Several scripts hard-code the absolute paths of those machines: `/home/user/pb-work`, `/home/user/prc-final` and
-  scratch directories. The path table at the end of `handoff/2026-10-13/README.md` maps them to the committed copies.
-- The committed hand-off folders hold the intermediate files:
+**Reproducibility, briefly** (details and limits: `docs/FINAL_SUBMISSION.md` §5–§6).
+- **What can be reproduced exactly.** The final file, byte for byte, with `scripts/final/assemble_final_v48.py` from
+  committed files.
+- **What cannot.** The January/July rows can only be copied from v48. Running the documented chain on January/July
+  differs from v48 by RMS 53.2 s (`handoff/2026-10-13/README.md`; `docs/final_phase_2026-10-11/IMPACT.md` §4(c)).
+- **Rerunning the chain from raw data needs:**
+  - the competition files, including the 2025 `training_*.parquet` that the overlay stage reads;
+  - the adsb.lol archives, 2–4 GB per day (194.9 GB for the 57 Jan/Jul 2026 days downloaded);
+  - fresh fits of every member, because `src/prc` does not save LightGBM or CatBoost models.
+- **Absolute paths.** Several scripts hard-code the absolute paths of the machines they ran on:
+  `/home/user/pb-work`, `/home/user/prc-final` and scratch directories. `docs/FINAL_SUBMISSION.md` §5.3 maps them to
+  the committed copies:
   - member predictions: `handoff/2026-10-13/members/`;
   - lane-B deltas, LIRF q and the union features: `handoff/2026-10-13/inputs/`;
   - per-day ADS-B features: `handoff/2026-10-13/adsb_store/` and `handoff/2026-10-11/adsb/`;
   - residual models: `docs/final_2026-10-11/adsb_models/`.
-- Rerunning from raw data needs three things:
-  - the competition files;
-  - the adsb.lol archives, 2–4 GB per day (194.9 GB for the 57 Jan/Jul 2026 days downloaded);
-  - fresh fits of every member, because `src/prc` does not save LightGBM or CatBoost models.
-- Recipe documents: `handoff/2026-10-13/README.md`, `handoff/2026-10-14/README.md`, `docs/final_2026-10-11/README.md`,
-  `docs/final_phase_2026-10-13/README.md`, `docs/final_phase_2026-10-11/IMPACT.md` §4(c), `RUNBOOK_final_submit.md`.
 
 ## 4. Environment
 

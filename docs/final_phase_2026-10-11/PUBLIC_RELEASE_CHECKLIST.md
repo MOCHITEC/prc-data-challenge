@@ -17,15 +17,18 @@ State at the time of writing:
 
 1. **Set the default branch to `main`.** GitHub → Settings → General → Default branch → switch to `main` → Update.
    This could not be done from this session (see above).
-2. **Check that README §3 names the file that was actually uploaded.**
-   - README §3 describes the runbook's target: `final_from_v48.parquet` as committed in 558c736, md5
-     `c7ffa31edc2a4de5f1837682d90e14cb`.
-   - The branches recommend later files:
-     - laughing-cray's tip: `handoff/2026-10-13/final_recommended.parquet`, md5 `d0ce32b6…`;
-     - beautiful-davinci's tip: `handoff/2026-10-14/final_v4_gatefull_plus1delta.parquet`, md5 `b7e8298d…`.
-   - If one of those (or anything else) is uploaded, change README §3 so it names that file, its md5 and its recipe.
-     The recipes are in `handoff/2026-10-13/README.md` (section "★★ 最終版") and `handoff/2026-10-14/README.md`.
-     Push the change to `main` **before 10:00Z**.
+2. **Check that the docs name the file that was actually uploaded** (updated 2026-10-14).
+   - `docs/FINAL_SUBMISSION.md` §1 is the one place that states the file's identity. README §3 and the runbook
+     summarise it. It names `handoff/2026-10-13/final_from_v48.parquet` as committed in **`25f6246`**, md5
+     **`be8d89dcf79bd59a6f43d80193c95685`**. The runbook §0 variables carry the same values.
+   - It does **not** name the earlier version at the same path, `558c736` / `c7ffa31e…`.
+   - It does not name the later files that the branches recommend: laughing-cray's
+     `handoff/2026-10-13/final_recommended.parquet` (`d0ce32b6…`) and beautiful-davinci's
+     `handoff/2026-10-14/final_v4_gatefull_plus1delta.parquet` (`b7e8298d…`). `docs/FINAL_SUBMISSION.md` §3 and §7
+     state that those were not submitted.
+   - After the upload, compare the md5 in the new `"kind": "final"` line of `experiments/submissions.jsonl` with §1.
+     If they differ, update `docs/FINAL_SUBMISSION.md` §1–§3, README §3 and the runbook §0, and push to `main`
+     **before 10:00Z**.
 3. **Put the final upload's ledger lines on `main` before 10:00Z.**
    - `RUNBOOK_final_submit.md` §8 commits them to `claude/model-b-and-arrival-features`, which `main` is now ahead of.
    - Merge that branch into `main` and union `experiments/submissions.jsonl` (append-only).

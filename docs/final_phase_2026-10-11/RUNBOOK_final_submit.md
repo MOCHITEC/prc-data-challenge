@@ -9,9 +9,10 @@ What is uploaded:
 | item | value |
 |---|---|
 | object | `prc-2026-resilient-hedgehog/resilient-hedgehog_final.parquet` |
-| file | `final_from_v48.parquet`: Jan/Jul = v48's file, Feb/Jun = the laughing-cray chain |
-| source | `558c736cabdb36ea9402b9bd4836f4e6bf1f4fd0:handoff/2026-10-13/final_from_v48.parquet`, branch `origin/claude/laughing-cray-vvwh0k`, commit "Handoff: single final file built on v48" |
-| md5 | `c7ffa31edc2a4de5f1837682d90e14cb` (2,145,277 bytes) |
+| file | `final_from_v48.parquet`: Jan/Jul = v48's file, Feb/Jun = the laughing-cray chain, with June on our own ADS-B layer on 29 of 30 days. The file's identity is stated in `docs/FINAL_SUBMISSION.md` §1; this table and §0 copy it |
+| source | `25f624685ec1d26f8309f9d7980588b834c36c0f:handoff/2026-10-13/final_from_v48.parquet`, branch `origin/claude/laughing-cray-vvwh0k` (contained in `main`), commit "v48-based final file: June now uses our ADS-B layer (29/30 days; 06-11 keeps the A12 layer)" |
+| md5 | `be8d89dcf79bd59a6f43d80193c95685` (2,145,836 bytes) |
+| not this one | The same path in `558c736` holds an earlier version, md5 `c7ffa31e…` (2,145,277 bytes). It has June on the A12 layer and was this runbook's target until 2026-10-14. Do not upload it. |
 | template | `final_submitting.parquet` from `prc-2026-datasets`, 670,790 rows, md5 `2c1f407296e217fd7d242c9d51ba27ad` |
 | months | `final_ranking.parquet`, md5 `1ce0c6ee9ea15b8c3d0cd282591d4e0a` |
 
@@ -34,9 +35,9 @@ export WT=/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d7
 export OSN_TEAM_BUCKET=prc-2026-resilient-hedgehog
 export PRC_TEAM_NAME=resilient-hedgehog
 export OSN_COMPETITION_BUCKET=prc-2026-datasets
-export SRC_COMMIT=558c736cabdb36ea9402b9bd4836f4e6bf1f4fd0
+export SRC_COMMIT=25f624685ec1d26f8309f9d7980588b834c36c0f
 export SRC_PATH=handoff/2026-10-13/final_from_v48.parquet
-export FINAL_MD5=c7ffa31edc2a4de5f1837682d90e14cb
+export FINAL_MD5=be8d89dcf79bd59a6f43d80193c95685
 # The credentials come from the container environment. Check they are set; never print them:
 env | grep -E '^OSN_(ID|ACCESS_KEY|SECRET_KEY)=' | sed 's/=.*/=<set>/'
 ```
@@ -113,7 +114,7 @@ cd "$WT"
 git fetch origin claude/laughing-cray-vvwh0k
 mkdir -p data/final_candidate
 git show "$SRC_COMMIT:$SRC_PATH" > data/final_candidate/final_from_v48.parquet
-md5sum data/final_candidate/final_from_v48.parquet   # must print c7ffa31edc2a4de5f1837682d90e14cb
+md5sum data/final_candidate/final_from_v48.parquet   # must print $FINAL_MD5 (be8d89dcf79bd59a6f43d80193c95685)
 ```
 
 ## 5. Validation (2.6 s measured)
@@ -125,7 +126,8 @@ cd "$WT"
   --expect-md5 "$FINAL_MD5" --json outputs/final/validate_final_from_v48.json; echo "exit=$?"
 ```
 
-On 10-13 it printed **PASS, exit 0**.
+It printed **PASS, exit 0** on 10-14 for `be8d89dc…`, and on 10-13 for the earlier `c7ffa31e…`. The values below are
+for `be8d89dc…`. They differ from `c7ffa31e…` only in the June p50 (925 → 926) and p99 (2,073 → 2,066).
 
 **Shape and values**
 - 670,790 rows, equal to the template.
@@ -141,7 +143,7 @@ On 10-13 it printed **PASS, exit 0**.
 |---|---|---|---|---|
 | Jan | 152,719 | 970 | 3,095 | 15 |
 | Feb | 144,158 | 922 | 2,198 | 11 |
-| Jun | 181,791 | 925 | 2,073 | 9 |
+| Jun | 181,791 | 926 | 2,066 | 9 |
 | Jul | 192,122 | 936 | 2,138 | 31 |
 
 **Per airport.** All 10 airports have rows in all 4 months.
@@ -183,7 +185,7 @@ cd "$WT"
   --file data/final_candidate/final_from_v48.parquet \
   --template data/raw/final/final_submitting.parquet --ranking data/raw/final/final_ranking.parquet \
   --source-commit "$SRC_COMMIT" --source-path "$SRC_PATH" --expect-md5 "$FINAL_MD5" \
-  --note "final: v48-based final_from_v48.parquet (laughing-cray 558c736)"; echo "exit=$?"
+  --note "final: v48-based final_from_v48.parquet (laughing-cray 25f6246)"; echo "exit=$?"
 ```
 
 **Order of operations:**
@@ -204,7 +206,7 @@ cd "$WT"
 
 | code | output | meaning | what to do |
 |---|---|---|---|
-| 0 | `UPLOADED and verified: … md5 c7ffa31e…` | done | step 8 |
+| 0 | `UPLOADED and verified: … md5 be8d89dc…` | done | step 8 |
 | 1 | `REFUSED: …` | nothing was uploaded | Read the reason. "changed since it was shown" means another PUT landed between the two HEADs: find out who, then re-run step 6 and step 7. A gate or md5 failure means the wrong file: redo step 4. |
 | 2 | `REFUSED: cannot build the OSN config` | credentials are missing | step 0 |
 | 3 | `VERIFY FAILED` | the PUT happened, but the read-back md5 differs or the read-back failed | Re-run step 7 once. `--confirm-final-overwrite` is needed again, because the object is now ours. If it fails again, run step 8 by hand and report. |
@@ -230,8 +232,8 @@ r = c.get_object(cfg.team_bucket, name + '_result.json'); print(r.read().decode(
 ```
 
 **What to check**
-- The md5 of the bucket object must be `c7ffa31edc2a4de5f1837682d90e14cb`.
-- The size must be 2,145,277 bytes.
+- The md5 of the bucket object must be `$FINAL_MD5` (`be8d89dcf79bd59a6f43d80193c95685`).
+- The size must be 2,145,836 bytes.
 - The scorer sidecar `resilient-hedgehog_final.parquet_result.json` must have a `last_modified` **after** the upload.
   - Last time the scorer wrote it 30 minutes after the upload (16:02 → 16:32Z on 10-09).
   - Re-run the block until it shows a new sidecar.
@@ -244,7 +246,7 @@ r = c.get_object(cfg.team_bucket, name + '_result.json'); print(r.read().decode(
 ```bash
 cd "$WT"
 git add experiments/submissions.jsonl
-git commit -m "Final upload: resilient-hedgehog_final.parquet = final_from_v48 (md5 c7ffa31e…), verified"
+git commit -m "Final upload: resilient-hedgehog_final.parquet = final_from_v48 @ 25f6246 (md5 be8d89dc…), verified"
 git push -u origin claude/model-b-and-arrival-features || { git pull --no-rebase && git push -u origin claude/model-b-and-arrival-features; }
 ```
 
