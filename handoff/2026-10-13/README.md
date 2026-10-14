@@ -325,3 +325,11 @@ md5 の一覧: `MD5SUMS`（335 件）。
    seed 違いの差は RMS 約 8 s（調整ワーカーの v2 refit と本番モデルの比較）。見込み −0.05 s 前後。
 2. a2o（cat_tight）・pao（cat_tight、LIRF 以外）・p2o の seed 45・46 を足して 5 seeds 平均に（各 −0.01〜−0.02 s）。
 3. 時間があれば cat_vtight（200/200/1000）の screen。
+
+## 2026-10-14 03:00 UTC: v5 = v4 ＋ ADS-B 層を 3 seeds 平均 ＋ a2o を 5 seeds 平均（点検を実行中。推奨はまだ v4）
+- `final_v5_adsb3_a2o5.parquet`（md5 411a6aa0b05b8e3b525d3d2bf4e17ea9、validate OK）、1・7 月だけ: `janjul_only_final_v5_adsb3_a2o5.parquet`（6daa4e6e2eeee0f4a79ee6cf055b9cb0）。
+- 自前 ADS-B 層のモデル m12a / m7a / m4v2 を seed 43・44 でも学習（`docs/final_2026-10-11/adsb_models_s43`, `_s44`、ログ `logs/fit_s4{3,4}.log`）し、3 本の出力を平均。
+  seed 違いの出力差は全行 RMS 12.5〜12.7 s → 3 本平均で分散が約 1/3 に（見込み −0.1 s 前後）。
+- a2o（cat_tight）に seed 45・46 を足して 5 seeds 平均（`members/a2o_cattight_5seeds_flfix.parquet` = (3×seed42–44 + 2×seed45–46)/5、seed 45–46 は `members/a2o_cattight_s45_flfix.parquet`）。a2o 単体 mean5 − mean3 の RMS 9.7 s。
+- v4 比の変化: 1 月 RMS 9.1 s、2 月 7.3、6 月 6.9、7 月 6.7。
+- 実行: `assemble_step.py --a2o members/a2o_cattight_5seeds_flfix.parquet --pao members/pao_l6_cattight_nolirf.parquet --m4 members/mlp_l6_5seeds.parquet --cb <5 本> --adsb-models <models> <models_s43> <models_s44> --tag final_v5_adsb3_a2o5 --c13`。

@@ -353,7 +353,9 @@ b5dfad3c717b1360c61b038fe9336bf4  ./adsb_store/rescat/codes.parquet
 ce79384d26bc0a87ddba43f19df719fa  ./final_from_v48_cb3_appear_cat_c13_v2.parquet
 d0ce32b68f3a7a4599d8a0982ca81988  ./final_recommended.parquet
 d0ce32b68f3a7a4599d8a0982ca81988  ./final_v4_cb5_mlp5.parquet
+411a6aa0b05b8e3b525d3d2bf4e17ea9  ./final_v5_adsb3_a2o5.parquet
 db61fe139d76ef7fb9942f4acd6a0805  ./inputs/adsb_layer_detail_v2.parquet
+95fbbaee49d76e0777589b485b151fd1  ./inputs/adsb_layer_detail_v5_seed42.parquet
 95e02cacd1d51bfa35a191470b1c17eb  ./inputs/appear_increment_out_v2.parquet
 3221ce5bfb468f702575556e183acef7  ./inputs/blend_A12_ovl.parquet
 637cffdbe6050ff0362bacdbb5b773ee  ./inputs/c13_copyq_LIRF_oldframe.parquet
@@ -368,7 +370,10 @@ edafe1ab8e631b4b67d9e4bfff7ded54  ./inputs/ucmix_laneB_delta_final.parquet
 4eb9c497dd175dad23a9fb069b1f21c1  ./janjul_only_final_from_v48_cb3_appear_cat_c13_v2.parquet
 1e7fa78e74f4c00f66eedc9356f144bf  ./janjul_only_final_recommended.parquet
 1e7fa78e74f4c00f66eedc9356f144bf  ./janjul_only_final_v4_cb5_mlp5.parquet
+6daa4e6e2eeee0f4a79ee6cf055b9cb0  ./janjul_only_final_v5_adsb3_a2o5.parquet
+a50ad4d87e672cdaf698afd9d7157244  ./members/a2o_cattight_5seeds_flfix.parquet
 5a5edf433beda3132164b353bb04e6a4  ./members/a2o_cattight_flfix.parquet
+05fa0fd94eb97aa993327037fba775fa  ./members/a2o_cattight_s45_flfix.parquet
 98da5c17e60014309b4b536edb5e0d27  ./members/cb_l2_s45.parquet
 a5ade87a2ed3ad0010e5a27a9826f1d5  ./members/main_flseq_osm_nolirf_cb_l2.parquet
 e444cce0b79ac0094c76c217bade8418  ./members/main_flseq_osm_nolirf_cb_l2_s43.parquet
