@@ -1,0 +1,61 @@
+EDDF 601537 70671
+EDDM 436348 50872
+EGLL 633492 77221
+EHAM 647350 75865
+LEBL 477255 59314
+LEMD 568207 72480
+LFPG 633231 77520
+LIRF 425387 52146
+LSZH 359356 44908
+LTFM 726831 89793
+2026 rows 670,790, union rows matched 670,693
+  fl_fmt_code              differs on       0 rows; mean feat_rank 2.2172 union 2.2172
+  fl_len                   differs on       0 rows; mean feat_rank 6.2041 union 6.2041
+  fl_nm_rate_other         differs on 309,706 rows; mean feat_rank 0.9871 union 0.9884
+  dup_n                    differs on       0 rows; mean feat_rank 1.0002 union 1.0002
+  dup_n_unm_twins          differs on       0 rows; mean feat_rank 0.0001 union 0.0001
+  dup_n_m_twins            differs on       0 rows; mean feat_rank 0.0002 union 0.0002
+  dup_mvt_span             differs on       0 rows; mean feat_rank 1.5443 union 1.5443
+  seq_hw_prev_pairq        differs on 234,483 rows; mean feat_rank 65.5321 union 65.5498
+  seq_hw_excess            differs on 231,835 rows; mean feat_rank 155.6243 union 155.6511
+  seq_lead_wtc             differs on      65 rows; mean feat_rank 1.2141 union 1.2141
+  seq_burst_pos            differs on   5,975 rows; mean feat_rank 2.2504 union 2.2524
+  seq_burst_len            differs on  11,487 rows; mean feat_rank 3.5009 union 3.5048
+  seq_burst_elapsed        differs on   5,975 rows; mean feat_rank 103.3412 union 103.6551
+  seq_burst_remaining      differs on   5,691 rows; mean feat_rank 102.5051 union 102.7514
+  seq_burst_pos_frac       differs on   9,189 rows; mean feat_rank 0.7795 union 0.7797
+  seq_hw_mean_prev5        differs on     217 rows; mean feat_rank 226.5535 union 226.7333
+  seq_hw_mean_next5        differs on       0 rows; mean feat_rank 305.6185 union 305.6185
+  seq_hw_min_prev3         differs on      82 rows; mean feat_rank 108.9003 union 108.9740
+  seq_arr_since_prevdep    differs on     183 rows; mean feat_rank 0.1410 union 0.1410
+  seq_arr_prev_s           differs on       0 rows; mean feat_rank 3080.6154 union 3080.6154
+  seq_arr_next_s           differs on       1 rows; mean feat_rank 3176.5112 union 3176.4939
+  seq_arr_pm10m            differs on       5 rows; mean feat_rank 0.3838 union 0.3838
+  seq_rwy_share_pm30       differs on       5 rows; mean feat_rank 0.6925 union 0.6925
+shape: (20, 4)
+┌──────────┬──────┬──────────┬───────────┐
+│ ADEP_mvt ┆ lane ┆ eq1_rank ┆ eq1_union │
+│ ---      ┆ ---  ┆ ---      ┆ ---       │
+│ str      ┆ str  ┆ f64      ┆ f64       │
+╞══════════╪══════╪══════════╪═══════════╡
+│ EDDF     ┆ A    ┆ 0.590106 ┆ 0.3149    │
+│ EDDM     ┆ A    ┆ 0.698127 ┆ 0.558914  │
+│ EGLL     ┆ A    ┆ 0.680929 ┆ 0.400156  │
+│ EHAM     ┆ A    ┆ 0.391144 ┆ 0.193173  │
+│ LEBL     ┆ A    ┆ 0.696907 ┆ 0.626421  │
+│ LEMD     ┆ A    ┆ 0.76874  ┆ 0.643525  │
+│ LFPG     ┆ A    ┆ 0.555814 ┆ 0.398787  │
+│ LIRF     ┆ A    ┆ 0.692265 ┆ 0.525808  │
+│ LSZH     ┆ A    ┆ 0.492667 ┆ 0.295774  │
+│ LTFM     ┆ A    ┆ 0.920469 ┆ 0.75666   │
+│ EDDF     ┆ B    ┆ 0.392758 ┆ 0.185889  │
+│ EDDM     ┆ B    ┆ 0.503667 ┆ 0.368675  │
+│ EGLL     ┆ B    ┆ 0.493534 ┆ 0.263383  │
+│ EHAM     ┆ B    ┆ 0.230556 ┆ 0.113351  │
+│ LEBL     ┆ B    ┆ 0.350902 ┆ 0.297814  │
+│ LEMD     ┆ B    ┆ 0.574822 ┆ 0.464455  │
+│ LFPG     ┆ B    ┆ 0.287175 ┆ 0.171741  │
+│ LIRF     ┆ B    ┆ 0.526    ┆ 0.414397  │
+│ LSZH     ┆ B    ┆ 0.209178 ┆ 0.134831  │
+│ LTFM     ┆ B    ┆ 0.088055 ┆ 0.070776  │
+└──────────┴──────┴──────────┴───────────┘

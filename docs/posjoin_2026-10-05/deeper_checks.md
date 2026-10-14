@@ -45,3 +45,69 @@ For the copy blend, the classifier is refit on all 12 months for 2026 (rounds = 
 On 2026 LIRF its mean q is 0.167, against a 2025 copy rate of 0.178.
 
 Compared with v34, the candidate changes 27,179 rows, and its squared change is 524 MSE.
+
+## Data checks, round 3 (2026-10-05)
+
+| # | question | result |
+|---|---|---|
+| 10 | Rows where p (b + learned) and ADS-B disagree by more than 10 min, 2025 (171 rows) | The model is right and ADS-B is wrong: RMSE 723 for p against 7,269 for ADS-B. Below 2 min (41k rows) both are about 90 s. The learned residual already weighs ADS-B well, so there is nothing left on push rows. |
+| 11 | Cross-month group bias on the 4-month OOF (b + c_B), matched rows with y < 90 min | Leave-one-month-out shrunk corrections (k = 200): stand +27.5 MSE; operator −29, runway −94, aircraft type −44, ADES −52, local hour −82. Not transferable. |
+| 12 | July 2026 runway mix against July 2025 | LFPG 27R falls from 16 % to 0.1 % (closed). LFPG median MVT−AOBT_3 rises by 60–120 s per runway. EGLL 09R +27 points (wind). The anchored model absorbs this through MVT−AOBT_3; the unmatched LFPG July exposure is ≈ 7 MSE. |
+| 13 | Time-stamp resolution | 5 s at EDDM, EGLL, LFPG, LIRF and LTFM, and for BLOCK at LEBL and LEMD (P(sec = 0) = 1/12); 1 s elsewhere. No lever. |
+| 14 | Learned-residual settings on the 4-month data (`local_adsb_tune_months.py`), paired against the current settings | V1 (127 leaves, min 200): +279 MSE [+156, +421]. **V2 (255 leaves, min 300, ff 0.7): +376 [+193, +582]**, with Nov+Dec +302 [+209, +395] and Jan+Jul +447 [+99, +842]. V3 (l2 = 50): +39 [−6, +88]. V2 is carried into the next candidate. |
+
+## New angle: unmatched non-LIRF rows with normal labels (2025, 4-month OOF b + c_B)
+
+Error budget of the unmatched lane, which carries 46 % of all SSE:
+
+| rows | n | RMSE | MSE contribution (4-month units) |
+|---|---|---|---|
+| non-LIRF, y < 1 h | 7,752 | 369 | 1,574 |
+| **non-LIRF, 1 h ≤ y < 4 h** | **87** | **3,947** | **2,016** (median error −2,902 s) |
+| non-LIRF, y ≥ 4 h | 2 | 71,424 | 15,173 (corrupt labels) |
+| LIRF | 537 | — | 10,957 |
+
+The 87 rows are flights that pushed on time (BLOCK − SCHED within ±10 min) and then waited 1–3 h. They cluster
+on disruption days (EGLL 07-06 and 07-30, LFPG 11-22) when matched neighbours also taxied long (nbr mean
+MVT−AOBT_3 > 2,500 s).
+
+`local_unm_longwait.py` builds a classifier for P(y ≥ 1 h), fit on the 8 other months: **AUC 0.879**, driven by
+`nbr_mvt_minus_aobt_mean_60m`. Blends `p + A·q·(target − p)` over A ∈ {0.25 … 1}, with q gates 0 / 0.3 / 0.5,
+against four targets:
+
+| target | best total gain (MSE) |
+|---|---|
+| MVT−SCHED | −34 |
+| neighbour mean | +0.3 |
+| their mid-point | −14 |
+| constant (training median of positives, 5,108 s) | −3 |
+
+**Not adopted.** Among positives, y correlates −0.21 with MVT−SCHED and −0.24 with the neighbour mean: the
+long-wait rows can be flagged, but their length cannot be predicted.
+
+## LIRF deep-dive (2026-10-06): data analysis only
+
+**Error budget.** LIRF holds **30 % of all SSE** in the 4-month OOF (b + c_B; MSE contributions in 4-month units):
+
+| LIRF row type | n | RMSE | MSE contribution |
+|---|---|---|---|
+| unmatched | 537 | 3,704 | **10,956** |
+| matched, exact schedule copy | 8,950 | 522 | 3,623 |
+| matched, other | 29,631 | 275 | 3,329 |
+| matched, BLOCK − SCHED a whole multiple of 5 min | 10,806 | 287 | 1,326 |
+
+**Recording quirk.** LIRF's BLOCK − SCHED has spikes at 0, ±5 and +10 min. The 0 spike is the exact copies;
+the others look like hand-entered times rounded to 5 min. LFPG and EHAM show no such spikes.
+
+**NM AOBT_3 at LIRF** is not fixed: corr(MVT−AOBT_3, y) is 0.49, and 25 % of rows have MVT−AOBT_3 = 900 ± 60 s.
+
+**ADS-B at LIRF** (2025) is good only with a pushback (321 rows: corr 0.80, medAE 129 s). Stand exit without a
+push (7,295 rows) has corr 0.21 and medAE 613 s.
+
+**Unmatched fill blend** (`local_lirf_unm_fill.py`):
+
+* Classifier fit on 8 other months: **AUC 0.912**, T0 = 1,024 s.
+* Blend `p + A·(q·(MVT−SCHED) + (1−q)·T0 − p)`: **−2,352 MSE at A = 0.25, down to −22,120 at A = 1.0.**
+* Model B's schedule reparameterisation already uses this information better than the classifier mixture.
+
+**Closed.**
