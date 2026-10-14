@@ -1,0 +1,59 @@
+features: reusing the cache in data/work_final
+features: train 2,085,047 rows, ranking 670,790 rows (24s)
+    epoch 1/40 lr 1.00e-03 64s holdout 228.524 best 228.524@1
+    epoch 2/40 lr 1.00e-03 62s holdout 213.767 best 213.767@2
+    epoch 3/40 lr 1.00e-03 52s holdout 222.709 best 213.767@2
+    epoch 4/40 lr 1.00e-03 58s holdout 212.792 best 212.792@4
+    epoch 5/40 lr 1.00e-03 62s holdout 209.937 best 209.937@5
+    epoch 6/40 lr 1.00e-03 67s holdout 206.435 best 206.435@6
+    epoch 7/40 lr 1.00e-03 67s holdout 208.900 best 206.435@6
+    epoch 8/40 lr 1.00e-03 65s holdout 212.372 best 206.435@6
+    epoch 9/40 lr 5.00e-04 65s holdout 203.641 best 203.641@9
+    epoch 10/40 lr 5.00e-04 67s holdout 203.532 best 203.532@10
+    epoch 11/40 lr 5.00e-04 64s holdout 203.634 best 203.532@10
+    epoch 12/40 lr 5.00e-04 67s holdout 205.091 best 203.532@10
+    epoch 13/40 lr 2.50e-04 68s holdout 202.880 best 202.880@13
+    epoch 14/40 lr 2.50e-04 70s holdout 204.387 best 202.880@13
+    epoch 15/40 lr 2.50e-04 69s holdout 204.416 best 202.880@13
+    epoch 16/40 lr 1.25e-04 71s holdout 202.797 best 202.797@16
+    epoch 17/40 lr 1.25e-04 71s holdout 205.182 best 202.797@16
+    epoch 18/40 lr 1.25e-04 72s holdout 204.214 best 202.797@16
+    epoch 19/40 lr 6.25e-05 75s holdout 204.292 best 202.797@16
+    epoch 20/40 lr 6.25e-05 68s holdout 204.116 best 202.797@16
+    epoch 21/40 lr 3.13e-05 75s holdout 203.868 best 202.797@16
+    epoch 1/16 lr 1.00e-03 60s
+    epoch 2/16 lr 1.00e-03 59s
+    epoch 3/16 lr 1.00e-03 62s
+    epoch 4/16 lr 1.00e-03 62s
+    epoch 5/16 lr 1.00e-03 71s
+    epoch 6/16 lr 1.00e-03 73s
+    epoch 7/16 lr 1.00e-03 72s
+    epoch 8/16 lr 1.00e-03 64s
+    epoch 9/16 lr 5.00e-04 72s
+    epoch 10/16 lr 5.00e-04 73s
+    epoch 11/16 lr 5.00e-04 74s
+    epoch 12/16 lr 5.00e-04 73s
+    epoch 13/16 lr 2.50e-04 83s
+    epoch 14/16 lr 2.50e-04 84s
+    epoch 15/16 lr 2.50e-04 81s
+    epoch 16/16 lr 1.25e-04 74s
+    epoch 1/16 lr 1.00e-03 65s
+    epoch 2/16 lr 1.00e-03 66s
+    epoch 3/16 lr 1.00e-03 65s
+    epoch 4/16 lr 1.00e-03 63s
+    epoch 5/16 lr 1.00e-03 68s
+    epoch 6/16 lr 1.00e-03 73s
+    epoch 7/16 lr 1.00e-03 71s
+    epoch 8/16 lr 1.00e-03 78s
+    epoch 9/16 lr 5.00e-04 77s
+    epoch 10/16 lr 5.00e-04 75s
+    epoch 11/16 lr 5.00e-04 78s
+    epoch 12/16 lr 5.00e-04 82s
+    epoch 13/16 lr 2.50e-04 86s
+    epoch 14/16 lr 2.50e-04 90s
+    epoch 15/16 lr 2.50e-04 91s
+    epoch 16/16 lr 1.25e-04 93s
+submission gate warning: max prediction 112832 exceeds 10800s; check outliers
+submission gate warning: rounded to int32 for the template dtype (max shift 0.500s)
+submission written: outputs/final/mlp_l6_s47.parquet ({'train_rows': 2085047, 'dropped_unlabelled': 0, 'lever_cols': ['fw_apt15_mean', 'fw_apt15_n', 'fw_apt30_mean', 'fw_apt30_n', 'fw_rwy15_mean', 'fw_rwy15_n', 'fw_rwy30_mean', 'fw_rwy30_n', 'ret_overdue_eobt', 'ret_overdue_sched', 'ret_overdue_eobt_rwy', 'ret_dly15'], 'fold_feature_cols': ['osm_stand_rwy_km'], 'es_holdout_encodings': False, 'mlp_matched': {'params': {'hidden': [512, 256], 'activation': 'relu', 'alpha': 0.0001, 'batch_size': 1024, 'learning_rate': 0.001, 'max_epochs': 40, 'patience': 5, 'lr_halve_every': 2, 'chunk_rows': 65536, 'quantiles': 1000, 'quantile_rows': 200000, 'cat_min_count': 1000, 'cat_max_levels': 64}, 'n_num': 135, 'n_nan_indicators': 60, 'cat_levels': {'ADEP_mvt': 10, 'RUNWAY_mvt': 38, 'STAND_mvt': 64, 'AIRCRAFT_TYPE_mvt': 64, 'WK_TBL_CAT_flt': 4, 'AIRCRAFT_OPERATOR_flt': 64, 'MARKET_SEGMENT_flt': 7, 'FLIGHT_TYPE_flt': 4, 'ADES_mvt': 64, 'ADES_REGION': 64}, 'input_width': 588, 'train_rows': 2062577, 'holdout_rows': 164028, 'es_holdout_rmse': [228.52356607132813, 213.7669824209152, 222.7086581936277, 212.79237612051458, 209.9374119175387, 206.43502011645572, 208.90023951565877, 212.3717484293838, 203.64071890146818, 203.5322916776645, 203.63445751193305, 205.09050720325428, 202.87983946142356, 204.38666550793002, 204.41626365952035, 202.7969818157091, 205.18198024096077, 204.21387248206554, 204.29180408157683, 204.11590063394146, 203.86824609237368], 'es_best_epoch': 16, 'es_epochs_run': 21, 'es_lrs': [0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.0005, 0.0005, 0.0005, 0.0005, 0.00025, 0.00025, 0.00025, 0.000125, 0.000125, 0.000125, 6.25e-05, 6.25e-05, 3.125e-05], 'epochs': 16, 'seconds': 3929.2}, 'rounds_matched': 16, 'n_features_unmatched': 108, 'rounds_unmatched': 49, 'sched_reparam_train_rows': 1488, 'sched_reparam_target_rows': 619, 'lobt_bound_slack': 3606.0, 'lobt_bound_rows': 255, 'lobt_bound_up': 236, 'lobt_bound_down': 19, 'lobt_bound_max_move': 3644.582884334076, 'parity_max_gap': 0.01567987622490427})
+exit 0

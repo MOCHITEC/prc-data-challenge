@@ -1,0 +1,17 @@
+blend written; rms(b_new - b0) = 11.52
+ADS-B layer averaged over 3 model sets; rms(seed_k - seed_0) = [12.5, 12.7]
+chain + increment built
+C13: rows 339551 (expect 339551), sum e^2/344841 1.21 (gate < 5), max|e| 82.3 (gate < 150), sum d_a2o^2/344841 36.9 (expect 40-300), mean d_a2o -0.25 (gate |.| < 3)
+vs current recommended:
+ shape: (4, 3)
+┌─────┬─────────┬──────────┐
+│ m   ┆ changed ┆ rms      │
+│ --- ┆ ---     ┆ ---      │
+│ i8  ┆ u32     ┆ f64      │
+╞═════╪═════════╪══════════╡
+│ 1   ┆ 103952  ┆ 3.450063 │
+│ 2   ┆ 105337  ┆ 3.55465  │
+│ 6   ┆ 133343  ┆ 3.35134  │
+│ 7   ┆ 130624  ┆ 2.755233 │
+└─────┴─────────┴──────────┘
+written /home/user/prc-data-challenge/handoff/2026-10-13/final_v6_all5.parquet

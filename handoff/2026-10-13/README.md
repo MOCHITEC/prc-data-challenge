@@ -1,4 +1,4 @@
-> **最終版（2026-10-13 23:20 UTC）**: 推奨は `final_recommended.parquet`（md5 d0ce32b68f3a7a4599d8a0982ca81988）。詳細はこのファイル末尾の「★★ 最終版」を見てください。それより上の節は作業の記録です。
+> **最新の推奨（2026-10-14 04:45 UTC）**: `final_recommended.parquet` = v6（md5 **7e53142e478bbb022ae6584850143040**、全メンバー 5 seeds ＋ ADS-B 層 3 seeds）。1 つ前の v5（411a6aa0…）と v4（d0ce32b6…）も同じフォルダに残してある。詳細は末尾の節。それより上の節は作業の記録です。
 
 # データ分析（laughing-cray）の最終候補（2026-10-13 00:50 UTC）
 
@@ -318,3 +318,78 @@ md5 の一覧: `MD5SUMS`（335 件）。
 
 ## このスレッドは何もアップロードしていない
 チーム指示どおり、`_final.parquet` も `_vNN.parquet` もバケットには置いていない。提出は RPC 実装スレッドが行う。
+
+## 2026-10-14 02:10 UTC: 改善を継続中（ユーザー指示: 締めるまで続ける）
+実行中の項目。できたものから点検して `final_recommended.parquet` を差し替え、ここに追記する。差し替えがなければ上の ★★ の md5 が最終。
+1. 自前 ADS-B 層のモデル（m12a / m7a / m4v2）を seed 42・43・44 の 3 本で学習し、補正 c を平均する（`adsb_layer.py` に `ADSB_SEED` / `ADSB_MODELS` を追加、`assemble_step.py --adsb-models`）。
+   seed 違いの差は RMS 約 8 s（調整ワーカーの v2 refit と本番モデルの比較）。見込み −0.05 s 前後。
+2. a2o（cat_tight）・pao（cat_tight、LIRF 以外）・p2o の seed 45・46 を足して 5 seeds 平均に（各 −0.01〜−0.02 s）。
+3. 時間があれば cat_vtight（200/200/1000）の screen。
+
+## 2026-10-14 03:00 UTC: v5 = v4 ＋ ADS-B 層を 3 seeds 平均 ＋ a2o を 5 seeds 平均（点検を実行中。推奨はまだ v4）
+- `final_v5_adsb3_a2o5.parquet`（md5 411a6aa0b05b8e3b525d3d2bf4e17ea9、validate OK）、1・7 月だけ: `janjul_only_final_v5_adsb3_a2o5.parquet`（6daa4e6e2eeee0f4a79ee6cf055b9cb0）。
+- 自前 ADS-B 層のモデル m12a / m7a / m4v2 を seed 43・44 でも学習（`docs/final_2026-10-11/adsb_models_s43`, `_s44`、ログ `logs/fit_s4{3,4}.log`）し、3 本の出力を平均。
+  seed 違いの出力差は全行 RMS 12.5〜12.7 s → 3 本平均で分散が約 1/3 に（見込み −0.1 s 前後）。
+- a2o（cat_tight）に seed 45・46 を足して 5 seeds 平均（`members/a2o_cattight_5seeds_flfix.parquet` = (3×seed42–44 + 2×seed45–46)/5、seed 45–46 は `members/a2o_cattight_s45_flfix.parquet`）。a2o 単体 mean5 − mean3 の RMS 9.7 s。
+- v4 比の変化: 1 月 RMS 9.1 s、2 月 7.3、6 月 6.9、7 月 6.7。
+- 実行: `assemble_step.py --a2o members/a2o_cattight_5seeds_flfix.parquet --pao members/pao_l6_cattight_nolirf.parquet --m4 members/mlp_l6_5seeds.parquet --cb <5 本> --adsb-models <models> <models_s43> <models_s44> --tag final_v5_adsb3_a2o5 --c13`。
+
+
+## 2026-10-14 03:40 UTC: 推奨を v5 に切り替え（独立点検 合格）
+- **`final_recommended.parquet` = `final_v5_adsb3_a2o5.parquet`（md5 411a6aa0b05b8e3b525d3d2bf4e17ea9）**、1・7 月だけ: `janjul_only_final_recommended.parquet`（6daa4e6e2eeee0f4a79ee6cf055b9cb0）。
+  任意の変種 `optional_janjul_reanchor_plus1delta.parquet` も v5 から作り直した。
+- v4 からの変更: 自前 ADS-B 層を 3 seeds 平均、a2o を 5 seeds 平均。
+- **1・7 月の unmatched 行について（★★ の記述の訂正）**: v4 までは unmatched 5,290 行が v48 と同一だったが、v5 では ADS-B 層の seed 平均が unmatched の ground-fix 行にも効くため、1,765 行が変わる（RMS 13.9 s、平均 +0.4 s、max 173 s）。
+  v48 の層はそれらの行で seed 42 の 1 本だけだったので、平均に置き換えるのは設計どおり（意図した変更）。matched 行の v48 との差は RMS 12.9 s、平均 −0.12 s、max 573 s（LIRF 1/31、CatBoost / MLP の seed 平均）。
+- 点検結果: 形式・網羅 合格、LOBT 違反 0、2・6 月の層は 1 回ずつ、Jan/Jul の変化はすべてメンバー差分と層の seed 平均で説明がつく。再現性の指摘（AIR/POS 用の保存モデル 2 本が支店に無い）→ `adsb_store/learn/final_model_months_A.txt`, `final_model_7v2.txt` を追加した。
+- 実行コマンド（literal）:
+```
+cd /home/user/prc-final && F=/home/user/pb-work/outputs/final
+python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_l6_cattight_nolirf.parquet --m4 $F/mlp_l6_5seeds.parquet \
+  --cb $F/main_flseq_osm_nolirf_cb_l2.parquet $F/main_flseq_osm_nolirf_cb_l2_s43.parquet $F/main_flseq_osm_nolirf_cb_l2_s44.parquet $F/cb_l2_s45.parquet $F/cb_l2_s45.parquet \
+  --adsb-models /home/user/prc-final/adsb_out/models /home/user/prc-final/adsb_out/models_s43 /home/user/prc-final/adsb_out/models_s44 \
+  --tag final_v5_adsb3_a2o5 --c13
+```
+  stdout は `docs/final_2026-10-11/logs/assemble_final_v5_adsb3_a2o5.log`。派生メンバー（pao nolirf、MLP 5 seeds、a2o 5 seeds）は `derived_members.py`。
+- 進行中: pao（cat_tight、LIRF 以外）と p2o の seed 45・46。できたら v6 として点検し、通れば差し替える。
+
+## 2026-10-14 04:25 UTC: v6 = v5 ＋ pao・p2o も 5 seeds 平均（全メンバー 5 seeds）。点検を実行中（推奨はまだ v5）
+- `final_v6_all5.parquet`（md5 7e53142e478bbb022ae6584850143040、validate OK）、1・7 月だけ: `janjul_only_final_v6_all5.parquet`（55a91f49410b93c9d97a774d76afdab2）。
+- pao（cat_tight、LIRF 以外）= (3×seed42–44 + 2×seed45–46)/5（`members/pao_l6_cattight_5seeds_nolirf.parquet`、LIRF は本番 pao のまま）。pao 単体 mean5 − mean3 の RMS 9.9 s（LIRF 以外）。
+- p2o = (3×seed42–44 + 2×seed45–46)/5（`members/p2o_l6_5seeds.parquet`、`configs/p2o_l6_s45.yaml`）。p2o 単体 mean5 − mean3 の RMS 10.8 s。
+- v5 比の変化: 各月 RMS 2.8〜3.6 s。stdout は `docs/final_2026-10-11/logs/assemble_final_v6_all5.log`。
+- 並行して cat_vtight（cat_smooth 200 / cat_l2 200 / min_data_per_group 1000）を 2025 年の 4 fold（1・2・6・7 月）で screen 中。
+
+
+## 2026-10-14 04:45 UTC: 推奨を v6 に切り替え（独立点検 合格: blocker / major なし）
+- **`final_recommended.parquet` = `final_v6_all5.parquet`（md5 7e53142e478bbb022ae6584850143040）**、1・7 月だけ: `janjul_only_final_recommended.parquet`（55a91f49410b93c9d97a774d76afdab2）。
+  任意の変種 `optional_janjul_reanchor_plus1delta.parquet` も v6 から作り直した。
+- 点検結果（4 観点）: 形式・網羅 合格（件数・ID・順序・型すべて一致、LOBT 違反 0）。1・7 月は v48 相当（matched RMS 15.2 / 11.3 s、unmatched は v5 と同じ 1,765 行が ADS-B 層の seed 平均で変化）。
+  2・6 月は chain の中間ファイルから全行が正確に再現（0 行の不一致）。残る軽微な点は 60 s 未満 31 行（Jan/Jul は v47/v48 と同数の 9 行）。
+- v5 → v6 の変更: pao（LIRF 以外）と p2o を 5 seeds 平均に。各月 RMS 2.8〜3.6 s の変化。
+- 実行コマンド（literal）: `docs/final_2026-10-11/logs/assemble_final_v6_all5.log` の先頭を参照。
+```
+cd /home/user/prc-final && F=/home/user/pb-work/outputs/final && python derived_members.py --dir $F
+python assemble_step.py --a2o $F/a2o_cattight_5seeds_flfix.parquet --pao $F/pao_l6_cattight_5seeds_nolirf.parquet --p2o $F/p2o_l6_5seeds.parquet --m4 $F/mlp_l6_5seeds.parquet \
+  --cb $F/main_flseq_osm_nolirf_cb_l2.parquet $F/main_flseq_osm_nolirf_cb_l2_s43.parquet $F/main_flseq_osm_nolirf_cb_l2_s44.parquet $F/cb_l2_s45.parquet $F/cb_l2_s45.parquet \
+  --adsb-models /home/user/prc-final/adsb_out/models /home/user/prc-final/adsb_out/models_s43 /home/user/prc-final/adsb_out/models_s44 --tag final_v6_all5 --c13
+```
+- 進行中: cat_vtight の screen（2025 年 1・2・6・7 月）。cat_tight より一貫して良ければ a2o / pao を学習し直す。
+
+## 2026-10-14 05:05 UTC: cat_vtight の screen 結果 → 採用しない
+anchored LightGBM、単一 seed 42、matched RMSE の base からの差（s）:
+
+| 設定 | 1 月 | 2 月 | 6 月 | 7 月 | 平均 |
+|---|---|---|---|---|---|
+| cat_tight（採用中） | −1.08 | −0.55 | −0.82 | −1.00 | −0.86 |
+| cat_vtight（200/200/1000） | −1.24 | −0.49 | −0.60 | −1.24 | −0.89 |
+
+- 1・7 月は vtight、2・6 月は tight が良く、平均は同等（seed のばらつき 0.13〜0.3 s の範囲）。vtight は 2000 round の上限に達している。
+- 一貫した改善ではないので、a2o / pao の学習し直し（約 2.5 時間）はしない。cat_tight のまま。
+- 続けて: ADS-B 層の seed 45・46（3 → 5 本平均、見込み −0.02 s）、MLP と CatBoost の seed 47・48（各 −0.02〜−0.03 s）。
+
+## 2026-10-14 06:45 UTC: v7a = v6 ＋ ADS-B 層を 5 seeds 平均 ＋ MLP を 7 seeds 平均（点検を実行中。推奨はまだ v6）
+- `final_v7a_adsb5_mlp7.parquet`（md5 45ffc9e9f1d95f60f04e850b21377f35）、1・7 月だけ: `janjul_only_final_v7a_adsb5_mlp7.parquet`。
+- v6 からの変化: 各月 RMS 4.2〜5.6 s（ADS-B 層の seed 45・46 と MLP の seed 47・48 を足しただけ）。C13 の検査は合格（e² 平均 1.21、max|e| 82.3）。
+- 外部知見スレッドの補正（門・q15・+1×δ）は `build_on_base.py` で v6 から作ったファイルと md5 まで一致することを確認した（6 ファイルすべて）。v7a の上でも同じスクリプトで作れる（推奨を切り替えるときに一緒に置く）。
+- 実行中: CatBoost の seed 47・48（07:40 ごろ終わる）→ ADS-B 層の seed 47・48 → v7b（CatBoost・ADS-B 層とも 7 seeds）。
