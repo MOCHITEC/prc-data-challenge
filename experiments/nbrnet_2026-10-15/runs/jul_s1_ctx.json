@@ -1,0 +1,105 @@
+{
+ "run": "jul_s1_ctx",
+ "settings": {
+  "fold": "jul",
+  "seed": 1,
+  "mode": "ctx",
+  "k_dep": 64,
+  "k_arr": 48,
+  "d": 64,
+  "subsample": 1.0,
+  "batch": 1024,
+  "lr": 0.001,
+  "wd": 0.0001,
+  "max_epochs": 12,
+  "patience": 2,
+  "ckpt_every": 2,
+  "prefetch": 1,
+  "bench_steps": 0,
+  "folds_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/folds",
+  "tokens": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/tokens",
+  "runs_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/runs",
+  "exp_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/experiments/nbrnet_2026-10-15",
+  "no_git": false,
+  "tag": ""
+ },
+ "target": {
+  "lo": -3238.0995000000003,
+  "hi": 3542.0,
+  "mu": -21.245769186193424,
+  "sd": 362.1344176230764
+ },
+ "n_params": 302849,
+ "query_width": 586,
+ "n_fit": 1711774,
+ "n_hold": 164028,
+ "n_valid": 186775,
+ "fold": "jul",
+ "hold_months": [
+  202512
+ ],
+ "torch": "2.9.1+cpu",
+ "threads": 4,
+ "hist": [
+  {
+   "epoch": 1,
+   "train_mse_std": 0.38015384205310376,
+   "holdout_rmse": 221.2975486576694,
+   "train_s": 381.8,
+   "epoch_s": 406.7,
+   "gather_s": 68.0,
+   "rss_mb": 3082
+  },
+  {
+   "epoch": 2,
+   "train_mse_std": 0.333277055696495,
+   "holdout_rmse": 213.19266657816848,
+   "train_s": 397.0,
+   "epoch_s": 421.9,
+   "gather_s": 71.6,
+   "rss_mb": 3132
+  },
+  {
+   "epoch": 3,
+   "train_mse_std": 0.316341847365346,
+   "holdout_rmse": 215.51516765985536,
+   "train_s": 387.6,
+   "epoch_s": 410.4,
+   "gather_s": 68.1,
+   "rss_mb": 3132
+  },
+  {
+   "epoch": 4,
+   "train_mse_std": 0.3062302704709335,
+   "holdout_rmse": 210.40640399067829,
+   "train_s": 390.8,
+   "epoch_s": 415.7,
+   "gather_s": 68.7,
+   "rss_mb": 3132
+  },
+  {
+   "epoch": 5,
+   "train_mse_std": 0.2998890771026055,
+   "holdout_rmse": 211.44502490095402,
+   "train_s": 387.1,
+   "epoch_s": 412.6,
+   "gather_s": 68.9,
+   "rss_mb": 3185
+  },
+  {
+   "epoch": 6,
+   "train_mse_std": 0.29398178456794527,
+   "holdout_rmse": 210.68298635244244,
+   "train_s": 395.2,
+   "epoch_s": 420.0,
+   "gather_s": 68.9,
+   "rss_mb": 3175
+  }
+ ],
+ "best_epoch": 4,
+ "best_holdout_rmse": 210.40640399067829,
+ "epochs_run": 6,
+ "predict_s": 28.5,
+ "wall_s": 2531.5,
+ "valid_matched_rmse_nn": 263.6768020681724
+}
