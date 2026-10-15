@@ -1,0 +1,3 @@
+gate 2026-10-15T06:58:21Z
+start 2026-10-15T06:58:21Z args: -m prc.pipeline --config configs/main_flseq_osm_nolirf_l2_opt_l6_cmix.yaml --skip-predict --fold-cache data/nbrnet/fold_cache
+end 2026-10-15T09:07:20Z rc=127 killed=0 wall_s=7739 peak_total_rss_MB=11857

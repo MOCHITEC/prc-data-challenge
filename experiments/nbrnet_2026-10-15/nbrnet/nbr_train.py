@@ -85,6 +85,24 @@ class Batcher:
         return out
 
 
+def batches(batcher, row_blocks: list[np.ndarray], prefetch: bool):
+    """Yield (rows, tensors) in order; with `prefetch` the next block is gathered in a worker thread while the
+    current step runs. The order and the tensors are the same either way."""
+    if not prefetch:
+        for r in row_blocks:
+            yield r, batcher(r)
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(1) as ex:
+        fut = ex.submit(batcher, row_blocks[0]) if row_blocks else None
+        for i, r in enumerate(row_blocks):
+            cur = fut.result()
+            if i + 1 < len(row_blocks):
+                fut = ex.submit(batcher, row_blocks[i + 1])
+            yield r, cur
+
+
 def predict(model, batcher, rows: np.ndarray, bs: int = 4096) -> np.ndarray:
     model.eval()
     out = np.empty(len(rows), dtype=np.float64)
@@ -149,6 +167,7 @@ def main(argv=None) -> int:
     ap.add_argument("--max-epochs", type=int, default=12)
     ap.add_argument("--patience", type=int, default=2)
     ap.add_argument("--ckpt-every", type=int, default=2)
+    ap.add_argument("--prefetch", type=int, default=1, help="1: gather the next batch in a worker thread")
     ap.add_argument("--bench-steps", type=int, default=0, help="time this many training steps and stop")
     ap.add_argument("--folds-dir", type=Path, default=ROOT / "data/nbrnet/folds")
     ap.add_argument("--tokens", type=Path, default=ROOT / "data/nbrnet/tokens")
@@ -193,9 +212,8 @@ def main(argv=None) -> int:
     if a.bench_steps:
         perm = np.random.default_rng([a.seed, 1]).permutation(len(fit_rows))
         t0, btr.t_gather = time.perf_counter(), 0.0
-        for i in range(a.bench_steps):
-            rows = fit_rows[perm[i * a.batch : (i + 1) * a.batch]]
-            batch = btr(rows)
+        blocks = [fit_rows[perm[i * a.batch : (i + 1) * a.batch]] for i in range(a.bench_steps)]
+        for rows, batch in batches(btr, blocks, a.prefetch):
             loss = lossf(model(*batch), torch.from_numpy(g_std[rows]))
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -247,9 +265,8 @@ def main(argv=None) -> int:
         if a.subsample < 1.0:
             perm = perm[: int(len(fit_rows) * a.subsample)]
         btr.t_gather, tot = 0.0, 0.0
-        for i, s in enumerate(range(0, len(perm), a.batch)):
-            rows = fit_rows[perm[s : s + a.batch]]
-            batch = btr(rows)
+        blocks = [fit_rows[perm[s : s + a.batch]] for s in range(0, len(perm), a.batch)]
+        for i, (rows, batch) in enumerate(batches(btr, blocks, a.prefetch)):
             loss = lossf(model(*batch), torch.from_numpy(g_std[rows]))
             opt.zero_grad(set_to_none=True)
             loss.backward()

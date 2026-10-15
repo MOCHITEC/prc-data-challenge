@@ -72,9 +72,19 @@ def slog(x: np.ndarray) -> np.ndarray:
     return (np.sign(x) * np.log1p(np.abs(x)) / SLOG_SCALE).astype(np.float32)
 
 
+TOKEN_SOURCE_COLS = (
+    "MVT_ID_mvt", "PHASE_mvt", "ADEP_mvt", "ADES_mvt", "MVT_TIME_UTC_mvt", "BLOCK_TIME_UTC_mvt", "SCHED_TIME_UTC_mvt",
+    "AOBT_3_flt", "EOBT_1_flt", "LOBT_flt", "RUNWAY_mvt", "STAND_mvt", "TAXITIME_SEC_mvt", "WK_TBL_CAT_flt",
+)
+
+
 def load_movements(files: list[Path]) -> pl.DataFrame:
-    """The raw files concatenated, each row tagged with the index of its source file (`src`)."""
-    frames = [pl.read_parquet(p).with_columns(pl.lit(i, dtype=pl.Int16).alias("src")) for i, p in enumerate(files)]
+    """The raw files concatenated (only the columns the tables read), each row tagged with the index of its source
+    file (`src`)."""
+    frames = [
+        pl.read_parquet(p, columns=list(TOKEN_SOURCE_COLS)).with_columns(pl.lit(i, dtype=pl.Int16).alias("src"))
+        for i, p in enumerate(files)
+    ]
     return pl.concat(frames, how="diagonal")
 
 

@@ -1,0 +1,9 @@
+fold jan: n=153,706 rmse=339.64  matched 196.63 (n=152,271)  unmatched 2872.91 (n=1,435)  [2478s]
+fold jul: n=190,713 rmse=292.04  matched 235.61 (n=186,775)  unmatched 1223.78 (n=3,938)  [4582s]
+fold jul_fwd: n=190,713 rmse=303.52  matched 243.68 (n=186,775)  unmatched 1282.61 (n=3,938)  [5792s]
+fold forward: n=328,009 rmse=213.80  matched 192.77 (n=325,004)  unmatched 985.18 (n=3,005)  [7711s]
+CV main_flseq_osm_nolirf_l2_opt_l6_cmix-1e01a07623: full=269.92 clean=224.05 (7711.6s)
+  jan: full=339.64 clean=206.62 n=153,706 tail20=0.65
+  jul: full=292.04 clean=270.97 n=190,713 tail20=0.18
+  jul_fwd: full=303.52 clean=282.70 n=190,713 tail20=0.17
+  forward: full=213.80 clean=200.56 n=328,009 tail20=0.14
