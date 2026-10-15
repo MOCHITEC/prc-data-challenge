@@ -1,0 +1,51 @@
+{
+ "run": "forward_s1_ctx",
+ "settings": {
+  "fold": "forward",
+  "seed": 1,
+  "mode": "ctx",
+  "k_dep": 64,
+  "k_arr": 48,
+  "d": 64,
+  "subsample": 1.0,
+  "batch": 1024,
+  "lr": 0.001,
+  "wd": 0.0001,
+  "max_epochs": 12,
+  "patience": 2,
+  "ckpt_every": 2,
+  "prefetch": 1,
+  "bench_steps": 200,
+  "folds_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/folds",
+  "tokens": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/tokens",
+  "runs_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/runs",
+  "exp_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/experiments/nbrnet_2026-10-15",
+  "no_git": true,
+  "tag": ""
+ },
+ "target": {
+  "lo": -3303.428,
+  "hi": 3897.2140000001527,
+  "mu": -15.7920018128734,
+  "sd": 374.1076332366271
+ },
+ "n_params": 302593,
+ "query_width": 585,
+ "n_fit": 1553812,
+ "n_hold": 183761,
+ "n_valid": 325004,
+ "fold": "forward",
+ "hold_months": [
+  202510
+ ],
+ "torch": "2.9.1+cpu",
+ "threads": 4,
+ "bench_steps": 200,
+ "sec_per_step": 0.2395700901999953,
+ "gather_share": 0.22416528123441096,
+ "steps_per_epoch": 1518,
+ "holdout_eval_s": 23.432259329789034,
+ "epoch_min_est": 6.451660937556365,
+ "last_loss": 0.3962101638317108,
+ "rss_mb": 3298
+}
