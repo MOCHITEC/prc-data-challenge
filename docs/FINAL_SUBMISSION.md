@@ -36,7 +36,7 @@ If the ledger or the bucket ever shows a different md5, trust them: this page is
 
 **Validation.** `.venv/bin/python -m prc.validate_final <file> --template data/raw/final/final_submitting.parquet
 --ranking data/raw/final/final_ranking.parquet --expect-md5 c0d4a1439862e68852b65f6854322a29` (from the repository
-root, after `README.md` §4 and §5) prints **PASS** and exits 0. It was run on
+root, after `README.md` §4.1 and §4.2) prints **PASS** and exits 0. It was run on
 2026-10-14 against the organisers' files (`final_submitting.parquet` md5 `2c1f4072…`, `final_ranking.parquet` md5
 `1ce0c6ee…`; the runbook §3 lists both), and again on the file rebuilt by the script of §5.2.
 - The ids equal the template's in set and order.
@@ -72,7 +72,7 @@ The base `be8d89dc…` has the same values except Feb p50 922 / p99 2,198 and Ju
 - **Check.** All 344,841 Jan/Jul rows of the final file equal it; 0 differ (§2.4).
 - **What v48 is.** v48 = C15 + the 12-month appear delta + the EDDF coverage delta (`handoff/2026-10-08/ON_C15.md`).
   - C15 is submission v47 (234.4831). It is v42 plus the fl_/seq_ consistency fix, 3-seed L6 members and ucmix.
-  - The EDDF delta is explained in `README.md` §3.
+  - The EDDF delta is explained in `docs/METHOD.md` §6.2.
   - v48 is the end of a chain of per-submission delta files, v33 → v48. No single script builds it. See
     `docs/SOLUTION_OVERVIEW.md` §7, `docs/batch_2026-10-06/README.md` and `docs/final_2026-10-11/adsb_layer_README.md`
     §1.
@@ -317,7 +317,7 @@ md5sum handoff/2026-10-13/final_v5_plus_febjun_appear.parquet      # c0d4a143986
   --expect-md5 c0d4a1439862e68852b65f6854322a29
 ```
 
-The competition files come from the organisers' bucket (`README.md` §5).
+The competition files come from the organisers' bucket (`README.md` §4.2).
 
 ### 5.2 Re-assemble the file from committed parts (byte for byte)
 
@@ -376,7 +376,7 @@ the repository does not hold:
   alone. `docs/final_2026-10-11/apply_overlays.py` reads the organisers' 2025 `training_*.parquet` files (LIRF
   unmatched time-zone rule) from `--raw-dir`. It reads `feat_train.parquet` and `feat_rank*.parquet` (LIRF copy q,
   LOBT clip) from `--feat-dir`. Those are the feature cache that `prc.pipeline` builds; it is not committed. The
-  competition files are not redistributed here (`README.md` §5).
+  competition files are not redistributed here (`README.md` §4.2 and §7).
 - **The members need a fresh fit.** `src/prc` does not save LightGBM or CatBoost models
   (`docs/final_phase_2026-10-11/IMPACT.md` §4(c)). A refit will not give identical numbers; how close it comes was not
   measured. The committed member predictions (§2.2) and the committed blend let the rebuild start at step 2 or 3

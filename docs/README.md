@@ -5,7 +5,9 @@ Team resilient-hedgehog, PRC Data Challenge 2026. Index written 2026-10-14.
 **Start here:**
 - [`FINAL_SUBMISSION.md`](FINAL_SUBMISSION.md): the final file, how its rows were produced, how to reproduce it, and
   its limits. This is the authoritative page about the final file.
-- [`../README.md`](../README.md): task, model design, results (§10) and the documentation map (§11).
+- [`../README.md`](../README.md): task, method overview (§2), reproduction (§4, §5), results (§8) and the
+  documentation map (§11).
+- [`METHOD.md`](METHOD.md): the model behind the final file (lanes, members, ADS-B layer, appear tier, overlays).
 
 The folders are research notes, one per topic and date. Many are in Japanese. Most notes are pre-registrations
 (`plan.md`, committed before the run) followed by results.
@@ -22,6 +24,7 @@ that archived file.
 | file | language | what | status |
 |---|---|---|---|
 | `FINAL_SUBMISSION.md` | en | the final file: identity, recipe, checks, reproduction, limits | current |
+| `METHOD.md` | en | the model behind the final file; moved from the root README on 2026-10-15 | current |
 | `SOLUTION_OVERVIEW.md` | en | pipeline map: each stage, why it is there, where its code and evidence are | state at v47 (2026-10-08) |
 | `DEVELOPMENT_HISTORY.md` | en | every leaderboard submission, classed; rules derived from ranking-set rows | current (2026-10-14) |
 | `external_data.md` | en | every external source: URL, licence, use, status, script | current |

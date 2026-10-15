@@ -30,8 +30,9 @@ Both +appear files were written as 8 equal row groups (83,849 x 6 + 83,848 x 2 r
 single-chunk frame of this size into 6 (as in be8d89dc). With --febjun-appear the output frame is therefore cut into
 8 equal chunks before writing (polars writes one row group per chunk); the values do not depend on it, the md5 does.
 
-Neither file was built by a committed script (README.md section 3, item 6). This script is that combination step,
-reconstructed from the committed post-layer pieces and checked row for row against both committed files.
+Neither file was built by a committed script (README.md section 3, item 6, as of 3a51133; docs/METHOD.md section 8).
+This script is that combination step, reconstructed from the committed post-layer pieces and checked row for row
+against both committed files.
 
 Rows, in the order of final_submitting.parquet (month and day from the DEP row's MVT_TIME_UTC_mvt in
 final_ranking.parquet, UTC):
