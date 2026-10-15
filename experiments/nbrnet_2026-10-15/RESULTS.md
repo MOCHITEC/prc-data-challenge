@@ -90,3 +90,20 @@ which has not been started.
 Reading (descriptive): the network alone is ~9 s worse than a2o on matched rows, as m4 is, but its context
 version is ~5 s better than its no-context twin, and that difference survives blending at 25 % (−1.07 s) and the
 tail drop. About a third of C2 (−0.48 s, 213.80 → 213.32) is what any NN member adds to a2o; the rest is context.
+
+## Tests
+
+`.venv/bin/python -m pytest -q experiments/nbrnet_2026-10-15/tests`: 8 passed (synthetic data, 46 s): R1 (other
+departures' block/taxi times shifted or nulled → tables, indices and every gathered token bit-identical; the
+arrival control does change), R3 (no query in its own index), R6/R7 (same airport and source file, inside
+[t0−60, t0+20] min, nearest-first, equal to a brute-force k-nearest), R5 (shuffling evaluation labels leaves every
+training-side array and the target statistics unchanged), noctx = all-masked ctx and independent of tokens, LOBT
+projection = `train._lobt_bound`, and an end-to-end ctx/noctx fit whose resumed re-run reproduces the predictions.
+
+## S8 (not started) — estimate
+
+Measured: ctx ≈ 6.0 min/epoch on 1.55 M fit rows, noctx ≈ 0.5 min/epoch; both stopped at epoch 10 here. The jan
+and jul folds fit on ~10 months (inner holdout = Dec), ≈ 1.11× the forward fit rows → ≈ 6.7 min/epoch. With 10–12
+epochs per run: jan + jul seed 1 ≈ 2 × (67–80) min ctx + 2 × ~6 min noctx; seed 2 on jan, jul, forward ≈ 3 × (60–80)
+min ctx + 3 × ~6 min noctx; plus fold preparation (~2 min per fold, jan and jul) and evaluation (~1 min).
+**Total ≈ 5.5–7 h sequential** (one job at a time, peak ≈ 3.3 GB for ctx, 6.3 GB for a fold preparation).

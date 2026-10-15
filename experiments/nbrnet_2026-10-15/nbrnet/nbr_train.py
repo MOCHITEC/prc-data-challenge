@@ -273,7 +273,7 @@ def main(argv=None) -> int:
             opt.step()
             tot += loss.item() * len(rows)
             if i % 500 == 0:
-                print(f"  epoch {e} step {i}/{steps_per_epoch} loss {float(loss):.4f} {time.time() - te:.0f}s rss {_rss_mb()}MB", flush=True)
+                print(f"  epoch {e} step {i}/{steps_per_epoch} loss {loss.item():.4f} {time.time() - te:.0f}s rss {_rss_mb()}MB", flush=True)
         t_train = time.time() - te
         ph = predict(model, btr, hold_rows) * st["sd"] + st["mu"]
         r = float(np.sqrt(np.mean((ph - g_hold) ** 2)))
