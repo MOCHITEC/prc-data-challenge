@@ -107,3 +107,108 @@ and jul folds fit on ~10 months (inner holdout = Dec), ≈ 1.11× the forward fi
 epochs per run: jan + jul seed 1 ≈ 2 × (67–80) min ctx + 2 × ~6 min noctx; seed 2 on jan, jul, forward ≈ 3 × (60–80)
 min ctx + 3 × ~6 min noctx; plus fold preparation (~2 min per fold, jan and jul) and evaluation (~1 min).
 **Total ≈ 5.5–7 h sequential** (one job at a time, peak ≈ 3.3 GB for ctx, 6.3 GB for a fold preparation).
+
+## S8: jan + jul at seed 1, all three folds at seed 2
+
+Fold designs (`nbr_query.py --folds jan jul`, 150 s, peak 6,276 MB; `fold_jan.json`, `fold_jul.json`): jan trains on
+202502–202512 (1,910,306 matched rows, inner holdout 202512, 1,746,278 fit rows) and scores 152,271 matched of
+153,706 labelled rows; jul trains on 202501–06 + 202508–12 (1,875,802; holdout 202512; 1,711,774 fit rows) and
+scores 186,775 of 190,713. Widths 587 / 586. Run by `s8_driver.sh` in the pre-registered order, one job at a time
+under the 13,000 MB guard (never triggered), each run's predictions and record committed after it ended.
+S8 wall clock: 10:33:56Z → 16:11:42Z (5 h 38 min).
+
+| run | fit rows | epochs run | best epoch | best holdout RMSE | mean epoch s | wall s | peak MB | matched RMSE on fold |
+|---|---|---|---|---|---|---|---|---|
+| forward s1 ctx (S7) | 1,553,812 | 10 | 8 | 213.62 | 363 | 3,690 | 3,087 | 204.36 |
+| forward s1 noctx (S7) | 1,553,812 | 10 | 8 | 219.31 | 28 | 302 | 1,923 | 209.55 |
+| jan s1 ctx | 1,746,278 | 8 | 6 | 209.69 | 410 | 3,321 | 2,775 | 215.89 |
+| jan s1 noctx | 1,746,278 | 8 | 6 | 214.12 | 32 | 275 | 1,943 | 222.11 |
+| jul s1 ctx | 1,711,774 | 6 | 4 | 210.41 | 415 | 2,532 | 2,754 | 263.68 |
+| jul s1 noctx | 1,711,774 | 9 | 7 | 212.61 | 32 | 311 | 1,949 | 266.27 |
+| jan s2 ctx | 1,746,278 | 12 (cap) | 10 | 206.78 | 429 | 5,193 | 2,834 | 215.65 |
+| jan s2 noctx | 1,746,278 | 9 | 7 | 211.35 | 33 | 321 | 1,933 | 219.70 |
+| jul s2 ctx | 1,711,774 | 10 | 8 | 207.22 | 421 | 4,260 | 2,796 | 261.59 |
+| jul s2 noctx | 1,711,774 | 4 | 2 | 215.70 | 32 | 141 | 1,928 | 273.20 |
+| forward s2 ctx | 1,553,812 | 9 | 7 | 216.28 | 379 | 3,484 | 2,850 | 207.42 |
+| forward s2 noctx | 1,553,812 | 10 | 8 | 221.79 | 29 | 312 | 1,934 | 212.57 |
+
+All 12 runs: 24,141 s of training. No run resumed from a checkpoint. `jul s2 noctx` stopped by the pre-registered
+patience rule after epoch 4 (best epoch 2) — a weak noctx run that makes its fold's C1 larger for seed 2 (see the
+per-seed table); it is kept, as the rule says.
+
+## S9: pooled verdicts — jan + jul + forward, NN mean of seeds 1 and 2
+
+`nbr_eval.py --folds jan jul forward --seeds 1 2 --work-dir data/work --n-boot 1000`
+(`results/s9_pooled_s12.json`, summary `results/s9_pooled_s12.summary.txt`). 672,428 labelled rows (664,050
+matched); unmatched rows are a2o in every arm (their difference is exactly 0). The NN prediction per row is the mean
+of the two seeds' predictions in seconds, then blended, projected onto the LOBT window and floored.
+
+| arm | pooled RMSE | matched rows | jan | jul | forward |
+|---|---|---|---|---|---|
+| a2o | 269.919 | 206.558 | 339.642 | 292.044 | 213.801 |
+| NN_ctx alone (descriptive) | 275.917 | 214.433 | 342.968 | 300.307 | 220.258 |
+| NN_noctx alone (descriptive) | 280.220 | 220.010 | 345.993 | 306.455 | 224.217 |
+| A of C1: 0.75·a2o + 0.25·NN_noctx | 269.691 | 206.256 | 339.354 | 292.335 | 213.196 |
+| **B: 0.75·a2o + 0.25·NN_ctx** | **268.664** | 204.894 | 338.664 | 290.887 | 212.198 |
+
+### Pre-registered decisions (`prc.compare.verdict(robustness_curve(y, A, B, n_boot=1000))`)
+
+| | full data: diff [95 % CI] | worst 200 dropped: diff [95 % CI] | verdict tuple |
+|---|---|---|---|
+| **C1** ctx vs noctx (both blended) | **−1.028 [−1.213, −0.877]** | −1.289 [−1.386, −1.192] | **(True, "adopt (-1.03 s, still -1.29 s at 200 rows dropped)")** |
+| **C2** blend vs a2o | **−1.255 [−1.527, −0.999]** | −1.556 [−1.770, −1.352] | **(True, "adopt (-1.26 s, still -1.56 s at 200 rows dropped)")** |
+
+Both comparisons **adopt**. Curve at 20 / 2,000 rows dropped: C1 −1.236 / −1.154, C2 −1.509 / −1.427 s. C3 (blend5)
+was not started, as instructed.
+
+### Descriptive reports (no decision attached)
+
+**Per fold** (curve verdict inside each fold; diff [CI], then at 200 dropped):
+
+| fold | C1 | C1, 200 dropped | C2 | C2, 200 dropped |
+|---|---|---|---|---|
+| jan | −0.689 [−1.169, −0.473] adopt | −1.145 [−1.295, −1.001] | −0.978 [−1.784, −0.575] adopt | −1.558 [−1.812, −1.293] |
+| jul | −1.447 [−1.636, −1.263] adopt | −1.679 [−1.884, −1.502] | −1.157 [−1.558, −0.744] adopt | −1.504 [−1.874, −1.109] |
+| forward | −0.998 [−1.143, −0.864] adopt | −1.026 [−1.144, −0.911] | −1.603 [−1.958, −1.301] adopt | −1.457 [−1.657, −1.270] |
+
+**Strict report** (`prc.compare.strict_report` / `strict_verdict`; folds, ≥ 70 % of airports, airport-day block
+bootstrap over 1,230 UTC airport-days, each on all rows and with the worst 200 removed):
+
+| | all rows: folds jan / jul / forward | airports better | airport-day CI | worst 200 removed: folds | airports | airport-day CI | strict verdict |
+|---|---|---|---|---|---|---|---|
+| C1 | −0.69 / −1.45 / −1.00 | 10/10 | −1.03 [−1.23, −0.84] | −1.19 / −1.67 / −1.08 | 10/10 | −1.29 [−1.44, −1.14] | adopt |
+| C2 | −0.98 / −1.16 / −1.60 | 10/10 | −1.26 [−1.59, −0.97] | −1.56 / −1.45 / −1.65 | 10/10 | −1.56 [−1.86, −1.28] | adopt |
+
+**Month bootstrap** (4 months: 202501, 202507, 202511, 202512): C1 −1.03 [−1.35, −0.77], C2 −1.26 [−1.69, −1.02].
+
+**Per airport** (pooled, diff [paired-bootstrap 95 % CI, 500 draws]):
+
+| airport | n | C1 diff [CI] | C2 diff [CI] |
+|---|---|---|---|
+| EDDF | 72,276 | −1.75 [−2.06, −1.50] | −2.08 [−2.62, −1.60] |
+| EDDM | 51,688 | −1.05 [−1.40, −0.71] | −2.45 [−3.71, −1.52] |
+| EGLL | 79,633 | −1.84 [−2.18, −1.53] | −0.81 [−1.76, +0.22] |
+| EHAM | 79,639 | −0.52 [−0.70, −0.34] | −1.29 [−1.76, −0.85] |
+| LEBL | 56,153 | −0.56 [−0.74, −0.39] | −1.36 [−1.61, −1.12] |
+| LEMD | 70,732 | −0.44 [−0.56, −0.28] | −1.74 [−2.05, −1.47] |
+| LFPG | 78,036 | −0.73 [−1.48, −0.46] | −0.94 [−2.00, −0.49] |
+| LIRF | 49,924 | −1.30 [−1.65, −0.99] | −0.82 [−1.68, −0.07] |
+| LSZH | 43,009 | −1.01 [−1.28, −0.75] | −0.87 [−1.46, −0.21] |
+| LTFM | 91,338 | −1.75 [−2.01, −1.51] | −2.49 [−2.86, −2.09] |
+
+**Lanes:** matched rows C1 −1.363 s, C2 −1.664 s; unmatched rows 0 (a2o in every arm).
+
+**Per seed** (each seed alone, not part of the decision): seed 1 — C1 −0.78, C2 −0.97 (blend 268.953);
+seed 2 — C1 −1.26, C2 −1.19 (blend 268.731). Seed 2's C1 is larger mainly through jul, where its noctx twin stopped
+at epoch 4 (jul noctx alone 311.78 vs 306.33 for seed 1). Averaging the two seeds improves NN_ctx alone from
+278.6 (either seed) to 275.9.
+
+### Reading
+
+Context information helps on all three folds, at all 10 airports and in both seeds: the ctx network is 5.6 s
+better than its no-context twin on matched rows (214.43 vs 220.01), and in a 25 % blend with a2o that is −1.03 s
+pooled (−1.29 s without the worst 200 rows). Against a2o alone the blend gains −1.26 s; about −0.23 s of that is
+what the no-context NN already adds as a blend member (269.92 → 269.69), the rest is context. The NN alone stays
+~6 s worse than a2o pooled. These are offline 2025 numbers on the same OOF rows the team used for earlier
+adoptions; C3 (against the full blend5) is the step that would say whether the gain survives next to the other
+members, and it was not run.

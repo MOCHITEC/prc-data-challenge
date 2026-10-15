@@ -1,0 +1,31 @@
+2026-10-15T10:33:56Z start jan_s1_ctx
+DONE s8_jan_s1_ctx rc=0 killed=0 wall_s=3334 peak=2775
+2026-10-15T11:29:33Z done jan_s1_ctx "best_epoch": 6 end 2026-10-15T11:29:30Z rc=0 killed=0 wall_s=3334 peak_total_rss_MB=2775
+2026-10-15T11:29:33Z start jan_s1_noctx
+DONE s8_jan_s1_noctx rc=0 killed=0 wall_s=280 peak=1943
+2026-10-15T11:34:16Z done jan_s1_noctx "best_epoch": 6 end 2026-10-15T11:34:13Z rc=0 killed=0 wall_s=280 peak_total_rss_MB=1943
+2026-10-15T11:34:16Z start jul_s1_ctx
+DONE s8_jul_s1_ctx rc=0 killed=0 wall_s=2543 peak=2754
+2026-10-15T12:16:41Z done jul_s1_ctx "best_epoch": 4 end 2026-10-15T12:16:39Z rc=0 killed=0 wall_s=2543 peak_total_rss_MB=2754
+2026-10-15T12:16:41Z start jul_s1_noctx
+DONE s8_jul_s1_noctx rc=0 killed=0 wall_s=321 peak=1949
+2026-10-15T12:22:05Z done jul_s1_noctx "best_epoch": 7 end 2026-10-15T12:22:02Z rc=0 killed=0 wall_s=321 peak_total_rss_MB=1949
+2026-10-15T12:22:05Z start jan_s2_ctx
+DONE s8_jan_s2_ctx rc=0 killed=0 wall_s=5195 peak=2834
+2026-10-15T13:48:44Z done jan_s2_ctx "best_epoch": 10 end 2026-10-15T13:48:40Z rc=0 killed=0 wall_s=5195 peak_total_rss_MB=2834
+2026-10-15T13:48:44Z start jan_s2_noctx
+DONE s8_jan_s2_noctx rc=0 killed=0 wall_s=330 peak=1933
+2026-10-15T13:54:18Z done jan_s2_noctx "best_epoch": 7 end 2026-10-15T13:54:14Z rc=0 killed=0 wall_s=330 peak_total_rss_MB=1933
+2026-10-15T13:54:18Z start jul_s2_ctx
+DONE s8_jul_s2_ctx rc=0 killed=0 wall_s=4265 peak=2796
+2026-10-15T15:05:26Z done jul_s2_ctx "best_epoch": 8 end 2026-10-15T15:05:23Z rc=0 killed=0 wall_s=4265 peak_total_rss_MB=2796
+2026-10-15T15:05:26Z start jul_s2_noctx
+DONE s8_jul_s2_noctx rc=0 killed=0 wall_s=150 peak=1928
+2026-10-15T15:08:01Z done jul_s2_noctx "best_epoch": 2 end 2026-10-15T15:07:56Z rc=0 killed=0 wall_s=150 peak_total_rss_MB=1928
+2026-10-15T15:08:01Z start forward_s2_ctx
+DONE s8_forward_s2_ctx rc=0 killed=0 wall_s=3494 peak=2850
+2026-10-15T16:06:18Z done forward_s2_ctx "best_epoch": 7 end 2026-10-15T16:06:15Z rc=0 killed=0 wall_s=3494 peak_total_rss_MB=2850
+2026-10-15T16:06:18Z start forward_s2_noctx
+DONE s8_forward_s2_noctx rc=0 killed=0 wall_s=321 peak=1934
+2026-10-15T16:11:42Z done forward_s2_noctx "best_epoch": 8 end 2026-10-15T16:11:39Z rc=0 killed=0 wall_s=321 peak_total_rss_MB=1934
+2026-10-15T16:11:42Z ALL DONE

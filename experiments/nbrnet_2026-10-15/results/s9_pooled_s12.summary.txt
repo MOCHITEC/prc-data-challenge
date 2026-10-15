@@ -1,0 +1,49 @@
+{
+ "n": 672428,
+ "rmse": {
+  "a2o": 269.91898204029764,
+  "nn_ctx_alone": 275.9173151799147,
+  "nn_noctx_alone": 280.2195982114181,
+  "blend_a2o75_ctx25": 268.6636314907293,
+  "blend_a2o75_noctx25": 269.6913814589974
+ },
+ "C1": [
+  true,
+  "adopt (-1.03 s, still -1.29 s at 200 rows dropped)",
+  [
+   -1.2129143350544027,
+   -0.8765775662752632
+  ]
+ ],
+ "C2": [
+  true,
+  "adopt (-1.26 s, still -1.56 s at 200 rows dropped)",
+  [
+   -1.5269271098284043,
+   -0.9989515541642546
+  ]
+ ],
+ "futility_stop": false,
+ "C1_strict": [
+  true,
+  "adopt (every fold, most airports and the airport-day CI agree, with and without the tail)"
+ ],
+ "C1_month_bootstrap": [
+  -1.0277499682680968,
+  [
+   -1.351491143753094,
+   -0.7749747548701293
+  ]
+ ],
+ "C2_strict": [
+  true,
+  "adopt (every fold, most airports and the airport-day CI agree, with and without the tail)"
+ ],
+ "C2_month_bootstrap": [
+  -1.255350549568334,
+  [
+   -1.6930606082942177,
+   -1.0228603847767772
+  ]
+ ]
+}
