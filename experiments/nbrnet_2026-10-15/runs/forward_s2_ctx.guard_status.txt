@@ -1,0 +1,3 @@
+gate 2026-10-15T15:08:01Z
+start 2026-10-15T15:08:01Z args: experiments/nbrnet_2026-10-15/nbrnet/nbr_train.py --fold forward --seed 2 --mode ctx
+end 2026-10-15T16:06:15Z rc=0 killed=0 wall_s=3494 peak_total_rss_MB=2850
