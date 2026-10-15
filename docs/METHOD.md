@@ -125,13 +125,13 @@ The rule C7r ("one-day" class) is not applied; it was dropped after v41 (`docs/D
   `docs/batch_2026-10-06/README.md`, `handoff/2026-10-08/ON_C15.md` and
   `docs/final_2026-10-11/adsb_layer_README.md` §1.
 - The step that combined v48's Jan/Jul rows with the Feb/Jun chain rows into one file was not committed as a script
-  (`README.md` §3, item 6, as of `3a51133`). `scripts/final/assemble_final_v48.py` reconstructs it from the committed
-  post-layer files and is checked row for row against the committed files (its docstring;
+  when the files were made (`docs/FINAL_SUBMISSION.md` §6). `scripts/final/assemble_final_v48.py` reconstructs it
+  from the committed post-layer files and is checked row for row against the committed files (its docstring;
   `docs/FINAL_SUBMISSION.md` §5.2).
 
 ## 9. Evidence per stage (offline measurements)
 
-This table was README §10 until 2026-10-15; the README now shows it without the "change measured" column.
+This table was README §10 until 2026-10-15; README §8 now shows a selection of its rows.
 Only numbers that are in committed documents appear here; each row names its source. The ΔRMSE values are in
 seconds, and negative means better. The CIs are the 95 % bootstrap intervals that each source states. These are
 2025 offline measurements: each row compares one change against the base of its day, so the rows **do not add up**.

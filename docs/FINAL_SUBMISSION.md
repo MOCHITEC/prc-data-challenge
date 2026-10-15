@@ -30,7 +30,7 @@ The file's identity is **defined by this table**. Copies of it:
 | upload | `prc-2026-resilient-hedgehog/resilient-hedgehog_final.parquet`, by `prc.submit --final`. The bucket object reads 2,151,179 bytes, `last_modified` **2026-10-14 10:30:29Z**, etag `c0d4a143…`. The read-back md5 matched (`"verified": true`). The ledger lines are the two `"kind": "final"` lines at the end of `experiments/submissions.jsonl`, committed in `8189b58` |
 | replaced | the object of 2026-10-09 16:02:32Z: 4,079,671 bytes, etag `7f95f323…`, uploader unknown. Its scoring had failed (`"status": "Failed"`, a file missing on the organisers' side; runbook header) |
 | scorer | The organisers' scorer wrote `resilient-hedgehog_final.parquet_result.json` in the team bucket at 2026-10-14 10:30:38Z (271 bytes, etag `b6bcf7fd80d0bf27c1b02f28d2c786a0`). It says `"status": "Succeeded"`, `"used_pairs": 670790`, test set `prc-2026-datasets/final_submitting.parquet`. A byte copy is committed as `docs/final_phase_2026-10-11/final_result_2026-10-14.json`. **It contains no score.** |
-| deadline | The organisers' pages state the deadline as "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" and as "2026-10-14T10:00Z"; 12:00+02:00 is 10:00Z. **The upload was at 10:30:29Z**, 30 min 29 s after 10:00Z. This page does not say whether the organisers will accept it. |
+| deadline | The organisers' pages state the deadline as "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" ([eligibility page](https://prc-data-challenge-2026.netlify.app/eligibility.html)) and as "2026-10-14T10:00Z"; 12:00+02:00 is 10:00Z. **The upload was at 10:30:29Z**, 30 min 29 s after 10:00Z. At 10:00Z the bucket held only the 2026-10-09 object as `resilient-hedgehog_final.parquet`, which the scorer had marked Failed (row "replaced"). The organisers stated on the challenge Discord on 2026-10-14 that only commits before the deadline and the latest `_final.parquet` before the deadline will be considered (no copy of that message is in this repository). The last commit before 10:00Z is `aedbc1f` (2026-10-14T08:55:19Z); this file is in its history (`ea0e0a8`) but not in its tree (deleted in `9849a14`, restored in `0d43558` at 10:31:38Z). Acceptance is the organisers' decision. |
 
 If the ledger or the bucket ever shows a different md5, trust them: this page is then out of date.
 
@@ -143,6 +143,11 @@ step 5; the final file then adds the increment of §2.5.
 - The A12 layer changes little on this day. A later audit found that the A12 store holds only 78 appear rows for
   2026-06-11, so the layer is "effectively 0" there (`handoff/2026-10-13/README.md`, section dated 2026-10-13 20:15
   UTC, item 1).
+- **75, 78 and 78.** The 78 appear rows of 2026-06-11 are all EDDM departures. They are exactly the 78 EDDM rows on
+  which the A12 chain differs from the own chain (§2.4), and the increment table's 75 rows of that day (§2.5) are
+  among them; the other 3 have a zero increment, and the table holds only non-zero deltas (§5.3). This was checked on
+  2026-10-15 by joining `handoff/2026-10-11/adsb/learn/appear_fill_2026fj.parquet`, the two chain files and the
+  increment table on `MVT_ID_mvt`, with the day from `final_ranking.parquet`.
 - On those 6,099 rows the final file differs from the rounded pre-ADS-B blend on 605 rows. That count includes the
   overlays (§2.4).
 
@@ -430,7 +435,9 @@ Notes on the parts:
 ## 6. Honest limits
 
 - **The upload came after the stated deadline.** The organisers' pages state 2026-10-14T10:00Z (12:00+02:00); the
-  bucket object's `last_modified` is 10:30:29Z (§1). Whether the file is accepted is for the organisers to decide.
+  bucket object's `last_modified` is 10:30:29Z. What the bucket and the repository held at 10:00Z, and the organisers'
+  statement on what will be considered, are in §1 (row "deadline"). Whether the file is accepted is for the
+  organisers to decide.
 - **January/July cannot be regenerated exactly.** They are copied from v48 (§2.1).
   - v48 is the end of a chain of delta files, v33 → v48, each applied to the previous submission file. The bases
     were recovered from those files by a fixed point (`docs/final_2026-10-11/adsb_layer_README.md` §1).
@@ -450,6 +457,10 @@ Notes on the parts:
 - **The exact reproduction starts from post-layer files.** `scripts/final/assemble_final_v48.py` reproduces the file
   byte for byte (§5.2), but it consumes v48, the two chain files and the increment table as committed.
   - Both chain files were committed after `25f6246`: the A12 chain in `e301db5`, the own chain in `68e7693`.
+  - The step that combined v48's Jan/Jul rows with the chain rows into one file was not committed as a script when
+    the files were made. The first such file, `cand_v4a_v48JanJul_oursFeb_A12Jun.parquet`, was committed in `0220c69`
+    with a note only (renamed in `558c736`). `scripts/final/assemble_final_v48.py` was added on 2026-10-14 (`3a51133`; the
+    `--febjun-appear` step in `5f90818`) and rebuilds the step from the committed files.
   - All committed versions rebuild from them byte for byte: `c0d4a143…`, `be8d89dc…`, `c7ffa31e…`, `6f2cd1af…`.
   - The steps inside the chain files (blend → ADS-B layer → overlays → LOBT clip) can be rerun only with the
     organisers' 2025 training files and a rebuilt feature cache (§5.3).

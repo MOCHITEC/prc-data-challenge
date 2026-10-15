@@ -98,8 +98,8 @@ State at the time of writing:
    - `.gitignore` line 15 ("competition data (redistribution not allowed until public release)") and
      `docs/research_2026-10-05_aobt/BRIEF.md` line 12 are the team's own notes. They cite no organiser source.
    - Many other hand-off files are only `MVT_ID_mvt` + prediction or delta.
-   - README §7 now carries a "Data notice" saying this and asking the organisers to contact the team if removal is
-     required.
+   - README §7 now carries a "Data notice" with these counts, asking the organisers to open an issue on the
+     repository if removal is required.
 3. **ODbL notice for derived ADS-B / OSM data.** README §7 and `docs/external_data.md` state that the committed
    adsb.lol- and OSM-derived files are made available under ODbL 1.0. Confirm this is intended. ODbL requires it if a
    derived database is published.

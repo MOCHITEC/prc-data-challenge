@@ -1,0 +1,914 @@
+[
+ {
+  "name": "resilient-hedgehog_final.parquet",
+  "size": 2151179,
+  "last_modified": "2026-10-14T10:30:29.006000+00:00",
+  "etag": "c0d4a1439862e68852b65f6854322a29"
+ },
+ {
+  "name": "resilient-hedgehog_final.parquet_result.json",
+  "size": 271,
+  "last_modified": "2026-10-14T10:30:38.186000+00:00",
+  "etag": "b6bcf7fd80d0bf27c1b02f28d2c786a0"
+ },
+ {
+  "name": "resilient-hedgehog_v1.parquet",
+  "size": 2222169,
+  "last_modified": "2026-09-10T17:33:12.118000+00:00",
+  "etag": "db81d5dca935f8f75760dc67efdd5094"
+ },
+ {
+  "name": "resilient-hedgehog_v1.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-10T17:33:49.100000+00:00",
+  "etag": "fd50ecdc26a994a061fbef18acf935ce"
+ },
+ {
+  "name": "resilient-hedgehog_v1.parquet_result.json",
+  "size": 282,
+  "last_modified": "2026-09-10T17:33:32.576000+00:00",
+  "etag": "18653cca45bb39e50f47ede80ba88de5"
+ },
+ {
+  "name": "resilient-hedgehog_v10.parquet",
+  "size": 1098220,
+  "last_modified": "2026-09-17T06:16:31.698000+00:00",
+  "etag": "4c9beb8a4ea6bd3e55e20c7880e9561d"
+ },
+ {
+  "name": "resilient-hedgehog_v10.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-17T06:17:08.041000+00:00",
+  "etag": "3f7e4a33fa8effbc1966633ccbc9aa66"
+ },
+ {
+  "name": "resilient-hedgehog_v10.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-17T06:16:50.778000+00:00",
+  "etag": "89a217882f8f7c6acc07ca474f07d006"
+ },
+ {
+  "name": "resilient-hedgehog_v11.parquet",
+  "size": 1097010,
+  "last_modified": "2026-09-19T01:54:13.817000+00:00",
+  "etag": "f2191842063d78dda4b002eaa8a41196"
+ },
+ {
+  "name": "resilient-hedgehog_v11.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-19T01:54:50.586000+00:00",
+  "etag": "e7cea9f42aa3f520923e80d9db6913b7"
+ },
+ {
+  "name": "resilient-hedgehog_v11.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-19T01:54:33.340000+00:00",
+  "etag": "8d39a9b3771a55d430428895d686377a"
+ },
+ {
+  "name": "resilient-hedgehog_v12.parquet",
+  "size": 2211179,
+  "last_modified": "2026-09-22T11:36:11.677000+00:00",
+  "etag": "93f5c42451e2cb44860ce26f21b8e772"
+ },
+ {
+  "name": "resilient-hedgehog_v12.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-22T11:36:46.608000+00:00",
+  "etag": "f805bbeb0cd0debc0dffdfe5b47bacb3"
+ },
+ {
+  "name": "resilient-hedgehog_v12.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-22T11:36:34.193000+00:00",
+  "etag": "31c825bed36b2b7a3bd5b23609f24104"
+ },
+ {
+  "name": "resilient-hedgehog_v13.parquet",
+  "size": 2216814,
+  "last_modified": "2026-09-23T06:15:05.640000+00:00",
+  "etag": "800dcb8563351d2851ef2e971677022d"
+ },
+ {
+  "name": "resilient-hedgehog_v13.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-23T06:15:42.356000+00:00",
+  "etag": "185c446ccabd3529bbc866483f5a98a3"
+ },
+ {
+  "name": "resilient-hedgehog_v13.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-23T06:15:26.012000+00:00",
+  "etag": "9b929808f3ecbf644a70c6a5a8f6b4b2"
+ },
+ {
+  "name": "resilient-hedgehog_v14.parquet",
+  "size": 2221982,
+  "last_modified": "2026-09-24T05:36:29.781000+00:00",
+  "etag": "a2fc443977927036a7bb355222cb4f1b"
+ },
+ {
+  "name": "resilient-hedgehog_v14.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-24T05:37:05.807000+00:00",
+  "etag": "6c796dffb7b1bedf0287972d4e4b50ad"
+ },
+ {
+  "name": "resilient-hedgehog_v14.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-24T05:36:48.758000+00:00",
+  "etag": "2b90afa7e523b8f2149db840b52f5038"
+ },
+ {
+  "name": "resilient-hedgehog_v15.parquet",
+  "size": 2221951,
+  "last_modified": "2026-09-28T04:27:29.211000+00:00",
+  "etag": "568a6b14e9d379798f088a7d4dcc59f5"
+ },
+ {
+  "name": "resilient-hedgehog_v15.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-28T04:28:05.446000+00:00",
+  "etag": "5ef92a8fa8aea45fa1d2368511f604d5"
+ },
+ {
+  "name": "resilient-hedgehog_v15.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-28T04:27:47.975000+00:00",
+  "etag": "45617f464de03de78a377721ef8251fc"
+ },
+ {
+  "name": "resilient-hedgehog_v16.parquet",
+  "size": 2221978,
+  "last_modified": "2026-09-28T18:47:37.550000+00:00",
+  "etag": "b2f65b813d9caf1fe0e75eb16c4959e0"
+ },
+ {
+  "name": "resilient-hedgehog_v16.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-28T18:48:13.551000+00:00",
+  "etag": "5389a905d13bf72d815af8dc74cda0fd"
+ },
+ {
+  "name": "resilient-hedgehog_v16.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-28T18:47:56.193000+00:00",
+  "etag": "24984faf3b153830862664265db5269a"
+ },
+ {
+  "name": "resilient-hedgehog_v17.parquet",
+  "size": 1096086,
+  "last_modified": "2026-09-29T10:43:31.503000+00:00",
+  "etag": "f55b8876dcd605af91caecaadab1ba55"
+ },
+ {
+  "name": "resilient-hedgehog_v17.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-29T10:44:06.889000+00:00",
+  "etag": "911e1f0aeab2a3970ae604b43930f9d8"
+ },
+ {
+  "name": "resilient-hedgehog_v17.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-29T10:43:50.729000+00:00",
+  "etag": "44568f3f9581107d94d1f945029eb770"
+ },
+ {
+  "name": "resilient-hedgehog_v18.parquet",
+  "size": 1096452,
+  "last_modified": "2026-09-29T23:08:58.030000+00:00",
+  "etag": "c0e54f4e9bd2712f4c4d047d81ae7876"
+ },
+ {
+  "name": "resilient-hedgehog_v18.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-29T23:09:35.207000+00:00",
+  "etag": "00eb46b8ef49e02c49397538a91f9842"
+ },
+ {
+  "name": "resilient-hedgehog_v18.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-29T23:09:16.968000+00:00",
+  "etag": "d58d191e3e51a8d936d38ce0995975ca"
+ },
+ {
+  "name": "resilient-hedgehog_v19.parquet",
+  "size": 1096736,
+  "last_modified": "2026-09-30T02:43:48.499000+00:00",
+  "etag": "d8b51f4beeb4d54a24e15ec42ee001ef"
+ },
+ {
+  "name": "resilient-hedgehog_v19.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-30T02:44:35.480000+00:00",
+  "etag": "662365f9a78422abb249ca5759f3710e"
+ },
+ {
+  "name": "resilient-hedgehog_v19.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-30T02:44:17.343000+00:00",
+  "etag": "8806dbf6bd16c3de85b3b196f01b61e2"
+ },
+ {
+  "name": "resilient-hedgehog_v2.parquet",
+  "size": 2222154,
+  "last_modified": "2026-09-10T19:25:15.334000+00:00",
+  "etag": "d35cbc2df040242f93d92785389ee8f9"
+ },
+ {
+  "name": "resilient-hedgehog_v2.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-10T19:25:40.923000+00:00",
+  "etag": "05212f89ef61770ae548d3fdc1859b1b"
+ },
+ {
+  "name": "resilient-hedgehog_v2.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-10T19:25:33.769000+00:00",
+  "etag": "525f702dc44c527fdea2c2383fd03aae"
+ },
+ {
+  "name": "resilient-hedgehog_v20.parquet",
+  "size": 1096587,
+  "last_modified": "2026-09-30T04:15:37.860000+00:00",
+  "etag": "536d3b05708db2476461b8adb1fad701"
+ },
+ {
+  "name": "resilient-hedgehog_v20.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-30T04:16:12.727000+00:00",
+  "etag": "d1160648021ad11814300ea7aa84e8dc"
+ },
+ {
+  "name": "resilient-hedgehog_v20.parquet_result.json",
+  "size": 282,
+  "last_modified": "2026-09-30T04:15:56.419000+00:00",
+  "etag": "ef9a852c3492855e5a9bd767dc092332"
+ },
+ {
+  "name": "resilient-hedgehog_v21.parquet",
+  "size": 1097061,
+  "last_modified": "2026-09-30T10:33:45.070000+00:00",
+  "etag": "49ae9e422cc935801fc357e7bb2aae62"
+ },
+ {
+  "name": "resilient-hedgehog_v21.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-30T10:34:20.593000+00:00",
+  "etag": "fcf5301dc460564d623e0e0f8476e0ef"
+ },
+ {
+  "name": "resilient-hedgehog_v21.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-30T10:34:03.474000+00:00",
+  "etag": "9bc7beb5d2ef5828c5823253a0d7da86"
+ },
+ {
+  "name": "resilient-hedgehog_v22.parquet",
+  "size": 1096731,
+  "last_modified": "2026-09-30T12:08:59.075000+00:00",
+  "etag": "73c5163c0d3ac3e4fe04bcb43a3365e1"
+ },
+ {
+  "name": "resilient-hedgehog_v22.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-30T12:09:34.844000+00:00",
+  "etag": "20434c361c0d20ba3c903b47caaae41d"
+ },
+ {
+  "name": "resilient-hedgehog_v22.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-30T12:09:18.191000+00:00",
+  "etag": "12e5e1fc16cbacae9d707190bffa220d"
+ },
+ {
+  "name": "resilient-hedgehog_v23.parquet",
+  "size": 1097182,
+  "last_modified": "2026-09-30T22:05:08.546000+00:00",
+  "etag": "ec7411a9eda221b2665355b89cc0c011"
+ },
+ {
+  "name": "resilient-hedgehog_v23.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-09-30T22:05:46.532000+00:00",
+  "etag": "55ca8f12604d9327a1f0bc1870ffa14d"
+ },
+ {
+  "name": "resilient-hedgehog_v23.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-09-30T22:05:28.274000+00:00",
+  "etag": "00ae8af59d6bda5a83db5dff2e1d883a"
+ },
+ {
+  "name": "resilient-hedgehog_v25.parquet",
+  "size": 2221930,
+  "last_modified": "2026-10-01T00:08:36.222000+00:00",
+  "etag": "720f1e5c6450a7edf2b6b66c99f70025"
+ },
+ {
+  "name": "resilient-hedgehog_v25.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-01T00:09:02.415000+00:00",
+  "etag": "0d24851d4841e4e852323997f504a88f"
+ },
+ {
+  "name": "resilient-hedgehog_v25.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-01T00:08:54.153000+00:00",
+  "etag": "b8a416ee1360fa8d69ed681c6ca69812"
+ },
+ {
+  "name": "resilient-hedgehog_v26.parquet",
+  "size": 2221930,
+  "last_modified": "2026-10-01T04:44:19.440000+00:00",
+  "etag": "59509af705249c62d3181b3534d9ca67"
+ },
+ {
+  "name": "resilient-hedgehog_v26.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-01T04:44:56.458000+00:00",
+  "etag": "3635ee1e94d64b30f76bdad17e93ce30"
+ },
+ {
+  "name": "resilient-hedgehog_v26.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-01T04:44:40.040000+00:00",
+  "etag": "4b3dae1ccb41cb2eb1a7df00d1da38d7"
+ },
+ {
+  "name": "resilient-hedgehog_v27.parquet",
+  "size": 2221882,
+  "last_modified": "2026-10-01T08:08:50.039000+00:00",
+  "etag": "19f536d957a393715e8e449841d0ee7e"
+ },
+ {
+  "name": "resilient-hedgehog_v27.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-01T08:09:25.852000+00:00",
+  "etag": "a903f3808ecbfd4c14c4206a7b7a701e"
+ },
+ {
+  "name": "resilient-hedgehog_v27.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-01T08:09:08.346000+00:00",
+  "etag": "70dd11c83bad339d4b320be9ae492b97"
+ },
+ {
+  "name": "resilient-hedgehog_v28.parquet",
+  "size": 1096955,
+  "last_modified": "2026-10-02T00:00:07.345000+00:00",
+  "etag": "344386ad3a3641907f8a496446270733"
+ },
+ {
+  "name": "resilient-hedgehog_v28.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-02T00:00:43.579000+00:00",
+  "etag": "0e79bc119a1f0e74dcaf375b76ec44f3"
+ },
+ {
+  "name": "resilient-hedgehog_v28.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-02T00:00:26.377000+00:00",
+  "etag": "c55a8d0c17b78feee5b1be7a977c0891"
+ },
+ {
+  "name": "resilient-hedgehog_v29.parquet",
+  "size": 1097058,
+  "last_modified": "2026-10-02T00:15:39.464000+00:00",
+  "etag": "3e5a951ad91bbc328baa31358f77386f"
+ },
+ {
+  "name": "resilient-hedgehog_v29.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-02T00:16:14.583000+00:00",
+  "etag": "80ac5a4af0d81e96aaaed2f7dfb21480"
+ },
+ {
+  "name": "resilient-hedgehog_v29.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-02T00:15:57.351000+00:00",
+  "etag": "4f92ec2225c14bd0105eedea5b83e0af"
+ },
+ {
+  "name": "resilient-hedgehog_v3.parquet",
+  "size": 2222102,
+  "last_modified": "2026-09-10T22:21:17.695000+00:00",
+  "etag": "19a22d79c76c5805a26e1004fcfe4a61"
+ },
+ {
+  "name": "resilient-hedgehog_v3.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-10T22:21:54.451000+00:00",
+  "etag": "4ac4c25a56e82898234a1faa1cf3a1da"
+ },
+ {
+  "name": "resilient-hedgehog_v3.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-10T22:21:37.190000+00:00",
+  "etag": "3c26d78db20ac13e3f0d470016ef84f9"
+ },
+ {
+  "name": "resilient-hedgehog_v30.parquet",
+  "size": 2222009,
+  "last_modified": "2026-10-02T00:25:25.595000+00:00",
+  "etag": "cba362a4d444ffd6ebdef77054ca9e9a"
+ },
+ {
+  "name": "resilient-hedgehog_v30.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-02T00:26:02.154000+00:00",
+  "etag": "d0366fec7460eca964a2d5633cc7d34d"
+ },
+ {
+  "name": "resilient-hedgehog_v30.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-02T00:25:45+00:00",
+  "etag": "5dda1734ea2a3fe009e55c7641a00c41"
+ },
+ {
+  "name": "resilient-hedgehog_v31.parquet",
+  "size": 2222002,
+  "last_modified": "2026-10-02T00:26:56.670000+00:00",
+  "etag": "19a499f427284359a53c1f92c28a1eed"
+ },
+ {
+  "name": "resilient-hedgehog_v31.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-02T00:27:33.525000+00:00",
+  "etag": "5cdcd62eb3cbbcc1c79272732ac48543"
+ },
+ {
+  "name": "resilient-hedgehog_v31.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-02T00:27:15.869000+00:00",
+  "etag": "88343c1bc25fe7d452a73135af37810d"
+ },
+ {
+  "name": "resilient-hedgehog_v32.parquet",
+  "size": 1097148,
+  "last_modified": "2026-10-02T03:04:54.080000+00:00",
+  "etag": "16d6dfed1660930c4ddbb4d7260a696a"
+ },
+ {
+  "name": "resilient-hedgehog_v32.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-02T03:05:40.409000+00:00",
+  "etag": "06f487d2daac4371dd7cdbde37340867"
+ },
+ {
+  "name": "resilient-hedgehog_v32.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-02T03:05:23.045000+00:00",
+  "etag": "f4ddb9169d8d254c38ad1113e78075a0"
+ },
+ {
+  "name": "resilient-hedgehog_v33.parquet",
+  "size": 1096774,
+  "last_modified": "2026-10-03T01:34:11.883000+00:00",
+  "etag": "cde88efb0fc9caa3e5062bc475e8861b"
+ },
+ {
+  "name": "resilient-hedgehog_v33.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-03T01:34:48.198000+00:00",
+  "etag": "ba5894c8c3ea95b4eb6665d1d55e74c7"
+ },
+ {
+  "name": "resilient-hedgehog_v33.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-03T01:34:34.722000+00:00",
+  "etag": "6601a06e79ae7b19b59fe6f3b10cf98d"
+ },
+ {
+  "name": "resilient-hedgehog_v34.parquet",
+  "size": 1096931,
+  "last_modified": "2026-10-05T02:19:43.908000+00:00",
+  "etag": "2eda276949877124bf0f8f08bcc76632"
+ },
+ {
+  "name": "resilient-hedgehog_v34.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-05T02:20:32.253000+00:00",
+  "etag": "295c2584ea85e266b909c7f235c5db25"
+ },
+ {
+  "name": "resilient-hedgehog_v34.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-05T02:20:12.429000+00:00",
+  "etag": "2a6d89d106f9f328adbfdf31880cadfc"
+ },
+ {
+  "name": "resilient-hedgehog_v35.parquet",
+  "size": 1097264,
+  "last_modified": "2026-10-05T04:55:52.445000+00:00",
+  "etag": "91b662b4a7583d17a9981708bb9e3ca3"
+ },
+ {
+  "name": "resilient-hedgehog_v35.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-05T04:56:28.361000+00:00",
+  "etag": "87a6883ab80586c1abcd83e0e1fba9f9"
+ },
+ {
+  "name": "resilient-hedgehog_v35.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-10-05T04:56:11.406000+00:00",
+  "etag": "8ead6a9bb28a1b00445b41f1baace677"
+ },
+ {
+  "name": "resilient-hedgehog_v36.parquet",
+  "size": 1097236,
+  "last_modified": "2026-10-05T06:43:18.529000+00:00",
+  "etag": "2bd1a4624201b48230e1363562a542eb"
+ },
+ {
+  "name": "resilient-hedgehog_v36.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-05T06:43:54.377000+00:00",
+  "etag": "ff4c05e252934b945054233e25e590ed"
+ },
+ {
+  "name": "resilient-hedgehog_v36.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-05T06:43:37.287000+00:00",
+  "etag": "4fe87060b55d38fbf8e86302ce66d9fd"
+ },
+ {
+  "name": "resilient-hedgehog_v37.parquet",
+  "size": 1096931,
+  "last_modified": "2026-10-05T06:45:24.485000+00:00",
+  "etag": "a011c937877d4d2eb4839aa4e613c46f"
+ },
+ {
+  "name": "resilient-hedgehog_v37.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-05T06:46:10.985000+00:00",
+  "etag": "518b7cd8580a6687f633d270b5daa20b"
+ },
+ {
+  "name": "resilient-hedgehog_v37.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-05T06:45:53.244000+00:00",
+  "etag": "cc58836580ebc026151abd32a63247f4"
+ },
+ {
+  "name": "resilient-hedgehog_v38.parquet",
+  "size": 1097035,
+  "last_modified": "2026-10-05T10:34:50.426000+00:00",
+  "etag": "87fc1b72e51117d3d3c3914c48d1320b"
+ },
+ {
+  "name": "resilient-hedgehog_v38.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-05T10:35:26.402000+00:00",
+  "etag": "71452dcb4086e6fcf4c210ed598b0e00"
+ },
+ {
+  "name": "resilient-hedgehog_v38.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-05T10:35:09.353000+00:00",
+  "etag": "3124935e445d4212aa76a58c4f4410b7"
+ },
+ {
+  "name": "resilient-hedgehog_v39.parquet",
+  "size": 1097234,
+  "last_modified": "2026-10-06T00:46:09.575000+00:00",
+  "etag": "6535a5a8801c9331d2e369d14c04f5d6"
+ },
+ {
+  "name": "resilient-hedgehog_v39.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-06T00:46:46.285000+00:00",
+  "etag": "7080a9f2224f9317df1694169f045e3e"
+ },
+ {
+  "name": "resilient-hedgehog_v39.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-06T00:46:28.297000+00:00",
+  "etag": "8d910373524c3308dd42ab1317998e0e"
+ },
+ {
+  "name": "resilient-hedgehog_v4.parquet",
+  "size": 2222186,
+  "last_modified": "2026-09-11T00:42:24.696000+00:00",
+  "etag": "93c7a9808bfd28f404e466c3c92e4f4a"
+ },
+ {
+  "name": "resilient-hedgehog_v4.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-11T00:43:00.725000+00:00",
+  "etag": "f0434de3c5c63f382d4f1069a72f589d"
+ },
+ {
+  "name": "resilient-hedgehog_v4.parquet_result.json",
+  "size": 282,
+  "last_modified": "2026-09-11T00:42:43.535000+00:00",
+  "etag": "87caf7ae7fbd980f44f12af37e788aff"
+ },
+ {
+  "name": "resilient-hedgehog_v40.parquet",
+  "size": 1097471,
+  "last_modified": "2026-10-06T01:16:24.767000+00:00",
+  "etag": "a27b229c50e038ed7def6dc708d312b4"
+ },
+ {
+  "name": "resilient-hedgehog_v40.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-06T01:17:10.903000+00:00",
+  "etag": "2409f6d3e5afd5bfe4320a85f469f098"
+ },
+ {
+  "name": "resilient-hedgehog_v40.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-06T01:16:52.912000+00:00",
+  "etag": "374b458288642d71a9d26e75351c97bd"
+ },
+ {
+  "name": "resilient-hedgehog_v41.parquet",
+  "size": 1099432,
+  "last_modified": "2026-10-06T02:16:30.026000+00:00",
+  "etag": "cb6c0b917acd7633e37ceecd34b13374"
+ },
+ {
+  "name": "resilient-hedgehog_v41.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-06T02:17:06.828000+00:00",
+  "etag": "159445d92ea2a2ff5ff4c94b51fc54c5"
+ },
+ {
+  "name": "resilient-hedgehog_v41.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-06T02:16:48.896000+00:00",
+  "etag": "c09c0391f30ce1484ff643265f4b72f8"
+ },
+ {
+  "name": "resilient-hedgehog_v42.parquet",
+  "size": 1096693,
+  "last_modified": "2026-10-07T02:06:20.810000+00:00",
+  "etag": "8cab217757025b8633dad463b16f9bb8"
+ },
+ {
+  "name": "resilient-hedgehog_v42.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-07T02:06:57.050000+00:00",
+  "etag": "d09bf03cdaf12e0e3b8db20ec0ae91be"
+ },
+ {
+  "name": "resilient-hedgehog_v42.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-07T02:06:39.956000+00:00",
+  "etag": "292128e97eed1388f4273b4305d87435"
+ },
+ {
+  "name": "resilient-hedgehog_v43.parquet",
+  "size": 1097515,
+  "last_modified": "2026-10-07T03:29:20.249000+00:00",
+  "etag": "7b5460da9c2c3198b98d31401a52b6c7"
+ },
+ {
+  "name": "resilient-hedgehog_v43.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-07T03:29:56.088000+00:00",
+  "etag": "cac63f81d504860f37db25925349f22d"
+ },
+ {
+  "name": "resilient-hedgehog_v43.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-07T03:29:38.802000+00:00",
+  "etag": "2ffc2e2f76b7fa0d89efea71511ec1ce"
+ },
+ {
+  "name": "resilient-hedgehog_v44.parquet",
+  "size": 1097446,
+  "last_modified": "2026-10-07T03:29:22.607000+00:00",
+  "etag": "a367083004e94dc75c9670851bb8e62c"
+ },
+ {
+  "name": "resilient-hedgehog_v44.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-07T03:29:58.365000+00:00",
+  "etag": "888609ed15297c7e991fe33ff83466f0"
+ },
+ {
+  "name": "resilient-hedgehog_v44.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-10-07T03:29:40.974000+00:00",
+  "etag": "881c157361deeda70bb4573ebf2d1254"
+ },
+ {
+  "name": "resilient-hedgehog_v45.parquet",
+  "size": 1096864,
+  "last_modified": "2026-10-07T03:29:24.464000+00:00",
+  "etag": "8e5d3e49e6746635665faa2c3191a412"
+ },
+ {
+  "name": "resilient-hedgehog_v45.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-07T03:30:00.645000+00:00",
+  "etag": "b7f90dfa0347715b17fc987cc9f2008b"
+ },
+ {
+  "name": "resilient-hedgehog_v45.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-07T03:29:43.125000+00:00",
+  "etag": "9226ed508e1baa3def72b4749a7177cb"
+ },
+ {
+  "name": "resilient-hedgehog_v46.parquet",
+  "size": 1097745,
+  "last_modified": "2026-10-07T04:20:22.590000+00:00",
+  "etag": "06bf0aae660c680d7b8bfdafe9c60ed4"
+ },
+ {
+  "name": "resilient-hedgehog_v46.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-07T04:21:00.049000+00:00",
+  "etag": "6ebb6f17ebc6d8161e1a3c8fcf5a1530"
+ },
+ {
+  "name": "resilient-hedgehog_v46.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-07T04:20:41.399000+00:00",
+  "etag": "7737810d44046c8e4d30ebf35cc9e3c5"
+ },
+ {
+  "name": "resilient-hedgehog_v47.parquet",
+  "size": 1097485,
+  "last_modified": "2026-10-08T01:28:23.672000+00:00",
+  "etag": "efda7376eafa6efae178ceb92ff13007"
+ },
+ {
+  "name": "resilient-hedgehog_v47.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-08T01:28:59.812000+00:00",
+  "etag": "9d5b320fe6ffb0433a538befc4668bdc"
+ },
+ {
+  "name": "resilient-hedgehog_v47.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-08T01:28:49.349000+00:00",
+  "etag": "ad62e6aa6977cb57576b16251554744d"
+ },
+ {
+  "name": "resilient-hedgehog_v48.parquet",
+  "size": 1097820,
+  "last_modified": "2026-10-11T14:47:03.662000+00:00",
+  "etag": "8ee6679f43ead60db1a1aec7876caf09"
+ },
+ {
+  "name": "resilient-hedgehog_v48.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-11T14:47:39.789000+00:00",
+  "etag": "1f1179029828746d45d819fc290138bc"
+ },
+ {
+  "name": "resilient-hedgehog_v48.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-11T14:47:22.911000+00:00",
+  "etag": "661a75832e910bd04ebadc328303c38b"
+ },
+ {
+  "name": "resilient-hedgehog_v49.parquet",
+  "size": 1097228,
+  "last_modified": "2026-10-11T14:56:34.329000+00:00",
+  "etag": "99d1e4dc72e4d87235e7240787fd6000"
+ },
+ {
+  "name": "resilient-hedgehog_v49.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-11T14:57:11.925000+00:00",
+  "etag": "0d7b40d4f5d3e8e722e9bd8d4ad32999"
+ },
+ {
+  "name": "resilient-hedgehog_v49.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-11T14:56:56.227000+00:00",
+  "etag": "e189d22d4157d63ce177d3740d9c76e0"
+ },
+ {
+  "name": "resilient-hedgehog_v5.parquet",
+  "size": 2221930,
+  "last_modified": "2026-09-14T09:54:23.565000+00:00",
+  "etag": "bc30bc055b4e2d60d77457a64c0984cd"
+ },
+ {
+  "name": "resilient-hedgehog_v5.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-14T09:54:59.452000+00:00",
+  "etag": "3b350d182ef0475a9e3f07c77e046bb8"
+ },
+ {
+  "name": "resilient-hedgehog_v5.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-14T09:54:42.232000+00:00",
+  "etag": "a083ea9e78988a308668a596a74c380b"
+ },
+ {
+  "name": "resilient-hedgehog_v50.parquet",
+  "size": 1100803,
+  "last_modified": "2026-10-14T08:40:59.685000+00:00",
+  "etag": "55a91f49410b93c9d97a774d76afdab2"
+ },
+ {
+  "name": "resilient-hedgehog_v50.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-14T08:41:34.067000+00:00",
+  "etag": "32d4993272a9d7a45fa31cc819504cf6"
+ },
+ {
+  "name": "resilient-hedgehog_v50.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-14T08:41:16.947000+00:00",
+  "etag": "3db529e549430408f4c63224128389c0"
+ },
+ {
+  "name": "resilient-hedgehog_v51.parquet",
+  "size": 1097820,
+  "last_modified": "2026-10-14T08:54:11.520000+00:00",
+  "etag": "8ee6679f43ead60db1a1aec7876caf09"
+ },
+ {
+  "name": "resilient-hedgehog_v51.parquet_persist.json",
+  "size": 154,
+  "last_modified": "2026-10-14T08:54:46.637000+00:00",
+  "etag": "fccab4cb8de576056250ea97111eab4d"
+ },
+ {
+  "name": "resilient-hedgehog_v51.parquet_result.json",
+  "size": 284,
+  "last_modified": "2026-10-14T08:54:32.797000+00:00",
+  "etag": "f53fb3085449b40ba922c1173bd78e31"
+ },
+ {
+  "name": "resilient-hedgehog_v6.parquet",
+  "size": 2222206,
+  "last_modified": "2026-09-15T14:55:05.827000+00:00",
+  "etag": "7230cadc10d30634efe3d993f4f1380c"
+ },
+ {
+  "name": "resilient-hedgehog_v6.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-15T14:55:42.238000+00:00",
+  "etag": "25a82ba88836896cfa409f9db187ec90"
+ },
+ {
+  "name": "resilient-hedgehog_v6.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-15T14:55:24.773000+00:00",
+  "etag": "d40a99c360f5395966b6aa61d36ce228"
+ },
+ {
+  "name": "resilient-hedgehog_v7.parquet",
+  "size": 2222114,
+  "last_modified": "2026-09-15T15:53:53.570000+00:00",
+  "etag": "fd3b4081746987589b60ab70110063e7"
+ },
+ {
+  "name": "resilient-hedgehog_v7.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-15T15:54:29.577000+00:00",
+  "etag": "ab1f76c013ed1577528cf78720c419ef"
+ },
+ {
+  "name": "resilient-hedgehog_v7.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-15T15:54:12.028000+00:00",
+  "etag": "cae89709d3fd99cb3b755431f63ec91a"
+ },
+ {
+  "name": "resilient-hedgehog_v8.parquet",
+  "size": 2222236,
+  "last_modified": "2026-09-15T15:58:43.332000+00:00",
+  "etag": "0a3adb212bea4542902f5c602ca87326"
+ },
+ {
+  "name": "resilient-hedgehog_v8.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-15T15:59:19.404000+00:00",
+  "etag": "b178fd63d18559e87bef4b688414f321"
+ },
+ {
+  "name": "resilient-hedgehog_v8.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-15T15:59:01.943000+00:00",
+  "etag": "8d3786b09cf0c4cac0eda1b8b691d0fd"
+ },
+ {
+  "name": "resilient-hedgehog_v9.parquet",
+  "size": 1096068,
+  "last_modified": "2026-09-15T22:00:02.698000+00:00",
+  "etag": "3b18c9108f47c8e4c975741999e1ecc4"
+ },
+ {
+  "name": "resilient-hedgehog_v9.parquet_persist.json",
+  "size": 153,
+  "last_modified": "2026-09-15T22:00:41.406000+00:00",
+  "etag": "34e5153683747ba15fe4538156650108"
+ },
+ {
+  "name": "resilient-hedgehog_v9.parquet_result.json",
+  "size": 283,
+  "last_modified": "2026-09-15T22:00:21.707000+00:00",
+  "etag": "f61a9ad873b375a352ad8daacadcfc52"
+ }
+]

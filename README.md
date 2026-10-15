@@ -8,8 +8,9 @@ members (LightGBM, CatBoost, MLP) are blended; four of them predict the offset f
 other rows get a separate model. A LightGBM trained on adsb.lol ADS-B tracks then corrects the rows that adsb.lol
 covers, and rules derived from 2025 data handle label artefacts at LIRF and clip each prediction to a window around
 `MVT − LOBT`. The January/July rows of the final file are the team's best leaderboard submission (v48); the
-February/June rows come from a rebuild of that pipeline on the final data. The final file can be rebuilt byte for
-byte from committed files with one script (§4).
+February/June rows come from a rebuild of that pipeline on the final data. The final file can be re-assembled byte
+for byte by one script from committed intermediate files and the organisers' final-phase files (§4); earlier stages
+can only partly be rebuilt (§5).
 
 ## At a glance
 
@@ -17,10 +18,10 @@ byte from committed files with one script (§4).
 |---|---|
 | **Task** | predict `TAXITIME_SEC_mvt = MVT_TIME − BLOCK_TIME` (s) for departures at 10 airports; metric RMSE (§1) |
 | **Final file** | `handoff/2026-10-13/final_v5_plus_febjun_appear.parquet`, added in commit `ea0e0a8`; md5 **`c0d4a1439862e68852b65f6854322a29`**; 670,790 rows; 2,151,179 bytes ([`docs/FINAL_SUBMISSION.md`](docs/FINAL_SUBMISSION.md) §1) |
-| **Upload** | as `resilient-hedgehog_final.parquet`; bucket `last_modified` **2026-10-14T10:30:29Z**. The organisers' pages state the deadline as "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" and "2026-10-14T10:00Z"; the upload was 30 min 29 s after 10:00Z. Whether it is accepted is for the organisers (§3) |
+| **Upload** | as `resilient-hedgehog_final.parquet`; bucket `last_modified` **2026-10-14T10:30:29Z**, 30 min 29 s after the stated deadline of 10:00Z. The deadline wording, what the bucket held at 10:00Z and the organisers' statement on what will be considered: [§3, "The deadline and the late upload"](#the-deadline-and-the-late-upload). Acceptance is the organisers' decision |
 | **Scorer** | result file written 2026-10-14T10:30:38Z: `"status": "Succeeded"`, `"used_pairs": 670790`. It contains no score ([copy](docs/final_phase_2026-10-11/final_result_2026-10-14.json)) |
 | **Best public leaderboard score** | v48: RMSE **234.4099** on January + July 2026 (344,841 departures). The final file's January/July rows are v48's, unchanged. Board history: §8 and [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md) §1 |
-| **Leaderboard use** | besides model updates, the uploads include diagnostic probes, A/B checks and few-row rules; each upload is classed in [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md) (§9) |
+| **Leaderboard use** | besides model updates, the uploads include diagnostic probes, A/B checks and few-row rules; each upload is classed in [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md). Probe files prepared on 2026-10-14 were not uploaded (§9) |
 | **Reproduction** | byte for byte from committed intermediate files and the organisers' final-phase files (§4); what a full rebuild needs and what cannot be regenerated (§5) |
 | **Licence** | GNU GPLv3 ([`LICENSE`](LICENSE)); external data and their licences in §7 |
 
@@ -50,6 +51,26 @@ byte from committed files with one script (§4).
   670,790 departures). The final file is `resilient-hedgehog_final.parquet`.
 - **Metric.** RMSE over all rows.
 
+### Glossary
+
+| term | meaning in this repository |
+|---|---|
+| MVT | `MVT_TIME_UTC_mvt`, the time of the movement; the organisers call it "(best available) movement time" (`docs/investigation_2026-09-16/hypotheses/external.md`) |
+| BLOCK | `BLOCK_TIME_UTC_mvt`, the block time of the same movement record. The target is `y = MVT − BLOCK` |
+| SCHED | `SCHED_TIME_UTC_mvt`, the scheduled time of the movement record |
+| NM | the Network Manager. Its flight record is joined to each movement (the `*_flt` columns) |
+| AOBT_3 | `AOBT_3_flt`, the off-block time in the NM flight record. The proxy is `MVT − AOBT_3` |
+| LOBT | `LOBT_flt`, a further off-block time of the NM flight record. On every matched 2025 row `y` lies within `MVT − LOBT ± 3606 s`, which gives the LOBT clip (`docs/SOLUTION_OVERVIEW.md` §4) |
+| matched / unmatched lane | rows with / without `AOBT_3` (about 98.5 % / 1.5 %). Matched rows get the member blend, unmatched rows model B (§2) |
+| OOF | out-of-fold predictions on 2025 rows. *Pooled OOF* means the `jan`, `jul` and `forward` folds, 672,428 rows (§8) |
+| a2o, pao, p2o, c2, m4 | the five matched-lane members: tuned anchored LightGBM, per-airport anchored LightGBM, plain-target LightGBM, CatBoost, MLP. "Anchored" means the member predicts `y − (MVT − AOBT_3)` (`docs/METHOD.md` §3) |
+| A12, P12, A12thin | ADS-B residual models fitted on 12 months of 2025: with the appear-tier columns (A12), without them (P12), and A12 retrained on EDDF fixes thinned to the 2026 density (A12thin). `c_X` is the correction of model X (`docs/METHOD.md` §6) |
+| C12, C15 | the team's names for the candidates submitted as v42 (C12) and v47 (C15). v48 = C15 + the 12-month appear and EDDF coverage terms (`docs/FINAL_SUBMISSION.md` §2.1) |
+| δ | in "+1×δ": the per-row change of `MVT_TIME_UTC_mvt` between `ranking.parquet` and `final_ranking.parquet` on the Jan/Jul rows, up to ±12 s (`docs/DEVELOPMENT_HISTORY.md` §2.6) |
+| q | in the LIRF rules: the estimated chance that a row's label is a schedule copy (`y ≈ MVT − SCHED`) or belongs to a given label class, from 2025 rates or a 2025 classifier (`docs/METHOD.md` §7, `docs/DEVELOPMENT_HISTORY.md` §2.3) |
+| laughing-cray, beautiful-davinci, peaceful-babbage, model-b | short names of the parallel working branches `claude/<name>-…` (for example `claude/laughing-cray-vvwh0k`) and of the work done on them ("thread") |
+| v1–v51 | leaderboard submission numbers (`docs/DEVELOPMENT_HISTORY.md` §1). The labels "v2" to "v7a" in hand-off notes name other files (`docs/FINAL_SUBMISSION.md` §3) |
+
 ## 2. Method overview
 
 The diagram shows how the rows of the final file were produced. Every box is described in
@@ -62,27 +83,27 @@ flowchart TD
     IN["Final set, 670,790 departures, Jan Feb Jun Jul 2026"] --> MON{"Month"}
     MON -->|"Jan and Jul, 344,841 rows"| V48["Leaderboard submission v48, copied unchanged"]
     MON -->|"Feb and Jun, 325,949 rows"| LANE{"NM off-block time AOBT_3 present"}
-    LANE -->|"yes, matched lane"| MEM["Five members. a2o, pao, c2, m4 predict y minus the proxy MVT minus AOBT_3, p2o predicts y"]
+    LANE -->|"yes, matched lane"| MEM["Five members. a2o, pao, c2, m4 predict y − (MVT − AOBT_3), p2o predicts y"]
     LANE -->|"no, unmatched lane"| MB["Model B, LightGBM. At LIRF the target is relative to the schedule"]
     MEM --> BL["Blend. Mean of p2o, c2, m4 and the average of a2o and pao"]
-    BL --> ADSB["Learned ADS-B residual layer, rows seen by adsb.lol only"]
-    MB --> ADSB
+    BL -->|"other days"| ADSB["Learned ADS-B residual layer, rows seen by adsb.lol only"]
+    MB -->|"other days"| ADSB
     BL -->|"2026-06-11 only"| A12["A12 residual layer for the 6,099 rows of 2026-06-11, appear tier included"]
     MB -->|"2026-06-11 only"| A12
     ADSB --> OVL["Overlays. Lane-B deltas NM-blind and ucmix, LIRF copy band, time-zone class, matched copy overlay"]
     A12 --> OVL
-    OVL --> CLIP["LOBT clip to MVT minus LOBT plus or minus 3606 s"]
+    OVL --> CLIP["LOBT clip to MVT − LOBT ± 3606 s"]
     CLIP --> BASE["Floor at 0, round. Base file be8d89dc"]
-    BASE --> APP["Appear increment c_A12 minus c_P12, changes 226,935 Feb and Jun rows, then the LOBT clip again"]
+    BASE --> APP["Appear increment c_A12 − c_P12, c_A12thin − c_P12 at EDDF; 06-11 skipped; changes 226,935 Feb and Jun rows, then the LOBT clip again"]
     APP --> FIN["Final file c0d4a143, 670,790 rows"]
     V48 --> FIN
 ```
 
-1. **Lanes.** About 98.5 % of rows have the NM off-block time `AOBT_3` (matched lane); in the final set 661,713
-   rows are matched and 9,077 are not (`docs/SOLUTION_OVERVIEW.md` §1, `docs/FINAL_SUBMISSION.md` §2.2).
-2. **Members and blend.** a2o (tuned LightGBM), pao (per-airport LightGBM), p2o (plain-target LightGBM), c2
-   (CatBoost) and m4 (MLP); all but p2o predict `y − (MVT − AOBT_3)` (`src/prc/train.py`, `matched_target`). Blend:
-   `((a2o + pao)/2 + p2o + c2 + m4) / 4`. Unmatched rows: model B, a LightGBM whose target at LIRF is
+1. **Lanes.** About 98.5 % of rows have the NM off-block time `AOBT_3` (matched lane). Over all four months of the
+   final set, 661,713 rows are matched and 9,077 are not (`docs/SOLUTION_OVERVIEW.md` §1, `docs/FINAL_SUBMISSION.md`
+   §2.2); the diagram's lane split concerns the February/June rows only.
+2. **Members and blend.** All members but p2o predict `y − (MVT − AOBT_3)` (`src/prc/train.py`, `matched_target`).
+   Blend: `((a2o + pao)/2 + p2o + c2 + m4) / 4`. Unmatched rows: model B, a LightGBM whose target at LIRF is
    `y − (MVT − SCHED)`.
 3. **Learned ADS-B residual layer.** A LightGBM fitted on 2025 to the blend's residual, using ground-movement
    features from adsb.lol traces (push, first move, stand dwell, stops, positions) joined by callsign or by position.
@@ -112,27 +133,40 @@ file's identity: source commit, md5, rows and validation result. This section is
   | rows | values | `FINAL_SUBMISSION.md` |
   |---|---|---|
   | Jan + Jul, 344,841 | v48 unchanged: `handoff/2026-10-08/C15_appear12_cov26eddf.parquet`, md5 `8ee6679f…`, public leaderboard 234.4099 | §2.1 |
-  | Feb 144,158; Jun except 2026-06-11, 175,692 | the chain shown in §2 above, run on the final data, giving the base `be8d89dc…` (`handoff/2026-10-13/final_from_v48.parquet` as committed in `25f6246`, branch `claude/laughing-cray-vvwh0k`), plus the appear increment on 103,311 Feb and 123,624 Jun rows | §2.2, §2.5 |
+  | Feb 144,158; Jun except 2026-06-11, 175,692 | the chain of §2 run on the final data, giving the base `be8d89dc…` (`handoff/2026-10-13/final_from_v48.parquet` as committed in `25f6246`), plus the appear increment on 103,311 Feb and 123,624 Jun rows | §2.2, §2.5 |
   | Jun 2026-06-11, 6,099 | the same chain with the A12 layer instead of our rebuilt layer; no increment | §2.3 |
 
   Earlier versions of this README (before `1d12abb`) named the base `be8d89dc…` as the final file. It was not
   uploaded.
-- **The upload.** Uploaded as `prc-2026-resilient-hedgehog/resilient-hedgehog_final.parquet` by `prc.submit --final`;
-  the bucket object's `last_modified` is **2026-10-14 10:30:29Z** and its read-back md5 matched. The ledger lines
-  (`"kind": "final"`) are at the end of `experiments/submissions.jsonl` (`8189b58`). It replaced an object of
-  2026-10-09 (4,079,671 bytes, uploader unknown, whose scoring had failed).
-- **Scorer.** The result file written at 10:30:38Z says `"status": "Succeeded"`, `"used_pairs": 670790`, and
-  contains no score (copy: `docs/final_phase_2026-10-11/final_result_2026-10-14.json`).
-- **Deadline.** The organisers' pages state "2026-10-14T12:00 CET (2026-10-14T12:00+02:00)" and "2026-10-14T10:00Z".
-  The upload was at 10:30:29Z, after 10:00Z. Whether it is accepted is for the organisers.
 - **Why this file** (`docs/FINAL_SUBMISSION.md` §4). On 2026-10-14 the Jan/Jul part of the laughing-cray v6 file
-  scored 234.5741 on the leaderboard (v50), while v48 resubmitted unchanged scored 234.4099 (v51), exactly v48's
-  score. So the Jan/Jul rows stay v48, and February/June get the appear increment so that they follow v48's recipe.
-- **What is not in the file** (`docs/FINAL_SUBMISSION.md` §3): no "+1×δ" re-anchor of January/July, and none of
-  the later candidates on the branches (the laughing-cray "v2" to "v7a" files, including v6 `7e53142e…`; the reweight
-  and LTFM variants; the beautiful-davinci LIRF-gate variants).
-- **Hand-off notes.** Several notes under `handoff/` name a "recommended" file. Those files were not submitted (§10;
-  `docs/FINAL_SUBMISSION.md` §7).
+  scored 234.5741 on the leaderboard (v50), while v48 resubmitted unchanged scored 234.4099 (v51). So the Jan/Jul
+  rows stay v48, and February/June get the appear increment so that they follow v48's recipe.
+- **Not in the file**: the "+1×δ" re-anchor, the LIRF copy-overlay gate and all later candidates
+  (`docs/FINAL_SUBMISSION.md` §3). Several hand-off notes name a "recommended" file; those files were not submitted
+  (§10).
+- **The upload.** `prc-2026-resilient-hedgehog/resilient-hedgehog_final.parquet`, by `prc.submit --final`; bucket
+  `last_modified` **2026-10-14 10:30:29Z**, read-back md5 matched. The ledger lines (`"kind": "final"`) are at the end
+  of `experiments/submissions.jsonl`. The scorer's result file (10:30:38Z) says `"status": "Succeeded"`,
+  `"used_pairs": 670790`, and contains no score (`docs/final_phase_2026-10-11/final_result_2026-10-14.json`).
+
+### The deadline and the late upload
+
+- **The stated deadline.** The organisers'
+  [eligibility page](https://prc-data-challenge-2026.netlify.app/eligibility.html) says "Final single submission is
+  uploaded by 2026-10-14T12:00 CET (2026-10-14T12:00+02:00)". The deployed index page gave "2026-10-14T10:00Z" when
+  read on 2026-10-11 (`docs/final_phase_2026-10-11/IMPACT.md` §1.2). The upload was at 10:30:29Z, **30 min 29 s
+  after 10:00Z**.
+- **The bucket at 10:00Z.** The only `resilient-hedgehog_final.parquet` in the bucket was an object of 2026-10-09
+  16:02Z (uploader unknown), which the organisers' scorer had marked Failed. The upload replaced it
+  (`docs/FINAL_SUBMISSION.md` §1).
+- **What the organisers will consider.** On the challenge Discord on 2026-10-14 the organisers stated that only
+  commits made before the deadline, and the latest `_final.parquet` uploaded before the deadline, will be considered.
+  No copy of the message is in this repository.
+- **The repository at the deadline.** The last commit before 10:00Z is `aedbc1f` (2026-10-14T08:55:19Z). The final
+  file and its increment table are in its history (`ea0e0a8`, `4507ddd`) but not in its tree: both were deleted in
+  `9849a14` (2026-10-13) and restored in `0d43558` (10:31:38Z). The assembler option that adds the increment
+  (`--febjun-appear`, §4.3) was added in `5f90818` (10:38:06Z).
+- **Acceptance** of the upload, and of anything committed after 10:00Z, is the organisers' decision.
 
 ## 4. Reproduce the final file
 
@@ -181,8 +215,10 @@ export OSN_COMPETITION_BUCKET=prc-2026-datasets
   [print(p) for p in download_files(bucket='prc-2026-datasets', dest=Path('data/raw/final'))]"
 ```
 
-- This writes `final_submitting.parquet`, `final_ranking.parquet` and `ranking.parquet` (132 MB) to `data/raw/final/`,
-  the default directory of the assembler and the validator. Runbook §3 lists their md5 values of 2026-10-13.
+- This writes `final_submitting.parquet`, `final_ranking.parquet` and `ranking.parquet` (132 MB) to `data/raw/final/`.
+  That is the assembler's default directory. The validator has no default: it takes the paths explicitly
+  (`--template` is required in `src/prc/validate_final.py`), as in §4.3. Runbook §3 lists the files' md5 values of
+  2026-10-13.
 - `download_all()` (`.venv/bin/python -c "from prc.io_minio import download_all; print(len(download_all()), 'files')"`,
   also `make download`) fetches every object of the bucket, including the 2025 training files, into `data/raw/`, not
   `data/raw/final/`. It raises `RuntimeError: OSN_COMPETITION_BUCKET is not set` if the variable is not exported.
@@ -216,32 +252,32 @@ export OSN_COMPETITION_BUCKET=prc-2026-datasets
 ## 5. Full rebuild and its limits
 
 The assembler of §4.3 takes v48, the two chain files and the increment table as committed. Rebuilding further upstream
-is possible for some stages and not for others (`docs/FINAL_SUBMISSION.md` §5.3 and §6):
+is possible for some stages and not for others. The commands and the map from the scripts' hard-coded paths to the
+committed copies are in `docs/FINAL_SUBMISSION.md` §5.3; the limits in §6 there.
 
-| stage | how | what it needs beyond the repository | committed shortcut |
-|---|---|---|---|
-| members (Feb/Jun) | `.venv/bin/python -m prc.pipeline --config <member config> --skip-cv --raw-dir <final raw dir> --work-dir <final work dir>` with the five configs of `docs/METHOD.md` §3; the matched rows' `fl_*` / `seq_*` columns rebuilt on the 2025 + 2026 union (`analysis/local_audit_fix2026.py`; result committed as `handoff/2026-10-13/inputs/feat_rank_extra_union_final.parquet`) | the organisers' 2025 training files, and the final files under the names `ranking.parquet` / `submitting.parquet`; a fresh fit, because `src/prc` saves no LightGBM or CatBoost model. A refit will not give identical numbers; how close it comes was not measured | `handoff/2026-10-13/members/` |
-| blend | `((a2o + pao)/2 + p2o + c2 + m4) / 4`; unmatched rows take model B | — | `handoff/2026-10-13/pre_adsb_base_blend5_final.parquet`, equal to the blend of the member files on all rows |
-| ADS-B residual layer | `docs/final_2026-10-11/adsb_layer.py apply --base <blend> --out <out>` | the script's hard-coded paths mapped to the committed copies (`docs/FINAL_SUBMISSION.md` §5.3), and the final ranking file | models in `docs/final_2026-10-11/adsb_models/`, per-day features in `handoff/2026-10-13/adsb_store/` |
-| overlays and LOBT clip | `docs/final_2026-10-11/apply_overlays.py --laneB --lobt-clip --copy-feat unfixed` | the organisers' 2025 `training_*.parquet` (`--raw-dir`) and the `prc.pipeline` feature cache (`--feat-dir`); neither is committed | `handoff/2026-10-13/inputs/orig_chain_blend_adsb2_ovl.parquet`, `handoff/2026-10-13/inputs/blend_A12_ovl.parquet` |
-| appear increment table | `docs/appear_tier_2026-10-05/final_adsb.py … --increment` (commands in `docs/FINAL_SUBMISSION.md` §5.3) | only `final_ranking.parquet` from §4.2: recomputed on 2026-10-14 from committed files, equal values on all 227,019 rows | `handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet` |
-| ADS-B features from raw traces | `scripts/adsb_ingest_all.py`, `scripts/adsb_ingest_2025.py`, `scripts/adsb_learn_features.py` (`docs/external_data.md`) | the adsb.lol `globe_history` archives: 194.9 GB for the 57 Jan/Jul 2026 days downloaded (2.20–4.28 GB per day); 166.11 GB for Jan/Jul 2025. The residual models use all 12 months of 2025; no total size was measured | the per-day features above, `handoff/2026-10-11/adsb/` |
+| stage | what it needs beyond the repository | committed result |
+|---|---|---|
+| members (Feb/Jun) | the organisers' 2025 training files and a fresh fit: `src/prc` saves no LightGBM or CatBoost model, and how close a refit comes was not measured | `handoff/2026-10-13/members/` |
+| blend | — | `handoff/2026-10-13/pre_adsb_base_blend5_final.parquet` |
+| ADS-B residual layer | the final ranking file; the script's paths mapped to the committed copies | models `docs/final_2026-10-11/adsb_models/`, features `handoff/2026-10-13/adsb_store/` |
+| overlays and LOBT clip | the organisers' 2025 training files and the `prc.pipeline` feature cache | the two chain files in `handoff/2026-10-13/inputs/` |
+| appear increment table | only `final_ranking.parquet`; recomputed on 2026-10-14, equal values on all 227,019 rows | `handoff/2026-10-13/feb_jun_appear_increment_on_blend5.parquet` |
+| ADS-B features from raw traces | the adsb.lol archives: 194.9 GB for the 57 Jan/Jul 2026 days downloaded, 166.11 GB for Jan/Jul 2025; the total for 12 months of 2025 was not measured | the per-day features above, `handoff/2026-10-11/adsb/` |
 
-Limits (`docs/FINAL_SUBMISSION.md` §6):
-- **January/July cannot be regenerated exactly.** They are copied from v48, the end of a chain of delta files.
-  Running the documented chain on January/July differs from v48 by RMS 53.2 s (median 16 s); with the appear
-  increment, 43.4 s (median 13 s).
-- **The months follow the same recipe only approximately.** January/July carry v47's layer chain through v48;
-  February/June carry the rebuilt layer, and the increment was computed on the pre-ADS-B blend and added to the
-  finished file. 2026-06-11 has the A12 layer with only 78 appear rows. No leaderboard measurement covers
-  February/June.
-- **Absolute paths.** Several final-chain scripts hard-code the paths of the machines they ran on
-  (`/home/user/pb-work`, `/home/user/prc-final`, scratch directories). `docs/FINAL_SUBMISSION.md` §5.3 maps them to
-  the committed copies. The scripts were not edited.
+- **January/July cannot be regenerated exactly.** They are copied from v48, the end of a chain of delta files. The
+  documented chain differs from v48 by RMS 53.2 s on those rows, 43.4 s with the appear increment.
+- **The months follow the same recipe only approximately** (different ADS-B layer chains; the increment added to the
+  finished file), and no leaderboard measurement covers February/June.
 
 ## 6. What is ours and what came from elsewhere
 
-The eligibility page asks for an original solution, not a re-use of existing code with a new data input and output.
+The organisers' [eligibility page](https://prc-data-challenge-2026.netlify.app/eligibility.html) (read 2026-10-15)
+sets this criterion for prizes: "The solution is original: Teams must use their own original solutions. Re-using any
+existing implementation is only allowed if the original authors grant you the rights to use their solution and if
+you made significant modifications to the algorithm or model. In particular, simply re-using existing code and
+rewriting the data input and output mechanism is not sufficient. Adding parameters to the model and modifying filters
+to match the specific peculiarities of the data, however, can be considered sufficient."
+
 From the team's notes (`R` = `docs/competitor_research_2026-09-21/results/`):
 
 - **Code.** Competitor repositories were read for ideas; the notes that read them state that no code was copied
@@ -252,28 +288,38 @@ From the team's notes (`R` = `docs/competitor_research_2026-09-21/results/`):
   The vendored third-party code recorded in the release checklist is openpyxl and et_xmlfile (MIT, one research
   script; §12). The models use LightGBM, CatBoost and scikit-learn.
 - **Process.** Most notes are pre-registrations committed before the run, followed by results (`docs/README.md`);
-  changes were accepted by a pre-registered rule on the team's 2025 data (`docs/SOLUTION_OVERVIEW.md` §6). The
-  numbers are in §8.
+  most changes were accepted by a pre-registered rule on the team's 2025 data (`docs/SOLUTION_OVERVIEW.md` §6). cmix
+  was kept although its strict verdict was REJECT (§8).
 
-Where the idea of each component of the final file came from:
+**Components of the final file for which the notes name no outside source:**
+
+| component | basis, per the notes |
+|---|---|
+| member m4 (MLP) | a function class different from the tree members (`R/mlp-member.md` §0.1) |
+| ucmix | the team's error decomposition of its OOF predictions (`docs/research_2026-10-07_ucmix/plan.md`, "出所") |
+| EDDF coverage-matched thinning | the team's audit of the 2025 → 2026 receiver-coverage change (`docs/appear_tier_2026-10-05/plan_cov26.md` §0, `docs/adsb_audit_2026-10-07/README.md`) |
+| fl_/seq_ consistency fix | the team's audit of the 2025 → 2026 shift (`docs/shift_2026-10-06/README.md`) |
+| LIRF copy band, time-zone class | derived from 2025 LIRF rows (`docs/lirf_wrap_2026-10-06/README.md`). That note also cites two public repositories that report the related "one-day" class, which is not in the final file |
+| ADS-B residual: features, model, code | "The features, the model and the code are our own" (`R/adsb-learned-residual.md`); the idea of a learned residual came from outside (next table) |
+
+**Components whose idea came from elsewhere:**
 
 | component | source of the idea, per the notes |
 |---|---|
 | two lanes; anchored target `y − (MVT − AOBT_3)` | public README of `saurabhdxt-labs/prc-challenge` (team merry-quicksand per `docs/research_2026-10-05_repos/inventory.md`), in the prior-art note of 2026-09-10 (`git show 48bd4a2:docs/03_prior_art.md` §8, Japanese); `docs/competitor_research_2026-09-21/SUMMARY.md` §H |
 | members p2o (plain target), c2 (CatBoost), pao (per-airport); lever L2; the retune | kind-mango's public repository, via `R/public-code-deep-dive-2026-09-30.md`; named as the source in `R/plainy-blend.md`, `R/catboost-blend.md`, `R/per-airport-member.md`, `R/feature-levers-L1-L4.md`, `R/optuna-retune.md` |
-| member m4 (MLP) | no outside source named; reason given: a function class different from the tree members (`R/mlp-member.md` §0.1) |
 | lever L6 (gate retention) | other teams' congestion ideas, measured on the team's data (`docs/research_2026-10-05_measure/congestion.md`, Japanese) |
 | cmix (LIRF copy mixture) | outgoing-boat's two-stage copy mixture (`docs/research_2026-10-05_measure/copy_plan.md`) |
 | NM-blind blend | "Source: merry-mushroom v5" (`docs/research_2026-10-06_nmblind/plan.md`) |
-| ucmix | the team's error decomposition of its OOF predictions (`docs/research_2026-10-07_ucmix/plan.md`, "出所") |
-| learned ADS-B residual | "The only outside fact used is …: one competitor shipped a learned ADS-B residual model. No competitor code was opened. The features, the model and the code are our own" (`R/adsb-learned-residual.md`) |
+| learned ADS-B residual | "The only outside fact used is …: one competitor shipped a learned ADS-B residual model. No competitor code was opened" (`R/adsb-learned-residual.md`) |
 | appear tier | smart-jigsaw's public implementation, which takes the time an aircraft is first seen at its stand as off-block (`docs/research_2026-10-01/gap/HANDOFF_PROMPT.md` item 2, Japanese, "code for reference only, do not copy"); ours uses OSM stands and a 2026 ADS-B stand map as residual-model columns (`docs/appear_tier_2026-10-05/plan.md` §0) |
-| EDDF coverage-matched thinning | the team's audit of the 2025 → 2026 receiver-coverage change (`docs/appear_tier_2026-10-05/plan_cov26.md` §0, `docs/adsb_audit_2026-10-07/README.md`) |
-| fl_/seq_ consistency fix | the team's audit of the 2025 → 2026 shift (`docs/shift_2026-10-06/README.md`) |
-| LIRF copy band, time-zone class | derived from 2025 LIRF rows (`docs/lirf_wrap_2026-10-06/README.md`), which also cites two public repositories reporting the related "one-day" class (not in the final file) |
 | LOBT clip ±3606 s | javidmardanov's public LOBT window rule, measured on the team's data before use (`docs/competitor_research_2026-09-21/plans/P5-physics-lower-bound.md` §0); outgoing-boat uses the same window (`docs/research_2026-10-05_repos/inventory.md`) |
 
-The table does not classify the feature groups, model B's schedule target at LIRF or the positional ADS-B join; their
+These ideas were implemented in this repository; the notes state that no competitor code was copied (above). Each of
+them except the two-lane split and the anchored target was measured on 2025 data before use; the measurements are in
+`docs/METHOD.md` §9 (a selection in §8).
+
+The tables do not classify the feature groups, model B's schedule target at LIRF or the positional ADS-B join; their
 notes are listed in §11.
 
 ## 7. Data and licences
@@ -304,62 +350,52 @@ Research only, not used in any submission or in the final file:
   terms (no modification without prior written permission); they remain in git history (`docs/external_data.md`).
 
 The files under `handoff/**/adsb_store/`, `handoff/2026-10-11/adsb/`, `handoff/2026-10-13/june_adsb_for_adsb_layer/`
-and the stand tables derived from OSM are derived databases of adsb.lol and OSM. They are made available under ODbL
-1.0 (see `docs/external_data.md`).
+and the stand tables derived from OSM contain derived databases of adsb.lol and OSM. Their adsb.lol- and OSM-derived
+content is made available under ODbL 1.0 (see `docs/external_data.md`). Many of the same files also carry columns
+derived from the competition data (below); the ODbL statement does not cover those columns.
 
-**Data notice.** The repository contains no raw competition files. It does contain per-row files with fields
-derived from the PRC Data Challenge 2026 dataset (EUROCONTROL PRC / OpenSky Network): mainly the per-departure ADS-B
-feature and position files under `handoff/2026-10-13/` and `handoff/2026-10-11/adsb/learn/`, which carry times,
-airport, runway and aircraft type of 2026 departures. No licence for that dataset had been published
-at the time of release. If the organisers require these files to be removed, please contact the team
-(details: `docs/final_phase_2026-10-11/PUBLIC_RELEASE_CHECKLIST.md` §3.2).
+**Data notice.** The repository contains no raw competition file (`training_*`, `ranking`, `submitting`, `final_*`).
+It does contain per-row fields derived from the PRC Data Challenge 2026 dataset (EUROCONTROL PRC / OpenSky Network),
+in these files (`docs/final_phase_2026-10-11/PUBLIC_RELEASE_CHECKLIST.md` §3.2, audit of 2026-10-14):
+- 412 parquet files (142.8 MB, 1,410,814 rows, all 2026 rows): the per-departure ADS-B feature and position files
+  under `handoff/2026-10-13/adsb_store/`, `handoff/2026-10-13/june_adsb_for_adsb_layer/` and
+  `handoff/2026-10-11/adsb/learn/`. Every one carries airport, movement time and `AOBT_3`; some also the scheduled
+  time, runway and aircraft type;
+- one CSV, `docs/research_2026-10-01/rollover/fingerprints/rank_candidates_ms8h.csv` (22 rows);
+- `handoff/2026-10-13/adsb_store/rescat/codes.parquet` (airline and apron codes derived from the callsign, flight
+  number, airport and stand).
+
+No licence for the 2026 dataset had been published at the time of release. If the organisers require these files to
+be removed, please open an issue on this repository.
 
 ## 8. Results
 
-Only numbers that are in committed documents appear here; each row names its source. ΔRMSE in seconds, negative
-is better, with the 95 % bootstrap CI that each source states. These are 2025 offline measurements of one change
-against the base of its day, so the rows **do not add up**. `docs/METHOD.md` §9 has the same table with the change
-measured in each row and the members' results alone.
-
-*pooled OOF*: 2025 out-of-fold predictions of the `jan`, `jul` and `forward` folds, 672,428 rows. *Jan+Jul ADS-B CV*:
-Jan + Jul 2025, 344,419 rows, leave-days-out (5 folds), day-block bootstrap. `R = docs/competitor_research_2026-09-21/results/`,
-`M = docs/research_2026-10-05_measure/`, `A = docs/appear_tier_2026-10-05/results.md`.
+**Offline (2025).** A selection of the per-stage measurements; the full table, with the change measured in each row,
+is `docs/METHOD.md` §9. ΔRMSE in seconds, negative is better, with the 95 % bootstrap CI that each source states. Each
+row compares one change against the base of its day, so the rows **do not add up**. *Pooled OOF*: the `jan`, `jul`
+and `forward` folds of 2025, 672,428 rows. *Jan+Jul ADS-B CV*: Jan + Jul 2025, 344,419 rows, leave-days-out.
+`R = docs/competitor_research_2026-09-21/results/`, `M = docs/research_2026-10-05_measure/`,
+`A = docs/appear_tier_2026-10-05/results.md`.
 
 | stage | ΔRMSE [95 % CI] | data | source |
 |---|---|---|---|
 | member p2o (plain target) | −0.78 [−1.00, −0.60] | pooled OOF | `R/plainy-blend.md` |
 | member c2 (CatBoost) | −1.75 [−2.08, −1.47] | pooled OOF | `R/catboost-blend.md` |
-| lever L2 (forward NM windows) | −0.32 [−0.45, −0.20] | pooled OOF | `R/blend-l2.md` |
 | member pao (per-airport) | −0.77 [−0.92, −0.64] | pooled OOF | `R/per-airport-member.md` |
-| retune of the anchored member | −0.89 [−1.10, −0.72] | pooled OOF | `R/optuna-retune.md` |
 | member m4 (MLP) | −0.75 [−0.93, −0.58] | pooled OOF | `R/mlp-member.md` |
-| lever L6 (gate retention) | −0.76 [−0.95, −0.56] | `forward` fold, 328,009 rows | `M/l6_verdict.txt`, `M/l6_plan.md` |
-| cmix (LIRF copy mixture in a2o) | −0.49 [−0.83, −0.15] | pooled OOF | `M/cmix_verdict.txt` |
-| lane B: NM-blind (w 0.25) | whole frame −0.42 | pooled OOF | `docs/research_2026-10-06_nmblind/verdict.txt`, `plan.md` |
-| lane B: ucmix (LIRF unmatched) | whole frame −1.60 [−2.95, −0.40] | pooled OOF | `docs/research_2026-10-07_ucmix/verdict.txt`, `plan.md` |
+| cmix (LIRF copy mixture in a2o) | −0.49 [−0.83, −0.15]; strict verdict REJECT (1 of 10 airports improves, `docs/research_2026-10-05_measure/cmix_verdict.txt`); kept in a2o | pooled OOF | `M/cmix_verdict.txt` |
+| lane B: ucmix (LIRF unmatched) | whole frame −1.60 [−2.95, −0.40] | pooled OOF | `docs/research_2026-10-07_ucmix/verdict.txt` |
 | learned ADS-B residual | −14.03 | Jan+Jul ADS-B CV | `R/adsb-learned-residual.md` §2 |
-| learned ADS-B residual, refit | −13.11 | Jan+Jul ADS-B CV | `R/adsb-learned-residual.md` §14 |
-| appear tier (4 months) | −1.858 [−2.542, −1.346] | Jan+Jul ADS-B CV | `A` §1 |
 | appear tier (12 months, A12) | −0.804 [−0.924, −0.692] | 2025, 12 months | `A` §12 |
 | appear tier on held-out Feb+Jun 2025 | −1.434 [−1.997, −1.056] | Feb, Jun 2025 held out | `A` §21 |
 | EDDF coverage delta (in v48) | all rows −0.19 [−0.39, −0.02] | Jan+Jul 2025, held out | `A` §18 |
-| LIRF matched copy overlay (0.4·q) | MSE gain 390 s² per row (Jan 15, Jul 375) | Jan+Jul 2025 | `docs/posjoin_2026-10-05/deeper_checks.md` |
-| LIRF unmatched copy band | 34 of 34 such rows are schedule copies | 2025 | `docs/SOLUTION_OVERVIEW.md` §4 |
 | LOBT clip ±3606 s | the window holds on every matched row (2.06 M) | 2025 | `docs/SOLUTION_OVERVIEW.md` §4 |
 
-The best pre-ADS-B blend on 2026-10-07 had a pooled OOF RMSE of 269.69 (`docs/research_2026-10-07_ucmix/plan.md`).
+Offline gains carried over to the board unevenly: consistency fixes about 2× their CV estimate, model-level
+additions about 1×, ADS-B residual add-ons 10–35 % (`docs/SOLUTION_OVERVIEW.md` §6).
 
-**Offline gains carry over to the leaderboard unevenly** (`docs/SOLUTION_OVERVIEW.md` §6):
-- consistency fixes: about 2× their CV estimate;
-- model-level additions: about 1×;
-- ADS-B residual add-ons: 10–35 %.
-
-For example, the 12-month appear tier delivered about 9 % of its CV gain on the board
-(`docs/appear_tier_2026-10-05/results.md` §17). The fl_/seq_ train/test consistency fix gained −1.36 s on the board
-(`docs/SOLUTION_OVERVIEW.md` §5).
-
-**Leaderboard history** (January + July 2026, 344,841 departures). The full table, with the class of every
-submission (model update, A/B, diagnostic, few-row rule), is in
+**Leaderboard history** (January + July 2026, 344,841 departures). Scores as listed in the committed board snapshot
+`refs/leaderboard_snapshots/2026-10-15T00Z_leaderboard.json`. Every submission, with its class, is in
 [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md) §1.
 
 | version | what changed | leaderboard RMSE |
@@ -378,19 +414,18 @@ submission (model update, A/B, diagnostic, few-row rule), is in
 | v50 | check on 2026-10-14: the Jan/Jul part of laughing-cray v6 (`handoff/2026-10-13/janjul_only_final_v6_all5.parquet`, `55a91f49…`) | 234.5741 |
 | v51 | control on 2026-10-14: v48 resubmitted unchanged (`8ee6679f…`) | 234.4099 |
 
-v51 (v48 unchanged) scored exactly v48's original 234.4099, so the board had not moved, and v6's Jan/Jul rows are
-0.1642 worse than v48's (§3; `docs/FINAL_SUBMISSION.md` §4). The v50/v51 upload lines are in
-`experiments/submissions.jsonl`; the scores were read from the leaderboard. The final file itself has no score in
-the repository (§3).
+v51 scored exactly v48's 234.4099, so the board had not moved; v6's Jan/Jul rows are 0.1642 worse
+(`docs/FINAL_SUBMISSION.md` §4). The final file itself has no score in the repository (§3).
 
 ## 9. Development history and leaderboard use
 
 [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md) lists, from `experiments/submissions.jsonl`, which
 leaderboard submissions were model updates and which were diagnostics or A/B checks, and which rules were derived by
 inspecting ranking-set rows. In short:
-- **Counts** (its §1). Up to v49, the ledger has 50 uploads under 48 version numbers: 33 model updates, 12
-  diagnostics (in the ledger's words: probe, isolation, decomposition, test or check), 3 A/B checks and 4 few-row
-  rules; two uploads carry two classes. v50 and v51 (§3, §8) came after that count.
+- **Counts** (its §1). The ledger has 52 leaderboard uploads under 50 version numbers (v1–v51 without v24): 33 model
+  updates, 14 diagnostics (in the ledger's words: probe, isolation, decomposition, test, check or control), 3 A/B
+  checks and 4 few-row rules; two uploads carry two classes. Then came the final upload (§3). The scores are in the
+  committed board snapshot `refs/leaderboard_snapshots/2026-10-15T00Z_leaderboard.json`.
 - **Ranking-set inspection** (its §2).
   - Rule C7r of v41 (the LIRF "one-day" class) set q values for named 2026 flights, and the v41 board score was used
     to infer the labels of three specific ranking rows. C7r was then dropped; the final chain does not apply it. The
@@ -398,9 +433,25 @@ inspecting ranking-set rows. In short:
   - The positional ADS-B rule of v34 was motivated by EHAM snow days in the ranking set; its weights were set on 2025
     rows, and it is still in the chain as the `RULE` component of the ADS-B layer (§2.2; `docs/METHOD.md` §5).
   - Board scores were also read back into decisions: the lane and component isolation uploads (v9, v10, v13, v31,
-    v43–v45), the v30 graft, the board-transfer ratios used in planning, and v49 (§2.4).
-  - The "+1×δ" re-anchor and the LIRF copy-overlay gate came after the leaderboard closed; neither is in the final
-    file (§2.6; `docs/FINAL_SUBMISSION.md` §3).
+    v43–v45), the v30 graft, the board-transfer ratios used in planning, v49, and v50 against v51 (§2.4).
+  - The "+1×δ" re-anchor and the LIRF copy-overlay gate came in the final phase, after the final set was published
+    on 2026-10-08; neither is in the final file (§2.6; `docs/FINAL_SUBMISSION.md` §3).
+- **Probe and test files prepared on 2026-10-14 and not uploaded** (its §2.7).
+  - `handoff/2026-10-14/probes/` holds probes P1–P6: copies of v48 with all rows of one cell (LTFM in January or
+    July, or January de-icing rows) shifted by −40 or −100 s, plus a control. Its README is titled "Four tests of the
+    mean shift on the old board (January, July) (user-approved, 2026-10-14 05:55 UTC)". By its design, the score of
+    each probe gives the mean residual of v48 against the labels on that cell (`rbar = mean(y - v48)`), and
+    `docs/final_phase_gate/probe_fix.py` and `docs/final_phase_gate/assemble_final.py` would then shift the same departures of the final
+    file by that amount.
+  - `handoff/2026-10-14/oldboard/` holds v48 plus the LIRF copy-overlay gate, and v48 plus the gate and a q^1.5
+    re-weighting, to be compared with v48 on the board before choosing the final file.
+  - None of these files was uploaded. The ledger has no line for them; the board and the team bucket hold no numbered
+    files other than the team's v1–v23 and v25–v51 (`refs/leaderboard_snapshots/2026-10-15T00Z_leaderboard.json`,
+    `refs/team_bucket/2026-10-15T01Z_objects.json`). The only regular uploads of 2026-10-14 were v50 (v6's Jan/Jul
+    part) and v51 (v48 unchanged). The notes do not record why the probes were not sent.
+- **Team rule A9** (2026-09-21) says that an upload "chosen to make the returned RMSE informative about the labels" is
+  a label measurement and "should not be sent". The A/B and diagnostic uploads made after it, and what the notes say
+  about them, are in its §3.
 - **Dropped probes.** On 2026-10-11 two planned leaderboard probes were dropped because of the organisers' sentence
   "We will monitor submissions for attempts to learn from or exploit the ranking process" (its introduction).
 - **Process facts** (its §3): two version collisions, an unrecorded 2026-10-09 final upload, and the choices that
@@ -424,22 +475,19 @@ handoff/<date>/  dated working notes and files passed between parallel sessions:
 experiments/     append-only logs: experiments.jsonl (CV records), submissions.jsonl (every upload), pipeline.jsonl
 tests/           pytest suite on synthetic data (no competition data needed)
 sql/             early Snowflake load and profiling scripts; not used by the final chain
-refs/            leaderboard API snapshots
+refs/            leaderboard API snapshots (the last of 2026-10-15) and the team bucket's object list
 outputs/         two shell scripts of the final-phase member runs (outputs/ret_logs/); the assembler writes here
 .claude/         CLAUDE.md, working rules for the coding-assistant sessions (in Japanese)
 ```
 
 **About `handoff/`.** The `handoff/<date>/` folders are dated working notes that parallel sessions passed to each
 other, mostly in Japanese, kept as written as the record (`docs/FINAL_SUBMISSION.md` §7).
-- Several name a "recommended" file, such as `handoff/2026-10-13/README.md` (`d0ce32b6…`, later `7e53142e…`) and
-  `handoff/2026-10-14/README.md` / `handoff/2026-10-13/CANDIDATES.md` (`b7e8298d…`). **Those files were not
-  submitted.**
-- The uploaded file itself is marked withdrawn in `handoff/2026-10-13/CANDIDATES.md` (06:20 UTC on 10-13); it was
-  chosen on 10-14 all the same.
+- Several name a "recommended" file (`d0ce32b6…`, `7e53142e…`, `b7e8298d…`). **Those files were not submitted.** The
+  uploaded file itself is marked withdrawn in `handoff/2026-10-13/CANDIDATES.md` (06:20 UTC on 10-13); it was chosen
+  on 10-14 all the same.
 - Where a hand-off note and `docs/FINAL_SUBMISSION.md` disagree about the final file, `docs/FINAL_SUBMISSION.md` is
-  right; the upload ledger `experiments/submissions.jsonl` and the bucket override both.
-- The parts of `handoff/2026-10-13/README.md` that concern the final file are translated in
-  `docs/FINAL_SUBMISSION.md` §2.2, §5.3 and §8.
+  right; the upload ledger `experiments/submissions.jsonl` and the bucket override both. The parts of
+  `handoff/2026-10-13/README.md` that concern the final file are translated there (§2.2, §5.3, §8).
 
 ## 11. Documentation map
 

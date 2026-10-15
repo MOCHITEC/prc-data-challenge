@@ -6,9 +6,9 @@ it is used for, and which script fetches or uses it. Updated 2026-10-14 for the 
 
 ## Summary
 
-"Final chain" means the code that produced the final file (`README.md` §3). "Research only" means the source was
-measured in notes or CV and did not reach any leaderboard submission or the final file. That status comes from
-`experiments/submissions.jsonl` and the final-chain configs and scripts.
+"Final chain" means the code that produced the final file (`docs/FINAL_SUBMISSION.md` §2; overview in `README.md`
+§2). "Research only" means the source was measured in notes or CV and did not reach any leaderboard submission or the
+final file. That status comes from `experiments/submissions.jsonl` and the final-chain configs and scripts.
 
 | source | licence | used for | status | main scripts |
 |---|---|---|---|---|
@@ -34,7 +34,7 @@ Not data inputs:
 
 | path | derived from | notice |
 |---|---|---|
-| `handoff/2026-10-13/adsb_store/`, `handoff/2026-10-13/june_adsb_for_adsb_layer/`, `handoff/2026-10-11/adsb/` (per-departure ADS-B features, positional joins, dwell, appear features, stand map) | adsb.lol, OpenStreetMap | Derived databases; made available under ODbL 1.0 with the attributions below |
+| `handoff/2026-10-13/adsb_store/`, `handoff/2026-10-13/june_adsb_for_adsb_layer/`, `handoff/2026-10-11/adsb/` (per-departure ADS-B features, positional joins, dwell, appear features, stand map) | adsb.lol, OpenStreetMap | Derived databases; their adsb.lol- and OSM-derived content is made available under ODbL 1.0 with the attributions below. Many of these files also carry columns derived from the competition data (`README.md` §7, data notice), which the ODbL statement does not cover |
 | `docs/final_2026-10-11/adsb_models/`, `handoff/2026-10-11/adsb/learn/*.txt` (LightGBM text models) | trained on adsb.lol-derived features and the competition labels | Produced works |
 | `handoff/2026-10-05/opdi_exitpark.parquet` (OPDI stand-exit columns per departure) | EUROCONTROL OPDI | **Removed from the tip on 2026-10-14; still present in git history** (`git show 1d12abb:<path>`). Re-create: `handoff/2026-10-05/README.md` §6 and below |
 | `docs/research_2026-10-05_aobt/kpi/pru_published_2024_2025.csv` | EUROCONTROL PRU taxi-out file | **Removed from the tip on 2026-10-14; still present in git history.** Re-create: `docs/research_2026-10-05_aobt/README.md` and below |

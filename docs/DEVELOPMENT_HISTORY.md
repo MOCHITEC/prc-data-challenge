@@ -3,23 +3,28 @@
 This file states plainly how the team used the leaderboard, and which rules were derived by looking at rows of the
 ranking set.
 - Every submission's purpose is taken from `experiments/submissions.jsonl`, in the ledger's own words.
-- Scores come from the organisers' leaderboard API, read on 2026-10-14. The board shows the last object scored under
-  each file name.
+- Scores come from the organisers' leaderboard API. A full read of the board (all teams), made on 2026-10-15 at
+  about 00:55Z, is committed as `refs/leaderboard_snapshots/2026-10-15T00Z_leaderboard.json`, in the format of the
+  earlier snapshots in that folder. It lists the team's files v1–v23 and v25–v51 with the scores in §1. The board
+  shows the last object scored under each file name.
+- The team bucket's object list of 2026-10-15 01:48Z is committed as `refs/team_bucket/2026-10-15T01Z_objects.json`
+  (names, sizes, `last_modified`, etags).
 - Other statements cite a commit or a file. The leaderboard set is January and July 2026 (344,841 departures).
 - The organisers' ranking page says: "We will monitor submissions for attempts to learn from or exploit the ranking
   process."
 - The team wrote its own rule on 2026-09-21 (`docs/competitor_research_2026-09-21/results/14-validation-design.md`,
   A9): "any submission whose predictions are chosen to make the returned RMSE informative about the labels is a label
-  measurement and should not be sent."
+  measurement and should not be sent." How the later diagnostic uploads relate to it is in §3.
 - On 2026-10-11 two planned leaderboard probes were dropped because of the organisers' sentence
   (`docs/final_2026-10-11/README.md`).
+- On 2026-10-14 further probe and test files were prepared for the leaderboard and not uploaded (§2.7).
 
 ## 1. Every submission
 
 Class:
 - **M**: model or pipeline update, sent to improve the score.
 - **A/B**: leaderboard comparison of one change against an earlier file, called "LB A/B" in the ledger.
-- **D**: diagnostic or measurement (the ledger says probe, isolation, decomposition, test or check).
+- **D**: diagnostic or measurement (the ledger says probe, isolation, decomposition, test, check or control).
 - **R**: post-processing rule on a small number of rows.
 
 Several sessions shared the version counter; two numbers were used twice (§3).
@@ -78,13 +83,20 @@ Several sessions shared the version counter; two numbers were used twice (§3).
 | 48 | 10-11 14:47 | 234.4099 | M | c15-appear12-cov26eddf | C15 + 12-month appear + EDDF coverage delta (team best) |
 | 49 | 10-11 14:56 | 248.6458 | D | finalbase-plus-adsb12-janjul | "Final-phase fallback check": the Jan/Jul rows of the 10-09 bucket `final.parquet` + ADS-B |
 | final | 10-13 01:20 | — | — | — | dry run only (`prc.submit --final --dry-run`); nothing uploaded |
+| 50 | 10-14 08:40 | 234.5741 | D | oldboard-v6-janjul | "old-board check of v6 final (Jan/Jul part) before choosing the final file" |
+| 51 | 10-14 08:54 | 234.4099 | D | oldboard-v48-control | "control for v50: re-score v48 unchanged to check whether the old-board baseline moved" |
+| final | 10-14 10:30 | — (no score) | — | — (`"kind": "final"`) | the final upload, `resilient-hedgehog_final.parquet`: "final: v48-based be8d89dc + Feb/Jun appear increment"; not a leaderboard submission (`docs/FINAL_SUBMISSION.md` §1) |
 
-Counts: 50 uploads under 48 version numbers (v24 was never uploaded; v42 and v47 were uploaded twice each). A
-submission can carry two classes.
+Counts: 52 leaderboard uploads under 50 version numbers (v24 was never uploaded; v42 and v47 were uploaded twice
+each), plus the final upload. A submission can carry two classes.
 - M: 33 uploads under 31 version numbers. This includes v10, which was sent as a probe.
 - A/B: 3 (v25, v26, v27).
-- D: 12 (v5, v8, v9, v10, v11, v13, v19, v31, v43, v44, v45, v49). v10 is also M and v11 is also R.
+- D: 14 (v5, v8, v9, v10, v11, v13, v19, v31, v43, v44, v45, v49, v50, v51). v10 is also M and v11 is also R.
 - R: 4 (v11, v12, v34, v41).
+
+v50 and v51 were the only regular uploads of 2026-10-14. Their bucket objects carry the etags `55a91f49…` (the Jan/Jul
+part of laughing-cray v6, `handoff/2026-10-13/janjul_only_final_v6_all5.parquet`) and `8ee6679f…` (v48)
+(`refs/team_bucket/2026-10-15T01Z_objects.json`).
 
 ## 2. Rules derived by inspecting ranking-set rows
 
@@ -140,6 +152,7 @@ flight numbers, ADS-B tracks. It also includes reading leaderboard scores back i
 | v43–v45 isolated the parts of v42. They were sent after a misread board value; the notes add: "the isolation submissions were not needed. They still give the attribution" | `docs/batch_2026-10-06/README.md`, b6c627e |
 | board-transfer ratios (consistency fixes about 2× their CV estimate, ADS-B add-ons 10–35 %) were recorded and used in planning | `docs/SOLUTION_OVERVIEW.md` §6 |
 | v49 scored the Jan/Jul rows of the 10-09 bucket `final.parquet` plus ADS-B; the result decided "that base is not usable" | ledger v49, 169e7f4 |
+| v50 (v6's Jan/Jul rows, 234.5741) against v51 (v48 unchanged, 234.4099) decided that the final file's Jan/Jul rows stay v48 | ledger v50, v51; `docs/FINAL_SUBMISSION.md` §4 |
 
 ### 2.5 Other row-level steps that touch few ranking rows
 
@@ -151,7 +164,10 @@ These were derived on 2025 data and applied to the ranking rows they select:
 
 Per-row delta files keyed to ranking ids are committed under `handoff/`.
 
-### 2.6 Final-phase steps after the leaderboard closed
+### 2.6 Final-phase steps not in the final file
+
+Both came in the final phase, after the final set was published on 2026-10-08 (`docs/final_2026-10-11/README.md`).
+The leaderboard still scored January/July uploads then: v50 and v51 on 2026-10-14 (§1).
 
 - **+1×δ re-anchor** (`docs/final_2026-10-11/add_delta_janjul.py`; recorded as the user's decision in a94067b).
   - It adds to the Jan/Jul matched rows the difference between `MVT_TIME_UTC_mvt` in `final_ranking.parquet` and in
@@ -163,6 +179,49 @@ Per-row delta files keyed to ranking ids are committed under `handoff/`.
   - It removes the copy overlay on 2,486 LIRF matched rows where `|LOBT − SCHED| > 3606 s`.
   - It was validated on 2025. The README notes that "about 10 rows" carry 87 % of the change.
   - It is not in the runbook's file.
+
+### 2.7 Leaderboard probes and test files prepared on 2026-10-14, not uploaded
+
+On 2026-10-14 the beautiful-davinci thread committed files for the leaderboard ("old board", January/July) that were
+never uploaded: the gate tests in `b195204` (03:02Z), the probes from `c21f0cd` (05:44Z) to `1dc92f6` (06:42Z), all
+merged into `main` in `a418037`. The notes are in Japanese; the quotes below are translated.
+
+- **Cell-shift probes, `handoff/2026-10-14/probes/`.** Its README is titled "Four tests of the mean shift on the old
+  board (January, July) (user-approved, 2026-10-14 05:55 UTC)". Each file is v48 with the rows of one cell moved by a
+  fixed amount:
+  - P1 LTFM, January, all 22,396 rows, −40 s; P2 LTFM, July, 25,185 rows, −40 s;
+  - P3 LTFM, January, the 1,843 de-icing rows, −100 s; P4 the 4,880 January de-icing rows at EDDF, EDDM, EHAM, LFPG
+    and LSZH, −100 s;
+  - P5 and P6, added later, the LTFM de-icing rows of 19 January (298) and 18 January (648), −100 s;
+  - per-airport January de-icing files in `handoff/2026-10-14/probes/stage2/`, "not yet requested";
+  - a control, `handoff/2026-10-14/probes/v48_control.parquet`, which is v48 itself.
+- **What they were designed to measure.** The README ("How it works") and the docstring of
+  `docs/final_phase_gate/probe_fix.py`: "For a pure shift S of the n rows of a cell:
+  `MSE_probe - MSE_v48 = (n/N)(S^2 - 2 S rbar), rbar = mean(y - v48)` over the cell". So each probe's score would give
+  the mean residual of v48 against the labels on its cell. In the final file, `docs/final_phase_gate/probe_fix.py`
+  then shifts the same departures: "each cell is shifted by `rbar - mean(F - v48)` over the cell". The February
+  de-icing rows get 0.5 × the January value, under rules that the README records as fixed "before seeing the test
+  results". `docs/final_phase_gate/assemble_final.py` is "One step from the old-board scores to the final file (v6
+  base, +1x dither), following the pre-registered rules". A probe of this kind is what rule A9 calls a label
+  measurement that "should not be sent".
+- **Gate test files, `handoff/2026-10-14/oldboard/`.** `handoff/2026-10-14/oldboard/v48_plus_gate.parquet` is v48 with
+  the LIRF copy-overlay gate of §2.6 (1,550 rows changed); `handoff/2026-10-14/oldboard/v48_plus_gate_q15.parquet`
+  adds the q^1.5 re-weighting of the copy overlay (23,439 more rows). `handoff/2026-10-14/README.md` asks for both to
+  be uploaded and compared with v48 (234.4099), and gives the final file to pick for each outcome. It records "the
+  user's instruction (03:00 UTC): correction 2 'try it, and include it if the score does not drop too much'". The
+  files were built by `docs/final_phase_gate/oldboard_test.py`, whose docstring calls them "v50" and "v51"; the
+  uploads that received those numbers were other files (below).
+- **What was uploaded.** None of P1–P6, the stage-2 files or the two gate test files:
+  - the ledger has no line for any of them;
+  - the board lists only the team's files v1–v23 and v25–v51
+    (`refs/leaderboard_snapshots/2026-10-15T00Z_leaderboard.json`);
+  - v50 and v51, the only regular uploads of 2026-10-14, are the v6 Jan/Jul part (`55a91f49…`) and v48 (`8ee6679f…`)
+    (§1; `refs/team_bucket/2026-10-15T01Z_objects.json`). v51 has the same bytes as
+    `handoff/2026-10-14/probes/v48_control.parquet`; the ledger records it as the "control for v50".
+- The final file carries neither the gate nor any probe correction: its January/July rows equal v48 and its
+  February/June rows were committed on 2026-10-13 (`ea0e0a8`), before these files existed (`docs/FINAL_SUBMISSION.md`
+  §2.4, §3).
+- The notes do not record why the probes and the gate tests were not uploaded.
 
 ## 3. Process facts
 
@@ -180,3 +239,20 @@ Per-row delta files keyed to ranking ids are committed under `handoff/`.
   - LFPG kept on the 7-month residual (cb0649d, in v40);
   - 12-month appear candidate B (1f20061, not submitted).
 - **After v41** the team rule became: "Few-row, heavy-tailed gains are rejected" (`docs/SOLUTION_OVERVIEW.md` §6).
+- **Rule A9 and the uploads after it.**
+  - A9 was committed on 2026-09-21 at 03:08Z (`5d2193b`), after v11 and before v12. It separates two kinds of
+    upload: "submissions whose predictions are a genuine model output, read back only as 'did this change help', are
+    model measurements; any submission whose predictions are chosen to make the returned RMSE informative about the
+    labels is a label measurement and should not be sent".
+  - The master candidate list of the same day (`docs/competitor_research_2026-09-21/plans/00-master-candidate-list.md`,
+    G22, `75b4df0`) plans to "treat the board as the better-powered comparator" and repeats A9 as binding: "stay on
+    the model side of the line".
+  - After A9 the ledger records these comparison and diagnostic uploads, each with the purpose quoted in §1: v13
+    (matched-lane probe), v19 (board probe of a change rejected offline), v25–v27 ("LB A/B" of a model change against
+    an earlier file), v31 (v16 with v26's matched rows, a "decomposition probe"), v43–v45 (v40 plus one part of v42
+    each, "isolation"), v49 (fallback check) and v50–v51 (old-board check and control).
+  - For v43–v45 the notes add that they were sent after a misread board value and "were not needed" (§2.4).
+  - No note assesses these uploads against A9; the notes give only the purposes quoted in §1.
+    `docs/final_phase_2026-10-11/IMPACT.md` (2026-10-11) lists those up to v49 next to A9 without assessing them.
+  - The probe files of 2026-10-14, which were built to measure mean residuals against the labels, were not uploaded
+    (§2.7).
