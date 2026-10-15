@@ -1,0 +1,87 @@
+{
+ "run": "jul_s2_noctx",
+ "settings": {
+  "fold": "jul",
+  "seed": 2,
+  "mode": "noctx",
+  "k_dep": 64,
+  "k_arr": 48,
+  "d": 64,
+  "subsample": 1.0,
+  "batch": 1024,
+  "lr": 0.001,
+  "wd": 0.0001,
+  "max_epochs": 12,
+  "patience": 2,
+  "ckpt_every": 2,
+  "prefetch": 1,
+  "bench_steps": 0,
+  "folds_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/folds",
+  "tokens": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/tokens",
+  "runs_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/data/nbrnet/runs",
+  "exp_dir": "/tmp/claude-0/-home-user-prc-data-challenge/ca703460-62c0-5c84-91fe-d76c3d0e1e20/scratchpad/wt_nn/experiments/nbrnet_2026-10-15",
+  "no_git": false,
+  "tag": ""
+ },
+ "target": {
+  "lo": -3238.0995000000003,
+  "hi": 3542.0,
+  "mu": -21.245769186193424,
+  "sd": 362.1344176230764
+ },
+ "n_params": 302849,
+ "query_width": 586,
+ "n_fit": 1711774,
+ "n_hold": 164028,
+ "n_valid": 186775,
+ "fold": "jul",
+ "hold_months": [
+  202512
+ ],
+ "torch": "2.9.1+cpu",
+ "threads": 4,
+ "hist": [
+  {
+   "epoch": 1,
+   "train_mse_std": 0.386486681377387,
+   "holdout_rmse": 221.18029577808096,
+   "train_s": 31.4,
+   "epoch_s": 32.0,
+   "gather_s": 8.2,
+   "rss_mb": 2061
+  },
+  {
+   "epoch": 2,
+   "train_mse_std": 0.3398053121885421,
+   "holdout_rmse": 215.70306287156185,
+   "train_s": 31.3,
+   "epoch_s": 32.0,
+   "gather_s": 8.0,
+   "rss_mb": 2061
+  },
+  {
+   "epoch": 3,
+   "train_mse_std": 0.3269308311299196,
+   "holdout_rmse": 217.92289706121338,
+   "train_s": 31.0,
+   "epoch_s": 31.7,
+   "gather_s": 8.0,
+   "rss_mb": 2071
+  },
+  {
+   "epoch": 4,
+   "train_mse_std": 0.3184800891506793,
+   "holdout_rmse": 216.783480755608,
+   "train_s": 30.5,
+   "epoch_s": 31.3,
+   "gather_s": 7.9,
+   "rss_mb": 2071
+  }
+ ],
+ "best_epoch": 2,
+ "best_holdout_rmse": 215.70306287156185,
+ "epochs_run": 4,
+ "predict_s": 1.4,
+ "wall_s": 140.6,
+ "valid_matched_rmse_nn": 273.20438202713547
+}
