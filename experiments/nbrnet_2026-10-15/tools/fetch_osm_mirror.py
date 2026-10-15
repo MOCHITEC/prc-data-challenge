@@ -7,7 +7,6 @@ overpass-api.de reset every connection (see RESULTS.md, deviations)."""
 import json
 import sys
 import time
-from pathlib import Path
 
 import requests
 
@@ -46,7 +45,7 @@ def main() -> int:
                                       "Accept": "application/json"}, timeout=200)
                     if r.status_code == 200:
                         body = r.json()
-                        if "elements" in body and body["elements"]:
+                        if body.get("elements"):
                             tmp = cache.with_suffix(".json.tmp")
                             tmp.write_text(json.dumps(body))
                             tmp.replace(cache)

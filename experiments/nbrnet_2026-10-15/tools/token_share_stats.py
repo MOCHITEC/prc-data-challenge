@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "nbrnet"))
-from nbr_tokens import ARR_DYNAMIC, ARR_STATIC, DEP_DYNAMIC, DEP_STATIC, Tables, gather  # noqa: E402
+from nbr_tokens import ARR_DYNAMIC, ARR_STATIC, DEP_DYNAMIC, DEP_STATIC, Tables, gather
 
 d = Path(sys.argv[1])
 tb = Tables.load(d)
@@ -21,7 +21,7 @@ for a in sorted(set(apt)):
     qq = q[apt == a]
     dep, md, arr, ma = gather(tb, qq, idx_d, idx_a, idx_d.shape[1], idx_a.shape[1])
     off = len(DEP_STATIC)
-    r = {"n": int(len(qq)), "dep_tokens": float(md.sum(1).mean()), "arr_tokens": float(ma.sum(1).mean())}
+    r = {"n": len(qq), "dep_tokens": float(md.sum(1).mean()), "arr_tokens": float(ma.sum(1).mean())}
     for j, name in enumerate(DEP_DYNAMIC):
         if name.startswith("same_"):
             r[f"dep_{name}"] = float(dep[..., off + j][md].mean())
